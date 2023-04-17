@@ -1,0 +1,51 @@
+[tool.poetry]
+name = "hirefire-resource"
+version = "1.0.0"
+description = "HireFire integration library for Python applications"
+authors = ["Michael van Rooijen <support@hirefire.io>"]
+license = "MIT"
+repository = "https://github.com/hirefire/hirefire-resource-python"
+readme = "README.md"
+homepage = "https://hirefire.io"
+keywords = [
+    "hirefire",
+    "heroku",
+    "autoscale",
+    "autoscaling",
+    "autoscaler",
+    "web",
+    "worker",
+    "dyno"
+]
+packages = [{include = "hirefire_resource"}]
+include = ["README.md", "CHANGELOG.md", "LICENSE"]
+classifiers = [
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12"
+]
+
+[tool.poetry.dependencies]
+python = ">=3.9,<4.0"
+
+[tool.poetry.group.dev.dependencies]
+paver = "^1.3.4"
+autoflake = "^2.1.1"
+isort = "^5.12.0"
+black = "^23.3.0"
+tox = "^3.25.0"
+tox-poetry-installer = "^0.10.0"
+pytest-watch = "^4.2.0"
+pytest-asyncio = "^0.21.1"
+pytest-cov = "^4.1.0"
+sphinx = "^7.2.6"
+sphinxcontrib-napoleon = "^0.7"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

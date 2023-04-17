@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+IFS=$'\n\t'
+set -vx
+
+brew bundle
+brew services start redis
+brew services start rabbitmq
+
+pyenv install -s 3.9 3.10 3.11 3.12
+
+pip install poetry
+
+poetry install
