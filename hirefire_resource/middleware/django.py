@@ -2,7 +2,7 @@ import json
 
 from django.http import HttpResponseNotFound, JsonResponse
 
-from hirefire_resource.agent import Agent
+from hirefire_resource.resource import Resource
 from hirefire_resource.middleware import Middleware as BaseMiddleware
 from hirefire_resource.middleware import RequestInfo
 
@@ -12,7 +12,7 @@ class Middleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        middleware = BaseMiddleware(Agent.configuration)
+        middleware = BaseMiddleware(Resource.configuration)
         request_info = RequestInfo(request.path, request.META)
         response = middleware.process_request(request_info)
 

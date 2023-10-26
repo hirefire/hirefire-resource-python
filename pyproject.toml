@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/hirefire/hirefire-resource-python"
 readme = "README.md"
 homepage = "https://hirefire.io"
-keywords = ["hirefire", "heroku", "middleware", "web", "worker", "dyno", "queue", "job", "autoscale"]
+keywords = ["hirefire", "heroku", "autoscale", "middleware", "web", "worker", "dyno"]
 packages = [{include = "hirefire_resource"}]
 classifiers = [
     "Development Status :: 4 - Beta",

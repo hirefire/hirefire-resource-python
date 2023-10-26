@@ -1,3 +1,5 @@
+# @TODO continue here
+
 import time
 
 
@@ -14,7 +16,7 @@ class RequestInfo:
 class Middleware:
     def __init__(self, config):
         if not config:
-            raise NotConfigured("No Autoscale configuration provided.")
+            raise NotConfigured("No HireFire configuration provided.")
 
         self.config = config
 
@@ -38,9 +40,7 @@ class Middleware:
         return 200, headers, body
 
     def record_queue_time(self, request_info):
-        web_dispatcher = self.config.web_dispatcher
-
-        if not web_dispatcher:
+        if not self.config.web:
             return
 
         request_start_header = self.request_start_header(request_info)
@@ -48,12 +48,10 @@ class Middleware:
         if not request_start_header:
             return
 
-        current_time = int(time.time() * 1000)
-        request_start_time = self.to_ms(request_start_header)
-        elapsed_ms = current_time - request_start_time
-        elapsed = max(0, elapsed_ms)
-        web_dispatcher.add(elapsed)
-        web_dispatcher.run()
+        request_queue_time = self.calculate_request_queue_time(request_start_header)
+
+        self.config.web.add(request_queue_time)
+        self.config.web.run()
 
     def request_start_header(self, request_info):
         return int(
@@ -62,7 +60,6 @@ class Middleware:
             or 0
         )
 
-    def to_ms(self, start):
-        if self.config.platform == "render":
-            return int(start / 1000)
-        return start
+    def calculate_request_queue_time(self, timestamp):
+        ms = int(time.time() * 1000) - timestamp
+        return 0 if ms < 0 else ms

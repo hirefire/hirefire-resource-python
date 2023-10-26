@@ -1,33 +1,32 @@
-from hirefire_resource.web_dispatcher import WebDispatcher
-from hirefire_resource.worker_server import WorkerServer
-from hirefire_resource.worker_servers import WorkerServers
+import re
 
+from hirefire_resource.web import Web
+from hirefire_resource.worker import Worker
 
-class InvalidPlatformError(Exception):
+class InvalidDynoName(Exception):
     pass
 
+class MissingDynoProc(Exception):
+    pass
 
 class Configuration:
-    def __init__(self, platform=None):
-        self.platform = self._validate_platform(platform)
-        self.web_dispatcher = None
-        self.worker_servers = WorkerServers()
+    def __init__(self):
+        self.web = None
+        self.workers = []
 
-    def dispatch(self, token, block=None):
-        self.web_dispatcher = WebDispatcher(token)
-
-        return self
-
-    def serve(self, token, block):
-        self.worker_servers.append(WorkerServer(token, block))
-
-        return self
-
-    def _validate_platform(self, value):
-        if value == "render":
-            return value
+    def dyno(self, name, proc=None):
+        if str(name) == "web":
+            self.web = Web()
         else:
-            raise InvalidPlatformError(
-                f"platform {value} is unsupported, "
-                "'render' is currently the only supported option"
-            )
+            if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]{0,29}$', str(name)):
+                raise InvalidDynoName(
+                    f"Invalid name for {self.__class__}#dyno({name}). "
+                    "Ensure it matches the Procfile process name "
+                    "(i.e. web, worker, mailer, low, high, critical, etc)."
+                )
+            elif proc is None:
+                raise MissingDynoProc("proc must be defined for worker dynos")
+            else:
+                self.workers.append(Worker(name, proc))
+
+        return self

@@ -1,0 +1,99 @@
+import os
+import time
+import json
+from datetime import datetime
+
+import pytest
+import httpretty
+
+from freezegun import freeze_time
+from unittest.mock import patch
+
+from hirefire_resource.web import Web
+
+# Helper function for mocking HTTP responses
+def mock_http_response(status=200, content=""):
+    httpretty.register_uri(
+        httpretty.POST,
+        "https://logdrain.hirefire.io/",
+        body=content,
+        status=status
+    )
+
+def test_start_and_stop():
+    with patch("time.sleep", return_value=None):  # This will mock the sleep to instantly return
+        web = Web()
+        web.start()
+        assert web.running()
+        web.stop()
+        assert not web.running()
+
+def test_add_to_buffer_and_flush():
+    web = Web()
+
+    with freeze_time("2022-01-01 00:00:00"):
+        web.add_to_buffer(5)
+        web.add_to_buffer(10)
+
+        timestamp_1 = int(datetime(2022, 1, 1, 0, 0, 0).timestamp())
+        assert web._buffer == {timestamp_1: [5, 10]}
+
+    with freeze_time("2022-01-01 00:00:01"):
+        web.add_to_buffer(15)
+        web.add_to_buffer(20)
+
+        timestamp_2 = int(datetime(2022, 1, 1, 0, 0, 1).timestamp())
+        assert web._buffer == {timestamp_1: [5, 10], timestamp_2: [15, 20]}
+
+    data = web.flush()
+    assert data == {timestamp_1: [5, 10], timestamp_2: [15, 20]}
+    assert web._buffer == {}
+
+@httpretty.activate
+def test_successful_dispatch():
+    mock_http_response()
+    web = Web()
+    web.add_to_buffer(5)
+    web.dispatch()
+    assert web._buffer == {}
+
+import copy
+
+@httpretty.activate
+def test_repopulation_and_stdout_on_dispatch_error(capsys):
+    mock_http_response(status=500)
+    web = Web()
+    web.add_to_buffer(5)
+    initial_buffer = copy.deepcopy(web._buffer)
+
+    web.dispatch()
+
+    assert web._buffer == initial_buffer
+    assert "[HireFire] Error while dispatching web metrics:" in capsys.readouterr().out
+
+
+@httpretty.activate
+def test_submit_buffer_http_information():
+    mock_http_response()
+
+    expected_headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "HireFire Agent (Python)",
+        "HireFire-Token": os.environ.get("HIREFIRE_TOKEN", "")
+    }
+    expected_buffer = {
+        1634367001: [3, 9],
+        1634367002: [10, 12, 8]
+    }
+    expected_buffer_string = json.dumps(expected_buffer)
+
+    web = Web()
+
+    web._submit_buffer(expected_buffer)
+
+    last_request = httpretty.last_request()
+
+    assert "POST" == last_request.method
+    assert expected_buffer_string == last_request.body.decode('utf-8')
+    for header, value in expected_headers.items():
+        assert value == last_request.headers.get(header)

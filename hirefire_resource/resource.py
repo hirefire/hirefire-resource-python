@@ -1,2 +1,2 @@
-class Agent:
+class Resource:
     configuration = None
