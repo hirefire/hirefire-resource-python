@@ -45,7 +45,7 @@ See Paver for relevant tasks:
 ## Release
 
 1. Update `pyproject.toml`
-2. Update `autoscale_agent/__init__.py`
+2. Update `hirefire_resource/__init__.py`
 3. Update `CHANGELOG.md`
 4. Create a new git tag (`v1.2.3`)
 5. Push the new git tag

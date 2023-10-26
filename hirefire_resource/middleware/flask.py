@@ -2,9 +2,9 @@ import json
 
 from flask import Response, request
 
-from autoscale_agent.agent import Agent
-from autoscale_agent.middleware import Middleware as BaseMiddleware
-from autoscale_agent.middleware import RequestInfo
+from hirefire_resource.agent import Agent
+from hirefire_resource.middleware import Middleware as BaseMiddleware
+from hirefire_resource.middleware import RequestInfo
 
 
 class Middleware:

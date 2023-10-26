@@ -1,5 +1,5 @@
-from autoscale_agent.agent import Agent
-from autoscale_agent.configuration import Configuration
+from hirefire_resource.agent import Agent
+from hirefire_resource.configuration import Configuration
 
 Agent  # export
 Configuration  # export

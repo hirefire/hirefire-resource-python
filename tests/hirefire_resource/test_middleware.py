@@ -3,8 +3,8 @@ import time
 import pytest
 from freezegun import freeze_time
 
-from autoscale_agent.configuration import Configuration
-from autoscale_agent.middleware import Middleware, NotConfigured, RequestInfo
+from hirefire_resource.configuration import Configuration
+from hirefire_resource.middleware import Middleware, NotConfigured, RequestInfo
 from tests.helpers import TOKEN
 
 

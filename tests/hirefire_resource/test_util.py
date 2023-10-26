@@ -1,7 +1,7 @@
 import json
 from unittest.mock import MagicMock, patch
 
-from autoscale_agent.util import dispatch
+from hirefire_resource.util import dispatch
 from tests.helpers import TOKEN
 
 

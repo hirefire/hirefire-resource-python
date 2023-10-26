@@ -1,8 +1,6 @@
-from autoscale_agent.web_dispatcher import WebDispatcher
-from autoscale_agent.worker_dispatcher import WorkerDispatcher
-from autoscale_agent.worker_dispatchers import WorkerDispatchers
-from autoscale_agent.worker_server import WorkerServer
-from autoscale_agent.worker_servers import WorkerServers
+from hirefire_resource.web_dispatcher import WebDispatcher
+from hirefire_resource.worker_server import WorkerServer
+from hirefire_resource.worker_servers import WorkerServers
 
 
 class InvalidPlatformError(Exception):
@@ -13,14 +11,10 @@ class Configuration:
     def __init__(self, platform=None):
         self.platform = self._validate_platform(platform)
         self.web_dispatcher = None
-        self.worker_dispatchers = WorkerDispatchers()
         self.worker_servers = WorkerServers()
 
     def dispatch(self, token, block=None):
-        if block:
-            self.worker_dispatchers.append(WorkerDispatcher(token, block))
-        else:
-            self.web_dispatcher = WebDispatcher(token)
+        self.web_dispatcher = WebDispatcher(token)
 
         return self
 

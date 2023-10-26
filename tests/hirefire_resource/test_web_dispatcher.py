@@ -4,7 +4,7 @@ from unittest.mock import patch
 import httpretty
 from freezegun import freeze_time
 
-from autoscale_agent.web_dispatcher import WebDispatcher
+from hirefire_resource.web_dispatcher import WebDispatcher
 from tests.helpers import TOKEN
 
 
@@ -67,7 +67,7 @@ def test_dispatch():
     assert dispatcher._buffer == {}
 
 
-@patch("autoscale_agent.util.dispatch")
+@patch("hirefire_resource.util.dispatch")
 def test_dispatch_empty(mock_dispatch):
     dispatcher = WebDispatcher(TOKEN)
     dispatcher.dispatch()

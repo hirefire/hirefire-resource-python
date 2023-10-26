@@ -5,7 +5,7 @@ import threading
 import time
 import traceback
 
-from autoscale_agent.util import dispatch
+from hirefire_resource.util import dispatch
 
 
 class WebDispatcher:
