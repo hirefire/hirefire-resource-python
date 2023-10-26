@@ -1,14 +1,14 @@
 [tool.poetry]
-name = "autoscale-agent"
-version = "0.2.1"
-description = "Provides Autoscale.app with the necessary metrics for autoscaling web and worker processes"
-authors = ["Michael R. van Rooijen <support@autoscale.app>"]
+name = "hirefire-resource"
+version = "0.0.1"
+description = "Advanced Heroku Dyno Autoscaling"
+authors = ["Michael R. van Rooijen <support@hirefire.io>"]
 license = "MIT"
-repository = "https://github.com/autoscale-app/python-agent"
+repository = "https://github.com/hirefire/hirefire-resource-python"
 readme = "README.md"
-homepage = "https://autoscale.app"
-keywords = ["agent", "middleware", "autoscale", "render", "web", "worker", "queue", "job"]
-packages = [{include = "autoscale_agent"}]
+homepage = "https://hirefire.io"
+keywords = ["hirefire", "heroku", "middleware", "web", "worker", "dyno", "queue", "job", "autoscale"]
+packages = [{include = "hirefire_resource"}]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
