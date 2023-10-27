@@ -1,10 +1,11 @@
+import json
 import os
 import time
-import json
+
 
 class NotConfigured(Exception):
     """Exception raised when the necessary configuration isn't provided."""
-    pass
+
 
 class RequestInfo:
     """
@@ -25,6 +26,7 @@ class RequestInfo:
         """
         self.path = path
         self.headers = headers
+
 
 class Middleware:
     """
@@ -91,7 +93,12 @@ class Middleware:
             "content-type": "application/json",
             "cache-control": "must-revalidate, private, max-age=0",
         }
-        body = json.dumps([{"name": worker.name, "value": worker.proc()} for worker in self.config.workers])
+        body = json.dumps(
+            [
+                {"name": worker.name, "value": worker.proc()}
+                for worker in self.config.workers
+            ]
+        )
 
         return 200, headers, body
 

@@ -1,5 +1,3 @@
-import pytest
-
 from hirefire_resource.configuration import Configuration
 from hirefire_resource.web import Web
 from hirefire_resource.worker import Worker

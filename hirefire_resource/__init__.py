@@ -1,5 +1,5 @@
-from hirefire_resource.resource import Resource
 from hirefire_resource.configuration import Configuration
+from hirefire_resource.resource import Resource
 
 Resource  # export
 Configuration  # export

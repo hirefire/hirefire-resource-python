@@ -1,9 +1,10 @@
-import json
-import time
-import threading
 import http.client
-from datetime import datetime
+import json
 import os
+import threading
+import time
+from datetime import datetime
+
 
 class Web:
     """
@@ -17,15 +18,12 @@ class Web:
 
     class NetworkError(Exception):
         """Raised when there's a network-related issue."""
-        pass
 
     class TimeoutError(Exception):
         """Raised when the request to the server times out."""
-        pass
 
     class ServerError(Exception):
         """Raised when the server returns a 5xx status."""
-        pass
 
     # The interval between dispatch attempts in seconds.
     DISPATCH_INTERVAL = 5
@@ -169,9 +167,11 @@ class Web:
         headers = {
             "Content-Type": "application/json",
             "User-Agent": "HireFire Agent (Python)",
-            "HireFire-Token": os.environ.get("HIREFIRE_TOKEN", "")
+            "HireFire-Token": os.environ.get("HIREFIRE_TOKEN", ""),
         }
-        connection = http.client.HTTPSConnection("logdrain.hirefire.io", timeout=self.TIMEOUT)
+        connection = http.client.HTTPSConnection(
+            "logdrain.hirefire.io", timeout=self.TIMEOUT
+        )
 
         try:
             connection.request("POST", "/", buffer_string, headers)
@@ -180,9 +180,13 @@ class Web:
             if 200 <= response.status < 300:
                 return True
             elif 500 <= response.status < 600:
-                raise self.ServerError(f"Server returned {response.status}: {response.reason}")
+                raise self.ServerError(
+                    f"Server returned {response.status}: {response.reason}"
+                )
             else:
-                raise self.NetworkError(f"Request failed with {response.status}: {response.reason}")
+                raise self.NetworkError(
+                    f"Request failed with {response.status}: {response.reason}"
+                )
 
         except http.client.HTTPException as e:
             raise self.NetworkError(f"HTTP error occurred: {str(e)}")

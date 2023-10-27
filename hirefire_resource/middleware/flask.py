@@ -2,7 +2,6 @@ import json
 
 from flask import Response, request
 
-from hirefire_resource.resource import Resource
 from hirefire_resource.middleware import Middleware as BaseMiddleware
 from hirefire_resource.middleware import RequestInfo
 

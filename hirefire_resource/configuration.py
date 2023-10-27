@@ -3,11 +3,14 @@ import re
 from hirefire_resource.web import Web
 from hirefire_resource.worker import Worker
 
+
 class InvalidDynoName(Exception):
     pass
 
+
 class MissingDynoProc(Exception):
     pass
+
 
 class Configuration:
     def __init__(self):
@@ -18,7 +21,7 @@ class Configuration:
         if str(name) == "web":
             self.web = Web()
         else:
-            if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]{0,29}$', str(name)):
+            if not re.match(r"^[a-zA-Z][a-zA-Z0-9_]{0,29}$", str(name)):
                 raise InvalidDynoName(
                     f"Invalid name for {self.__class__}#dyno({name}). "
                     "Ensure it matches the Procfile process name "

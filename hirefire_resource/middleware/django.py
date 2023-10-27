@@ -2,9 +2,9 @@ import json
 
 from django.http import HttpResponseNotFound, JsonResponse
 
-from hirefire_resource.resource import Resource
 from hirefire_resource.middleware import Middleware as BaseMiddleware
 from hirefire_resource.middleware import RequestInfo
+from hirefire_resource.resource import Resource
 
 
 class Middleware:
