@@ -1,7 +1,6 @@
-import json
-
 from flask import Response, request
 
+from hirefire_resource import Resource
 from hirefire_resource.middleware import Middleware as BaseMiddleware
 from hirefire_resource.middleware import RequestInfo
 
@@ -13,24 +12,17 @@ class Middleware:
 
     def __call__(self, environ, start_response):
         with self.app.request_context(environ):
-            middleware = BaseMiddleware(Agent.configuration)
+            middleware = BaseMiddleware(Resource.configuration)
             request_info = RequestInfo(request.path, request.environ)
-            response = middleware.process_request(request_info)
+            response_data = middleware.process_request(request_info)
 
-            if isinstance(response, tuple):
-                status, headers, body = response
-
-                if status == 200:
-                    response = Response(
-                        json.loads(body), content_type="application/json"
-                    )
-                else:
-                    response = Response(body, status=404)
+            if isinstance(response_data, tuple):
+                status, headers, body = response_data
+                response = Response(body, status=status)
 
                 for key, value in headers.items():
                     response.headers[key] = value
 
-            if response:
                 return response(environ, start_response)
 
         return self.original_wsgi_app(environ, start_response)

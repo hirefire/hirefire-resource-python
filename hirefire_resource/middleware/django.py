@@ -1,6 +1,4 @@
-import json
-
-from django.http import HttpResponseNotFound, JsonResponse
+from django.http import HttpResponse
 
 from hirefire_resource.middleware import Middleware as BaseMiddleware
 from hirefire_resource.middleware import RequestInfo
@@ -14,20 +12,15 @@ class Middleware:
     def __call__(self, request):
         base_middleware = BaseMiddleware(Resource.configuration)
         request_info = RequestInfo(request.path, request.META)
-        response = base_middleware.process_request(request_info)
+        response_data = base_middleware.process_request(request_info)
 
-        if isinstance(response, tuple):
-            status, headers, body = response
-
-            if status == 200:
-                response = JsonResponse(json.loads(body), safe=False)
-            else:
-                response = HttpResponseNotFound(body)
+        if isinstance(response_data, tuple):
+            status, headers, body = response_data
+            response = HttpResponse(content=body, status=status)
 
             for key, value in headers.items():
                 response[key] = value
 
-        if response:
             return response
-
-        return self.get_response(request)
+        else:
+            return self.get_response(request)
