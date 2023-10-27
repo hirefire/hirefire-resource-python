@@ -1,18 +1,17 @@
 from unittest.mock import Mock
 
+from django.conf import settings
 from django.http import HttpResponse
 
 from hirefire_resource import Configuration, Resource
 from hirefire_resource.middleware.django import Middleware
 
-from django.conf import settings
-
 settings.configure(
-    SECRET_KEY='dummy-secret-key',
+    SECRET_KEY="dummy-secret-key",
     DATABASES={
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': ':memory:',
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": ":memory:",
         }
     },
 )
