@@ -5,6 +5,18 @@ from django.http import HttpResponse
 from hirefire_resource import Configuration, Resource
 from hirefire_resource.middleware.django import Middleware
 
+from django.conf import settings
+
+settings.configure(
+    SECRET_KEY='dummy-secret-key',
+    DATABASES={
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': ':memory:',
+        }
+    },
+)
+
 
 def mock_get_response(request):
     return HttpResponse("Default response")
