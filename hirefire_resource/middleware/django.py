@@ -12,9 +12,9 @@ class Middleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        middleware = BaseMiddleware(Resource.configuration)
+        base_middleware = BaseMiddleware(Resource.configuration)
         request_info = RequestInfo(request.path, request.META)
-        response = middleware.process_request(request_info)
+        response = base_middleware.process_request(request_info)
 
         if isinstance(response, tuple):
             status, headers, body = response

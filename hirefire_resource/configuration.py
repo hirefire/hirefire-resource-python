@@ -6,12 +6,10 @@ from hirefire_resource.worker import Worker
 
 class InvalidDynoName(Exception):
     """Exception raised for invalid dyno names."""
-    pass
 
 
 class MissingDynoProc(Exception):
     """Exception raised when proc is missing for a worker dyno."""
-    pass
 
 
 class Configuration:
