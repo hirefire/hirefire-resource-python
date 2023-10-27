@@ -1,6 +1,7 @@
 import os
 import time
 import json
+import copy
 from datetime import datetime
 
 import pytest
@@ -8,10 +9,10 @@ import httpretty
 
 from freezegun import freeze_time
 from unittest.mock import patch
+from tests.helpers import set_HIREFIRE_TOKEN, HIREFIRE_TOKEN
 
 from hirefire_resource.web import Web
 
-# Helper function for mocking HTTP responses
 def mock_http_response(status=200, content=""):
     httpretty.register_uri(
         httpretty.POST,
@@ -21,7 +22,7 @@ def mock_http_response(status=200, content=""):
     )
 
 def test_start_and_stop():
-    with patch("time.sleep", return_value=None):  # This will mock the sleep to instantly return
+    with patch("time.sleep", return_value=None):
         web = Web()
         web.start()
         assert web.running()
@@ -57,8 +58,6 @@ def test_successful_dispatch():
     web.dispatch()
     assert web._buffer == {}
 
-import copy
-
 @httpretty.activate
 def test_repopulation_and_stdout_on_dispatch_error(capsys):
     mock_http_response(status=500)
@@ -73,13 +72,13 @@ def test_repopulation_and_stdout_on_dispatch_error(capsys):
 
 
 @httpretty.activate
-def test_submit_buffer_http_information():
+def test_submit_buffer_http_information(set_HIREFIRE_TOKEN):
     mock_http_response()
 
     expected_headers = {
         "Content-Type": "application/json",
         "User-Agent": "HireFire Agent (Python)",
-        "HireFire-Token": os.environ.get("HIREFIRE_TOKEN", "")
+        "HireFire-Token": HIREFIRE_TOKEN
     }
     expected_buffer = {
         1634367001: [3, 9],

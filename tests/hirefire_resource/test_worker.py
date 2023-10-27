@@ -1,8 +1,6 @@
-import json
-
 from hirefire_resource.worker import Worker
 
-
-def test_call():
+def test_attributes_and_methods():
     worker = Worker("worker", lambda: 1.23)
-    assert worker.call() == bytes(json.dumps(1.23), "utf-8")
+    assert "worker" == worker.name
+    assert 1.23 == worker.proc()
