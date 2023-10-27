@@ -62,6 +62,7 @@ class Middleware:
             tuple: HTTP status, headers, and body of the response if the request matches info path.
         """
         self.process_request_queue_time(request_info)
+
         if self.matches_info_path(request_info):
             return self.construct_info_response(request_info)
 
