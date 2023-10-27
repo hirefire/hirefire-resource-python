@@ -33,7 +33,8 @@ def default_view(request):
     return HttpResponse("DEFAULT")
 
 
-def test_middleware_without_configuration(factory, set_HIREFIRE_TOKEN):
+def test_without_configuration(factory, set_HIREFIRE_TOKEN):
+    Resource.configuration = None
     with pytest.raises(NotConfigured):
         request = factory.get("/")
         middleware = Middleware(default_view)
@@ -41,7 +42,7 @@ def test_middleware_without_configuration(factory, set_HIREFIRE_TOKEN):
 
 
 @freeze_time("2000-01-01 00:00:00")
-def test_middleware_without_web_and_worker(factory, set_HIREFIRE_TOKEN):
+def test_without_web_and_worker(factory, set_HIREFIRE_TOKEN):
     Resource.configuration = Configuration()
     path = f"/hirefire/{HIREFIRE_TOKEN}/info"
     request = factory.get(path, **{"HTTP_X_REQUEST_START": int(time.time() * 1000 - 5)})
@@ -57,7 +58,7 @@ def test_middleware_without_web_and_worker(factory, set_HIREFIRE_TOKEN):
 
 
 @freeze_time("2000-01-01 00:00:00")
-def test_middleware_with_web_and_worker(factory, set_HIREFIRE_TOKEN):
+def test_web_and_worker(factory, set_HIREFIRE_TOKEN):
     Resource.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
     with patch.object(Resource.configuration.web, "start") as mock_start:
         path = f"/hirefire/{HIREFIRE_TOKEN}/info"
@@ -76,7 +77,7 @@ def test_middleware_with_web_and_worker(factory, set_HIREFIRE_TOKEN):
         mock_start.assert_called()
 
 
-def test_middleware_default(factory, set_HIREFIRE_TOKEN):
+def test_default(factory, set_HIREFIRE_TOKEN):
     Resource.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
     path = f"/hirefire/wrong/info"
     request = factory.get(path)
