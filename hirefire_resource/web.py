@@ -8,6 +8,11 @@ import os
 class Web:
     """
     Responsible for collecting and dispatching request queue time metrics to the HireFire server.
+
+    Attributes:
+        DISPATCH_INTERVAL (int): The interval between dispatch attempts in seconds.
+        TIMEOUT (int): The timeout for HTTP requests in seconds.
+        TTL (int): Metrics older than this value (in seconds) will be discarded.
     """
 
     class NetworkError(Exception):
@@ -34,6 +39,11 @@ class Web:
     def __init__(self):
         """
         Initializes the Web object with default values.
+
+        Attributes:
+            _buffer (dict): A buffer storing timestamps and request metrics.
+            _mutex (threading.Lock): A lock for thread safety.
+            _running (bool): Indicates if the dispatcher thread is running.
         """
         # buffer is a dict where the keys are timestamps (in seconds
         # since the Epoch) and the values are arrays of request queue
@@ -60,9 +70,7 @@ class Web:
         self._running = False
 
     def start(self):
-        """
-        Starts the web metrics dispatcher thread.
-        """
+        """Starts the web metrics dispatcher thread."""
         with self._mutex:
             if self._running:
                 return
@@ -72,9 +80,7 @@ class Web:
         self.thread.start()
 
     def stop(self):
-        """
-        Stops the web metrics dispatcher thread.
-        """
+        """Stops the web metrics dispatcher thread."""
         with self._mutex:
             if not self._running:
                 return
@@ -86,8 +92,8 @@ class Web:
         """
         Returns the running status of the web metrics dispatcher.
 
-        :return: The current running status of the dispatcher.
-        :rtype: bool
+        Returns:
+            bool: The current running status of the dispatcher.
         """
         with self._mutex:
             return self._running
@@ -96,8 +102,8 @@ class Web:
         """
         Adds a value to the buffer with the current timestamp.
 
-        :param value: The value to be added to the buffer.
-        :type value: int
+        Args:
+            value (int): The value to be added to the buffer.
         """
         with self._mutex:
             timestamp = int(datetime.now().timestamp())
@@ -107,8 +113,8 @@ class Web:
         """
         Flushes the buffer and returns its content.
 
-        :return: The current content of the buffer.
-        :rtype: dict
+        Returns:
+            dict: The current content of the buffer.
         """
         with self._mutex:
             buffer_copy = self._buffer.copy()
@@ -116,9 +122,7 @@ class Web:
             return buffer_copy
 
     def dispatch(self):
-        """
-        Dispatches the buffer to the server and handles any exceptions.
-        """
+        """Dispatches the buffer to the server and handles any exceptions."""
         buffer = self.flush()
         if buffer:
             try:
@@ -136,14 +140,14 @@ class Web:
                 self.dispatch()
             except Exception as e:
                 print(f"[HireFire] Unexpected error during dispatch: {str(e)}")
-            time.sleep(self.DISPATCH_INTERVAL)
+                time.sleep(self.DISPATCH_INTERVAL)
 
     def _repopulate_buffer(self, buffer):
         """
         Repopulates the buffer with valid (non-expired) metrics if dispatching fails.
 
-        :param buffer: The buffer containing metrics to be repopulated.
-        :type buffer: dict
+        Args:
+            buffer (dict): The buffer containing metrics to be repopulated.
         """
         now = int(datetime.now().timestamp())
         with self._mutex:
@@ -155,10 +159,11 @@ class Web:
         """
         Submits the buffer to the HireFire server.
 
-        :param buffer: The buffer containing metrics to be dispatched.
-        :type buffer: dict
-        :return: True if the submission is successful, otherwise raises an error.
-        :rtype: bool
+        Args:
+            buffer (dict): The buffer containing metrics to be dispatched.
+
+        Returns:
+            bool: True if the submission is successful, otherwise raises an error.
         """
         buffer_string = json.dumps(buffer)
         headers = {
