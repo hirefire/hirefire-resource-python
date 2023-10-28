@@ -9,8 +9,8 @@ from django.test import RequestFactory
 from freezegun import freeze_time
 
 from hirefire_resource import Configuration, Resource
-from hirefire_resource.middleware import NotConfigured
-from hirefire_resource.middleware.django import Middleware
+from hirefire_resource.middleware.wsgi import NotConfigured
+from hirefire_resource.middleware.wsgi.django import Middleware
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
 settings.configure(

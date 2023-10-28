@@ -28,7 +28,7 @@ class RequestInfo:
         self.headers = headers
 
 
-class Middleware:
+class BaseMiddleware:
     """
     Middleware for processing requests related to HireFire.
 
