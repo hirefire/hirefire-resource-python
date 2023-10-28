@@ -1,8 +1,5 @@
-class NotConfigured(Exception):
-    """Exception raised when the necessary configuration isn't provided."""
-
-
-# (Rest of your classes from `NotConfigured` to `BaseMiddleware` remain unchanged.)
+from hirefire_resource import Resource
+from hirefire_resource.middleware.asgi import BaseMiddleware, RequestInfo
 
 
 class Middleware:
@@ -49,7 +46,7 @@ class Middleware:
         request_info = RequestInfo(path, headers)
 
         middleware = BaseMiddleware(Resource.configuration)
-        response_data = middleware.process_request(request_info)
+        response_data = await middleware.process_request(request_info)
 
         if isinstance(response_data, tuple):
             status, headers_dict, body = response_data

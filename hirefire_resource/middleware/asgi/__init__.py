@@ -122,16 +122,14 @@ class BaseMiddleware:
         if not token:
             return
 
-        timestamp = request_info.headers.get("HTTP_X_REQUEST_START")
+        # @note: why is it x_request_start in ASGI middleware, and X_REQUEST_START in wsgi? Ask GPT.
+        timestamp = request_info.headers.get("x_request_start")
 
         if not timestamp:
             return
 
         request_queue_time = self.calculate_request_queue_time(timestamp)
 
-        # If your web buffer processing is asynchronous, await it here:
-        # await self.config.web.add_to_buffer(request_queue_time)
-        # await self.config.web.start()
         self.config.web.add_to_buffer(request_queue_time)
         self.config.web.start()
 

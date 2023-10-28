@@ -30,6 +30,8 @@ async def test_not_configured():
         await call(None)
 
 
+# @TODO add another response test but instead of lambda, we should pass an async (coroutine) to make sure
+# it is properly awaited.
 @pytest.mark.asyncio
 async def test_info_response(set_HIREFIRE_TOKEN, build_config):
     config = build_config.dyno("worker", lambda: 1.23)
