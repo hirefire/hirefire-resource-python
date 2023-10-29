@@ -44,7 +44,7 @@ class Middleware:
 
         path = scope.get("path", "")
         headers = {k.decode(): v.decode() for k, v in scope.get("headers", [])}
-        request_info = RequestInfo(path, headers.get("x_request_start"))
+        request_info = RequestInfo(path, headers.get("x-request-start"))
         middleware = BaseMiddleware(Resource.configuration)
         response_data = await middleware.process_request(request_info)
 

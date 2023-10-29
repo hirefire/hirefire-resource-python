@@ -39,7 +39,7 @@ async def test_without_configuration(client, set_HIREFIRE_TOKEN):
 @freeze_time("2000-01-01 00:00:00")
 async def test_without_web_and_worker(client, set_HIREFIRE_TOKEN):
     Resource.configuration = Configuration()
-    headers = {"X_REQUEST_START": str(int(time.time() * 1000 - 5))}
+    headers = {"X-Request-Start": str(int(time.time() * 1000 - 5))}
     response = await client.get(f"/hirefire/{HIREFIRE_TOKEN}/info", headers=headers)
     assert 200 == response.status_code
     assert [] == response.json()
@@ -53,7 +53,7 @@ async def test_without_web_and_worker(client, set_HIREFIRE_TOKEN):
 async def test_web_and_worker(client, set_HIREFIRE_TOKEN):
     Resource.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
     with patch.object(Resource.configuration.web, "start") as mock_start:
-        headers = {"X_REQUEST_START": str(int(time.time() * 1000 - 5))}
+        headers = {"X-Request-Start": str(int(time.time() * 1000 - 5))}
         response = await client.get(f"/hirefire/{HIREFIRE_TOKEN}/info", headers=headers)
         assert 200 == response.status_code
         assert [{"name": "worker", "value": 1.23}] == response.json()
