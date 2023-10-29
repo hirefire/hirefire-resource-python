@@ -1,5 +1,6 @@
 from hirefire_resource import Resource
-from hirefire_resource.middleware.asgi import BaseMiddleware, RequestInfo
+from hirefire_resource.middleware import RequestInfo
+from hirefire_resource.middleware.asgi import BaseMiddleware
 
 
 class Middleware:
@@ -43,8 +44,7 @@ class Middleware:
 
         path = scope.get("path", "")
         headers = {k.decode(): v.decode() for k, v in scope.get("headers", [])}
-        request_info = RequestInfo(path, headers)
-
+        request_info = RequestInfo(path, headers.get("x_request_start"))
         middleware = BaseMiddleware(Resource.configuration)
         response_data = await middleware.process_request(request_info)
 

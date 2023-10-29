@@ -1,7 +1,8 @@
 from django.http import HttpResponse
 
 from hirefire_resource import Resource
-from hirefire_resource.middleware.wsgi import BaseMiddleware, RequestInfo
+from hirefire_resource.middleware import RequestInfo
+from hirefire_resource.middleware.wsgi import BaseMiddleware
 
 
 class Middleware:
@@ -41,7 +42,9 @@ class Middleware:
             HttpResponse: The response to be returned to the client.
         """
         base_middleware = BaseMiddleware(Resource.configuration)
-        request_info = RequestInfo(request.path, request.META)
+        request_info = RequestInfo(
+            request.path, request.META.get("HTTP_X_REQUEST_START")
+        )
         response_data = base_middleware.process_request(request_info)
 
         if isinstance(response_data, tuple):

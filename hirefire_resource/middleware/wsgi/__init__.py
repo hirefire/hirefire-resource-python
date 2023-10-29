@@ -2,30 +2,7 @@ import json
 import os
 import time
 
-
-class NotConfigured(Exception):
-    """Exception raised when the necessary configuration isn't provided."""
-
-
-class RequestInfo:
-    """
-    Represents details of an HTTP request.
-
-    Attributes:
-        path (str): The request path.
-        headers (dict): The request headers.
-    """
-
-    def __init__(self, path, headers):
-        """
-        Initialize RequestInfo with the given path and headers.
-
-        Args:
-            path (str): The request path.
-            headers (dict): The request headers.
-        """
-        self.path = path
-        self.headers = headers
+from hirefire_resource.middleware import NotConfigured
 
 
 class BaseMiddleware:
@@ -118,25 +95,25 @@ class BaseMiddleware:
         if not token:
             return
 
-        timestamp = request_info.headers.get("HTTP_X_REQUEST_START")
-
-        if not timestamp:
+        if not request_info.request_start_time:
             return
 
-        request_queue_time = self.calculate_request_queue_time(timestamp)
+        request_queue_time = self.calculate_request_queue_time(
+            request_info.request_start_time
+        )
 
         self.config.web.add_to_buffer(request_queue_time)
         self.config.web.start()
 
-    def calculate_request_queue_time(self, timestamp):
+    def calculate_request_queue_time(self, request_start_time):
         """
         Calculate the request's time spent in the queue based on a timestamp.
 
         Args:
-            timestamp (str): The timestamp from the request headers.
+            request_start_time (int): The timestamp from the request headers.
 
         Returns:
             int: Time spent in the queue in milliseconds.
         """
-        ms = int(time.time() * 1000) - int(timestamp)
+        ms = int(time.time() * 1000) - request_start_time
         return 0 if ms < 0 else ms

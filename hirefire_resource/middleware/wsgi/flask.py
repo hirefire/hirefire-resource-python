@@ -1,7 +1,8 @@
 from flask import Response, request
 
 from hirefire_resource import Resource
-from hirefire_resource.middleware.wsgi import BaseMiddleware, RequestInfo
+from hirefire_resource.middleware import RequestInfo
+from hirefire_resource.middleware.wsgi import BaseMiddleware
 
 
 class Middleware:
@@ -45,7 +46,9 @@ class Middleware:
         """
         with self.app.request_context(environ):
             middleware = BaseMiddleware(Resource.configuration)
-            request_info = RequestInfo(request.path, request.environ)
+            request_info = RequestInfo(
+                request.path, request.environ.get("HTTP_X_REQUEST_START")
+            )
             response_data = middleware.process_request(request_info)
 
             if isinstance(response_data, tuple):

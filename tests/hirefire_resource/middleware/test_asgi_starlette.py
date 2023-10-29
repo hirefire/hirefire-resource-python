@@ -10,7 +10,7 @@ from starlette.routing import Route
 
 from hirefire_resource import Configuration, Resource
 from hirefire_resource.middleware.asgi import NotConfigured
-from hirefire_resource.middleware.asgi.flask import Middleware
+from hirefire_resource.middleware.asgi.starlette import Middleware
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
 
