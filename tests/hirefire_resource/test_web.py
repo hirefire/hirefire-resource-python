@@ -28,18 +28,18 @@ def test_start_and_stop():
 def test_add_to_buffer_and_flush():
     web = Web()
 
-    with freeze_time("2022-01-01 00:00:00"):
+    with freeze_time("2000-01-01 00:00:00"):
         web.add_to_buffer(5)
         web.add_to_buffer(10)
 
-        timestamp_1 = int(datetime(2022, 1, 1, 0, 0, 0).timestamp())
+        timestamp_1 = int(datetime(2000, 1, 1, 0, 0, 0).timestamp())
         assert web._buffer == {timestamp_1: [5, 10]}
 
-    with freeze_time("2022-01-01 00:00:01"):
+    with freeze_time("2000-01-01 00:00:01"):
         web.add_to_buffer(15)
         web.add_to_buffer(20)
 
-        timestamp_2 = int(datetime(2022, 1, 1, 0, 0, 1).timestamp())
+        timestamp_2 = int(datetime(2000, 1, 1, 0, 0, 1).timestamp())
         assert web._buffer == {timestamp_1: [5, 10], timestamp_2: [15, 20]}
 
     data = web.flush()
