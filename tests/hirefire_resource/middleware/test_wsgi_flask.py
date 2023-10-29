@@ -37,11 +37,11 @@ def test_without_web_and_worker(client, set_HIREFIRE_TOKEN):
     Resource.configuration = Configuration()
     headers = {"X_REQUEST_START": int(time.time() * 1000 - 5)}
     response = client.get(f"/hirefire/{HIREFIRE_TOKEN}/info", headers=headers)
-    assert 200 == response.status_code
-    assert [] == response.get_json()
-    assert "application/json" == response.headers["Content-Type"]
-    assert "must-revalidate, private, max-age=0" == response.headers["cache-control"]
-    assert None == Resource.configuration.web
+    assert response.status_code == 200
+    assert response.get_json() == []
+    assert response.headers["Content-Type"] == "application/json"
+    assert response.headers["cache-control"] == "must-revalidate, private, max-age=0"
+    assert Resource.configuration.web is None
 
 
 @freeze_time("2000-01-01 00:00:00")
@@ -50,19 +50,19 @@ def test_web_and_worker(client, set_HIREFIRE_TOKEN):
     with patch.object(Resource.configuration.web, "start") as mock_start:
         headers = {"X_REQUEST_START": int(time.time() * 1000 - 5)}
         response = client.get(f"/hirefire/{HIREFIRE_TOKEN}/info", headers=headers)
-        assert 200 == response.status_code
-        assert [{"name": "worker", "value": 1.23}] == response.get_json()
-        assert "application/json" == response.headers["Content-Type"]
+        assert response.status_code == 200
+        assert response.get_json() == [{"name": "worker", "value": 1.23}]
+        assert response.headers["Content-Type"] == "application/json"
         assert (
-            "must-revalidate, private, max-age=0" == response.headers["cache-control"]
+            response.headers["cache-control"] == "must-revalidate, private, max-age=0"
         )
-        assert {946684800: [5]} == Resource.configuration.web._buffer
+        assert Resource.configuration.web._buffer == {946684800: [5]}
         mock_start.assert_called()
 
 
 def test_default(client, set_HIREFIRE_TOKEN):
     Resource.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
     response = client.get(f"/hirefire/wrong/info")
-    assert 200 == response.status_code
-    assert "DEFAULT" == response.data.decode("utf-8")
-    assert "text/html; charset=utf-8" == response.headers["Content-Type"]
+    assert response.status_code == 200
+    assert response.data.decode("utf-8") == "DEFAULT"
+    assert response.headers["Content-Type"] == "text/html; charset=utf-8"

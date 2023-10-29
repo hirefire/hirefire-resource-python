@@ -48,13 +48,14 @@ def test_without_web_and_worker(factory, set_HIREFIRE_TOKEN):
     request = factory.get(path, **{"HTTP_X_REQUEST_START": int(time.time() * 1000 - 5)})
     middleware = Middleware(default_view)
     response = middleware(request)
-    assert {
+    expected_headers = {
         "content-type": "application/json",
         "cache-control": "must-revalidate, private, max-age=0",
-    } == response.headers
+    }
+    assert response.headers == expected_headers
     assert response.status_code == 200
-    assert [] == json.loads(response.content)
-    assert None == Resource.configuration.web
+    assert json.loads(response.content) == []
+    assert Resource.configuration.web is None
 
 
 @freeze_time("2000-01-01 00:00:00")
@@ -67,13 +68,14 @@ def test_web_and_worker(factory, set_HIREFIRE_TOKEN):
         )
         middleware = Middleware(default_view)
         response = middleware(request)
-        assert {
+        expected_headers = {
             "content-type": "application/json",
             "cache-control": "must-revalidate, private, max-age=0",
-        } == response.headers
+        }
+        assert response.headers == expected_headers
         assert response.status_code == 200
-        assert [{"name": "worker", "value": 1.23}] == json.loads(response.content)
-        assert {946684800: [5]} == Resource.configuration.web._buffer
+        assert json.loads(response.content) == [{"name": "worker", "value": 1.23}]
+        assert Resource.configuration.web._buffer == {946684800: [5]}
         mock_start.assert_called()
 
 
@@ -83,5 +85,5 @@ def test_default(factory, set_HIREFIRE_TOKEN):
     request = factory.get(path)
     middleware = Middleware(default_view)
     response = middleware(request)
-    assert 200 == response.status_code
-    assert "DEFAULT" == response.content.decode("utf-8")
+    assert response.status_code == 200
+    assert response.content.decode("utf-8") == "DEFAULT"

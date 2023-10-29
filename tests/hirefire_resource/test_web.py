@@ -20,9 +20,9 @@ def test_start_and_stop():
     with patch("time.sleep", return_value=None):
         web = Web()
         web.start()
-        assert web.running()
+        assert web.running() == True
         web.stop()
-        assert not web.running()
+        assert web.running() == False
 
 
 def test_add_to_buffer_and_flush():

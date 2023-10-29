@@ -35,7 +35,7 @@ def test_web(set_HIREFIRE_TOKEN):
             with freeze_time(f"2000-01-01 00:00:0{second}"):
                 current_time = int(time.time() * 1_000)
                 response = call(config, "/", (current_time - request_start))
-                assert None == response
+                assert response is None
                 mock_start.assert_called()
     assert {946684800: [500, 1000], 946684801: [1500]} == config.web._buffer
 
@@ -44,7 +44,7 @@ def test_web_without_request_start_time(set_HIREFIRE_TOKEN):
     config = Configuration().dyno("web")
     with patch.object(config.web, "start") as mock_start:
         response = call(config, "/", None)
-        assert None == response
+        assert response is None
         assert {} == config.web._buffer
         mock_start.assert_not_called()
 
@@ -56,4 +56,5 @@ def test_worker(set_HIREFIRE_TOKEN):
         "content-type": "application/json",
         "cache-control": "must-revalidate, private, max-age=0",
     }
-    assert (200, headers, json.dumps([{"name": "worker", "value": 1.23}])) == response
+    expected_response = (200, headers, json.dumps([{"name": "worker", "value": 1.23}]))
+    assert response == expected_response
