@@ -3,7 +3,6 @@ import time
 from unittest.mock import patch
 
 import pytest
-from django.conf import settings
 from django.http import HttpResponse
 from django.test import RequestFactory
 from freezegun import freeze_time
@@ -12,16 +11,6 @@ from hirefire_resource import Configuration, Resource
 from hirefire_resource.middleware.wsgi import NotConfigured
 from hirefire_resource.middleware.wsgi.django import Middleware
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
-
-settings.configure(
-    SECRET_KEY="dummy-secret-key",
-    DATABASES={
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": ":memory:",
-        }
-    },
-)
 
 
 @pytest.fixture
