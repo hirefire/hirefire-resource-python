@@ -22,7 +22,7 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.8"
+python = ">=3.8,<4.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.3.1"
@@ -35,12 +35,14 @@ coverage = "^7.2.3"
 isort = "^5.12.0"
 autoflake = "^2.1.1"
 pytest-django = "^4.5.2"
-django = "^4.2.6"
+django = ">=4.0.0,<4.3.0"
 flask = "^3.0.0"
 pytest-asyncio = "^0.21.1"
 httpx = "^0.25.0"
 fastapi = "^0.104.0"
 quart = "^0.19.3"
+tox = "<4.0.0"
+tox-poetry-installer = "*"
 
 [build-system]
 requires = ["poetry-core"]
