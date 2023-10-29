@@ -40,6 +40,7 @@ flask = "^3.0.0"
 pytest-asyncio = "^0.21.1"
 httpx = "^0.25.0"
 fastapi = "^0.104.0"
+quart = "^0.19.3"
 
 [build-system]
 requires = ["poetry-core"]
