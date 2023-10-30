@@ -35,15 +35,15 @@ coverage = "^7.2.3"
 isort = "^5.12.0"
 autoflake = "^2.1.1"
 pytest-django = "^4.5.2"
-django = ">=4.0.0,<4.3.0"
-flask = "^3.0.0"
+django = "^4.0"
+flask = ">=2.0,<4.0"
 pytest-asyncio = "^0.21.1"
 httpx = "^0.25.0"
-fastapi = "^0.104.0"
-quart = "^0.19.3"
-tox = "<4.0.0"
-tox-poetry-installer = "*"
+fastapi = "^0.104"
+quart = "^0.19"
+tox = "^3.25.0"
+tox-poetry-installer = "^0.10.0"
 
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"

@@ -12,7 +12,6 @@ from hirefire_resource.middleware import NotConfigured
 from hirefire_resource.middleware.asgi.django import Middleware
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
-
 async def app(scope, receive, send):
     if scope["type"] == "http":
         response = Response(content="DEFAULT", media_type="text/html")
