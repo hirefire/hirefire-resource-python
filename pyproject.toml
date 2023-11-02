@@ -43,6 +43,9 @@ fastapi = "^0.104"
 quart = "^0.19"
 tox = "^3.25.0"
 tox-poetry-installer = "^0.10.0"
+celery = "^5.3.4"
+redis = "^5.0.1"
+rq = "^1.15.1"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
