@@ -29,7 +29,7 @@ def job_queue_latency(*queues, redis_url):
     max_latency = 0
     for enqueued_at in enqueued_at_times:
         if enqueued_at:
-            latency = current_time - iso_to_unix(enqueued_at.decode("utf-8"))
+            latency = current_time - _iso_to_unix(enqueued_at.decode("utf-8"))
             max_latency = max(max_latency, latency)
 
     for job_data in job_ids[1::2]:
@@ -42,7 +42,25 @@ def job_queue_latency(*queues, redis_url):
     return max_latency
 
 
-def iso_to_unix(iso_time):
+def job_queue_size(*queues, redis_url):
+    r = redis.Redis.from_url(redis_url)
+    current_time = int(time.time())
+    pipe = r.pipeline()
+
+    for queue_name in queues:
+        ready_queue_key = f"rq:queue:{queue_name}"
+        scheduled_queue_key = f"rq:scheduled:{queue_name}"
+        pipe.llen(ready_queue_key)
+        pipe.zcount(scheduled_queue_key, 0, current_time)
+
+    job_counts = pipe.execute()
+    total_jobs = sum(job_counts)
+
+    return total_jobs
+
+
+def _iso_to_unix(iso_time):
     dt = datetime.fromisoformat(iso_time.replace("Z", "+00:00"))
     unix_time = int(dt.timestamp())
+
     return unix_time

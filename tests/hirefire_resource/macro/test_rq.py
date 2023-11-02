@@ -6,7 +6,7 @@ from freezegun import freeze_time
 from redis import Redis
 from rq import Queue
 
-from hirefire_resource.macro.rq import job_queue_latency
+from hirefire_resource.macro.rq import job_queue_latency, job_queue_size
 
 redis_url = "redis://localhost:6379/12"
 queue_name = "default"
@@ -61,3 +61,26 @@ def test_latency_with_scheduled_jobs():
     assert job_queue_latency("default", redis_url=redis_url) == pytest.approx(
         450, abs=10
     )
+
+
+def test_size_without_jobs():
+    assert job_queue_size("default", redis_url=redis_url) == 0
+
+
+def test_size_with_jobs():
+    default = Queue("default", connection=Redis.from_url(redis_url))
+    critical = Queue("critical", connection=Redis.from_url(redis_url))
+
+    default.enqueue("my_function")
+    critical.enqueue("my_function")
+
+    default.enqueue_at(
+        datetime.fromtimestamp(time.time() - 100, timezone.utc), "my_function"
+    )
+    default.enqueue_at(
+        datetime.fromtimestamp(time.time() + 100, timezone.utc), "my_function"
+    )
+
+    assert job_queue_size("default", redis_url=redis_url) == 2
+    assert job_queue_size("critical", redis_url=redis_url) == 1
+    assert job_queue_size("default", "critical", redis_url=redis_url) == 3
