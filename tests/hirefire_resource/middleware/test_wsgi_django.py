@@ -12,6 +12,7 @@ from hirefire_resource.middleware.wsgi import NotConfigured
 from hirefire_resource.middleware.wsgi.django import Middleware
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
+
 @pytest.fixture
 def factory():
     return RequestFactory()

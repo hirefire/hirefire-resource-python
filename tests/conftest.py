@@ -4,8 +4,8 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 try:
-    from django.conf import settings
     import django
+    from django.conf import settings
 
     if not settings.configured:
         settings.configure(
