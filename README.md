@@ -82,9 +82,7 @@ After completing these steps, deploy your application to Heroku. Then, [sign int
 
 ### Setup Environment
 
-Execute `bin/setup` to install the necessary dependencies.
-
-Inspect `bin/setup` before running to see what operations will be executed.
+Execute `bin/setup` to install the necessary dependencies. Inspect `bin/setup` before running to see what operations will be executed.
 
 ### Running Tests
 
