@@ -84,6 +84,10 @@ After completing these steps, deploy your application to Heroku. Then, [sign int
 
 Execute `bin/setup` to install the necessary dependencies. Inspect `bin/setup` before running to see what operations will be executed.
 
+### Tasks
+
+Use `paver` to run common tasks. See `paver --help` for a list of available tasks.
+
 ### Running Tests
 
 Use `tox` to run the tests. See `tox.ini`.
