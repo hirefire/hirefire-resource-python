@@ -8,9 +8,10 @@ from starlette.applications import Starlette
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 
-from hirefire_resource import Configuration, Resource
+from hirefire_resource.configuration import Configuration
 from hirefire_resource.middleware.asgi import NotConfigured
 from hirefire_resource.middleware.asgi.starlette import Middleware
+from hirefire_resource.resource import Resource
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
 

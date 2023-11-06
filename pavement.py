@@ -10,27 +10,24 @@ def default():
 
 @task
 def lint():
-    sh(
-        "autoflake --remove-all-unused-imports -r --check . && isort --check . && black --check ."
-    )
+    sh("poetry run autoflake --remove-all-unused-imports -r --check .")
+    sh("poetry run isort --check . && poetry run black --check .")
+    sh("poetry run black --check .")
 
 
 @task
 def format():
-    sh("autoflake --remove-all-unused-imports -ri . && isort . && black .")
-
-
-@task
-def test():
-    sh("coverage run -m pytest -vv")
+    sh("poetry run autoflake --remove-all-unused-imports -ri .")
+    sh("poetry run isort .")
+    sh("poetry run black .")
 
 
 @task
 def coverage_report():
-    sh("coverage report")
+    sh("poetry run coverage report")
 
 
 @task
 def coverage_html():
-    sh("coverage html")
+    sh("poetry run coverage html")
     sh("open htmlcov/index.html")

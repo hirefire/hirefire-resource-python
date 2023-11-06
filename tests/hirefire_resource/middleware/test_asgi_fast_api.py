@@ -7,9 +7,10 @@ from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from freezegun import freeze_time
 
-from hirefire_resource import Configuration, Resource
+from hirefire_resource.configuration import Configuration
 from hirefire_resource.middleware.asgi import NotConfigured
 from hirefire_resource.middleware.asgi.starlette import Middleware
+from hirefire_resource.resource import Resource
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
 app = FastAPI()

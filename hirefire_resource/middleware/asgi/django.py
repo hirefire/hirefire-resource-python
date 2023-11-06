@@ -1,6 +1,6 @@
-from hirefire_resource import Resource
 from hirefire_resource.middleware import RequestInfo
 from hirefire_resource.middleware.asgi import BaseMiddleware
+from hirefire_resource.resource import Resource
 
 
 class Middleware:

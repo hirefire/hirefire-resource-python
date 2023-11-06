@@ -7,9 +7,10 @@ from freezegun import freeze_time
 from starlette.responses import Response
 from starlette.testclient import TestClient
 
-from hirefire_resource import Configuration, Resource
+from hirefire_resource.configuration import Configuration
 from hirefire_resource.middleware import NotConfigured
 from hirefire_resource.middleware.asgi.django import Middleware
+from hirefire_resource.resource import Resource
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
 

@@ -5,9 +5,10 @@ import pytest
 from freezegun import freeze_time
 from quart import Quart
 
-from hirefire_resource import Configuration, Resource
+from hirefire_resource.configuration import Configuration
 from hirefire_resource.middleware.asgi import NotConfigured
 from hirefire_resource.middleware.asgi.quart import Middleware
+from hirefire_resource.resource import Resource
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
 app = Quart(__name__)

@@ -1,61 +1,120 @@
-# Python Agent (HireFire.app)
+## HireFire: Advanced Autoscaling for Heroku Applications
 
-Provides [HireFire.app] with the necessary metrics for autoscaling web and worker processes.
+[HireFire] is the oldest and a leading autoscaling service for applications hosted on [Heroku]. Since 2011, we've assisted more than 1,000 companies in autoscaling upwards of 5,000 applications, involving over 10,000 dynos.
 
-## Installation
+This package streamlines the integration of HireFire with Python applications running on Heroku, offering companies substantial cost savings while maintaining optimal performance.
 
-Install the package:
+---
 
-    pip install autoscale-agent
+### Supported Python Versions:
 
-## Usage
+|    | Python |
+|----|--------|
+| ✅ | 3.12   |
+| ✅ | 3.11   |
+| ✅ | 3.10   |
+| ✅ | 3.9    |
+| ✅ | 3.8    |
 
-This package may be used as a stand-alone agent, or as middleware that integrates with [Django] and [Flask].
+Older versions might work, but aren't officially supported.
 
-Installation instructions are provided during the autoscaler setup process on [HireFire.app].
+---
 
-## Related Packages
+### Supported Python Web Frameworks:
 
-The following packages are currently available.
+HireFire comes with WSGI and ASGI middleware integration, making it compatible with the following frameworks:
 
-#### Queues (Worker Metric Functions)
+| Python Web Framework | WSGI | ASGI |
+|----------------------|------|------|
+| Django               | ✅   | ✅   |
+| Flask                | ✅   | ❌   |
+| Quart                | ❌   | ✅   |
+| FastAPI              | ❌   | ✅   |
+| Starlette            | ❌   | ✅   |
 
-| Worker Library | Repository                                           |
-|----------------|------------------------------------------------------|
-| Celery         | https://github.com/autoscale-app/python-queue-celery |
-| RQ             | https://github.com/autoscale-app/python-queue-rq     |
+---
 
-Let us know if your preferred worker library isn't available and we'll see if we can add support.
+### Supported Python Worker Libraries:
+
+If your preferred library isn't listed, or if you need further support, please contact us.
+
+| Python Worker Library | Job Queue Latency | Job Queue Size |
+|-----------------------|:-----------------:|:--------------:|
+| RQ                    | ✅                | ✅             |
+| Celery                | ❌                | ❌             |
+
+---
+
+### Integration Demonstration
+
+To easily integrate HireFire with an existing Python application (e.g., Django and RQ), follow these steps:
+
+1. Install the package:
+
+```sh
+pip install hirefire-resource
+```
+
+2. Configure HireFire in Django's `settings.py`:
+
+```python
+from hirefire_resource import Resource
+from hirefire_resource.macro.rq import job_queue_latency
+
+with Resource.configure() as config:
+    # To collect Request Queue Time metrics for autoscaling `web` dynos:
+    config.dyno("web")
+    # To collect Job Queue Latency metrics for autoscaling `worker` dynos:
+    config.dyno("worker", lambda: job_queue_latency("default"))
+
+MIDDLEWARE = [
+    # Inject as high up in the stack as possible
+    # for accurate Request Queue Time measurement.
+    "hirefire_resource.middleware.django.Middleware"
+]
+```
+
+After completing these steps, deploy your application to Heroku. Then, [sign into HireFire] to complete your autoscaling setup by adding the web and worker dyno managers.
+
+---
 
 ## Development
 
-Prepare environment:
+### Setup Environment
 
-    pip install poetry
-    poetry install
+Execute `bin/setup` to install the necessary dependencies.
 
-Boot the shell:
+Inspect `bin/setup` before running to see what operations will be executed.
 
-    poetry shell
+### Running Tests
 
-See Paver for relevant tasks:
+Use `tox` to run the tests. See `tox.ini`.
 
-    paver --help
+### Local Installation
 
-## Release
+Install this package on your local machine using `pip install .`.
 
-1. Update `pyproject.toml`
-2. Update `hirefire_resource/__init__.py`
-3. Update `CHANGELOG.md`
-4. Create a new git tag (`v1.2.3`)
-5. Push the new git tag
+### Releasing a new version
 
-## Contributing
+1. Bump the `version` property in `pyproject.toml`.
+2. Update `CHANGELOG.md` for the next version.
+3. Commit changes with `git commit`.
+4. Create a new git tag matching the version (e.g., `v1.0.0`) with `git tag`.
+5. Push the new tag. GitHub Actions will handle the package publishing process from there.
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/autoscale-app/python-agent
+---
 
-[HireFire.app]: https://autoscale.app
-[Django]: https://www.djangoproject.com
-[Flask]: https://palletsprojects.com/p/flask/
-[Celery]: https://docs.celeryq.dev/en/stable/
-[RQ]: https://python-rq.org
+### Questions?
+
+Feel free to [contact us] for support and inquiries.
+
+---
+
+### License
+
+`hirefire-resource` is licensed under the MIT license. See LICENSE.
+
+[HireFire]: https://www.hirefire.io/
+[Heroku]: https://www.heroku.com/
+[sign into HireFire]: https://manager.hirefire.io/login
+[contact us]: mailto:support@hirefire.io

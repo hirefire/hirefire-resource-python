@@ -45,14 +45,17 @@ def job_queue_latency(*queues, redis_url=None):
             start=0,
             num=1,
         )
-        job_ids = pipe.execute()
+
+    job_ids = pipe.execute()
 
     for job_id in job_ids[::2]:
         if job_id:
             pipe.hget("rq:job:" + job_id.decode("utf-8"), "enqueued_at")
-            enqueued_at_times = pipe.execute()
+
+    enqueued_at_times = pipe.execute()
 
     max_latency = 0
+
     for enqueued_at in enqueued_at_times:
         if enqueued_at:
             latency = current_time - _iso_to_unix(enqueued_at.decode("utf-8"))

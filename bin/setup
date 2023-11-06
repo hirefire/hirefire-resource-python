@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+IFS=$'\n\t'
+set -vx
+
+brew bundle
+brew services start redis
+
+pip install poetry paver tox

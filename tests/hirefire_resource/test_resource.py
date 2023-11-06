@@ -1,4 +1,5 @@
-from hirefire_resource import Configuration, Resource
+from hirefire_resource.configuration import Configuration
+from hirefire_resource.resource import Resource
 
 
 def test_configure():

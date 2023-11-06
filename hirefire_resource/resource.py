@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 
-from hirefire_resource import Configuration
+from hirefire_resource.configuration import Configuration
 
 
 class Resource:

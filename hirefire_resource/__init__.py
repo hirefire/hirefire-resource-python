@@ -1,12 +1,22 @@
-from hirefire_resource.configuration import Configuration
+from importlib.metadata import PackageNotFoundError, metadata
+
+try:
+    _metadata = metadata("hirefire-resource")
+
+    __version__ = _metadata.get("Version")
+    __author__ = _metadata.get("Author")
+    __contact__ = _metadata.get("Author-email")
+    __homepage__ = _metadata.get("Home-page")
+    __keywords__ = _metadata.get("Keywords", "").split(", ")
+    __docformat__ = "google"
+except PackageNotFoundError:
+    __version__ = "unknown"
+    __author__ = "unknown"
+    __contact__ = "unknown"
+    __homepage__ = "unknown"
+    __keywords__ = "unknown"
+    __docformat__ = "unknown"
+
 from hirefire_resource.resource import Resource
 
 Resource  # export
-Configuration  # export
-
-__version__ = "0.2.1"
-__author__ = "Michael R. van Rooijen"
-__contact__ = "support@hirefire.io"
-__homepage__ = "https://hirefire.io"
-__docformat__ = "restructuredtext"
-__keywords__ = "hirefire heroku autoscale middleware web worker dyno"
