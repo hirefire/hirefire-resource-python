@@ -15,34 +15,28 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11"]
-
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        env: ["core", "django4", "django3", "flask3", "flask2", "quart", "fastapi", "starlette", "rq"]
     steps:
     - name: Check out repository
       uses: actions/checkout@v3
-
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
-
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install tox paver poetry
-
-    - name: Run tests
-      run: |
-        poetry run paver test
-        poetry run paver coverage_report
-
-    - name: Run linters
-      run: paver lint
-
-    - name: Build package
+        pip install poetry
+        poetry install
+    - name: Run lint
+      run: poetry run paver lint
+    - name: Run test
+      run: poetry run tox -e py${{ matrix.python-version }}-${{ matrix.env }}
+    - name: Run build
       run: poetry build
-
   publish:
     needs: validate
     runs-on: ubuntu-latest
@@ -50,21 +44,17 @@ jobs:
     steps:
     - name: Check out repository
       uses: actions/checkout@v3
-
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: 3.12
-
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install poetry
         poetry install
-
-    - name: Build package
+    - name: Run build
       run: poetry build
-
     - name: Publish a Python distribution to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
