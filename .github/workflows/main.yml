@@ -34,7 +34,7 @@ jobs:
     - name: Run lint
       run: poetry run paver lint
     - name: Run test
-      run: poetry run tox -e py${{ matrix.python-version }}-${{ matrix.env }}
+      run: poetry run tox -e py${{ matrix.python-version.replace('.', '') }}-${{ matrix.env }}
     - name: Run build
       run: poetry build
   publish:
