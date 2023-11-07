@@ -84,3 +84,7 @@ def test_size_with_jobs():
     assert job_queue_size("default", redis_url=redis_url) == 2
     assert job_queue_size("critical", redis_url=redis_url) == 1
     assert job_queue_size("default", "critical", redis_url=redis_url) == 3
+
+
+def test_default_redis_url():
+    assert job_queue_size("test_default_redis_url") == 0
