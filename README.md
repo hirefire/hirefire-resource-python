@@ -82,15 +82,11 @@ After completing these steps, deploy your application to Heroku. Then, [sign int
 
 ### Setup
 
-Execute `bin/setup` to install the necessary dependencies. Inspect `bin/setup` before running to see what operations will be executed.
+Run `bin/setup` to prepare the environment by installing dependencies.
 
 ### Tasks
 
-Use `paver` to run common tasks. See `paver --help` for a list of available tasks.
-
-### Tests
-
-Use `tox` to run the tests. See `tox.ini`.
+Use `poetry run paver` to run common tasks (i.e. format, test). See `pavement.py` and `paver --help`.
 
 ### Installation
 
