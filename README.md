@@ -80,7 +80,7 @@ After completing these steps, deploy your application to Heroku. Then, [sign int
 
 ## Development
 
-### Setup Environment
+### Setup
 
 Execute `bin/setup` to install the necessary dependencies. Inspect `bin/setup` before running to see what operations will be executed.
 
@@ -88,15 +88,15 @@ Execute `bin/setup` to install the necessary dependencies. Inspect `bin/setup` b
 
 Use `paver` to run common tasks. See `paver --help` for a list of available tasks.
 
-### Running Tests
+### Tests
 
 Use `tox` to run the tests. See `tox.ini`.
 
-### Local Installation
+### Installation
 
 Install this package on your local machine using `pip install .`.
 
-### Releasing a new version
+### Releases
 
 1. Bump the `version` property in `pyproject.toml`.
 2. Update `CHANGELOG.md` for the next version.
