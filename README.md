@@ -86,7 +86,7 @@ Run `bin/setup` to prepare the environment by installing dependencies.
 
 ### Tasks
 
-Use `poetry run paver` to run common tasks (i.e. format, test). See `pavement.py` and `paver --help`.
+Use `poetry run paver` to perform common tasks (i.e. format, test). See `pavement.py` and `paver --help`.
 
 ### Installation
 
@@ -95,9 +95,9 @@ Install this package on your local machine using `pip install .`.
 ### Releases
 
 1. Bump the `version` property in `pyproject.toml`.
-2. Update `CHANGELOG.md` for the next version.
+2. Update `CHANGELOG.md` for the bumped version.
 3. Commit changes with `git commit`.
-4. Create a new git tag matching the version (e.g., `v1.0.0`) with `git tag`.
+4. Create a new git tag matching the bumped version (e.g., `v1.0.0`) with `git tag`.
 5. Push the new tag. GitHub Actions will handle the package publishing process from there.
 
 ---
