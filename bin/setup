@@ -6,4 +6,6 @@ set -vx
 brew bundle
 brew services start redis
 
+pyenv install -s 3.8 3.9 3.10 3.11 3.12
+
 pip install poetry paver tox
