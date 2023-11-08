@@ -5,33 +5,30 @@ from hirefire_resource.resource import Resource
 
 class Middleware:
     """
-    Quart middleware for processing requests related to HireFire.
+    Quart middleware for processing requests related to HireFire in an ASGI environment.
 
-    This middleware works similarly to the Flask middleware but is designed
-    for the asynchronous nature of Quart and conforms to the ASGI specification.
-    It extracts request information and forwards it to the base HireFire ASGI middleware.
-    If the request is related to HireFire, it constructs an appropriate response.
-    Otherwise, it passes on the request for further processing.
+    This middleware serves as a bridge between Quart's asynchronous request/response flow and the
+    HireFire base ASGI middleware. It standardizes incoming request information for the base middleware,
+    which then decides whether to respond with HireFire metrics or to pass the request along for normal
+    Quart processing.
+
+    Attributes:
+        app (Quart): The Quart application instance.
+        original_app (callable): The original ASGI app callable that this middleware wraps.
     """
 
     def __init__(self, app):
         """
-        Initialize the middleware with a given Quart application instance.
+        Initializes the middleware with the provided Quart application instance.
 
         Args:
             app (Quart): The Quart application instance.
         """
-        # self.app = app
-        self.app = app
-        self.original_app = app.asgi_app  # Store the original ASGI app here
+        self.original_app = app.asgi_app
 
     async def __call__(self, scope, receive, send):
         """
-        Process the incoming ASGI request.
-
-        This method is an entry point for the ASGI application, conforming to the
-        ASGI specification. It checks if a request is meant for HireFire and processes it,
-        otherwise it lets Quart handle the request.
+        Asynchronous call method to process all incoming requests to the Quart application.
 
         Args:
             scope (dict): The ASGI scope dictionary containing request details.
@@ -39,68 +36,55 @@ class Middleware:
             send (callable): An awaitable callable to send events to the client.
 
         Returns:
-            None: This method does not return but sends the response using the 'send' callable.
+            None: This method does not return but instead sends the response using the 'send' callable.
         """
         if scope["type"] == "http":
-            # Construct RequestInfo from ASGI scope
             request_info = RequestInfo(
                 path=scope["path"],
                 request_start_time=self.extract_request_start_time(scope),
             )
 
-            # Process request using HireFire ASGI middleware
             middleware = BaseMiddleware(Resource.configuration)
             response_data = await middleware.process_request(request_info)
 
-            if isinstance(response_data, tuple):
-                # If response_data is provided by HireFire middleware, send this response back to ASGI
-                status, headers, body = response_data
-
-                await self.send_response(send, status, headers, body)
-
+            if response_data:
+                await self.send_response(send, *response_data)
                 return
 
-        # If not a HireFire request, just call the actual Quart app
-        # await self.app(scope, receive, send)
         await self.original_app(scope, receive, send)
 
     async def send_response(self, send, status, headers, body):
         """
-        Send the ASGI response using the provided 'send' callable.
+        Sends an HTTP response back to the client through the ASGI 'send' callable.
 
         Args:
             send (callable): An awaitable callable to send events to the client.
-            status (int): The HTTP status code.
-            headers (dict): The response headers.
-            body (str): The response body.
+            status (int): The HTTP status code for the response.
+            headers (dict): The HTTP headers for the response.
+            body (str): The body of the response.
         """
-        response_headers = [
-            (key.encode(), value.encode()) for key, value in headers.items()
-        ]
-
-        await send(
-            {
-                "type": "http.response.start",
-                "status": status,
-                "headers": response_headers,
-            }
-        )
-
-        await send({"type": "http.response.body", "body": body.encode()})
+        response_headers = [(k.encode('utf-8'), v.encode('utf-8')) for k, v in headers.items()]
+        await send({
+            'type': 'http.response.start',
+            'status': status,
+            'headers': response_headers,
+        })
+        await send({
+            'type': 'http.response.body',
+            'body': body.encode('utf-8'),
+        })
 
     def extract_request_start_time(self, scope):
         """
-        Extract the request start time from ASGI scope headers.
+        Extracts the request start time from the ASGI scope, which contains HTTP headers.
 
         Args:
-            scope (dict): The ASGI scope dictionary containing request details.
+            scope (dict): The ASGI scope containing request details.
 
         Returns:
-            int: The request start time in milliseconds.
+            int: The request start time in milliseconds if found, otherwise None.
         """
-
-        for header in scope["headers"]:
-            if header[0] == b"x-request-start":
-                return int(header[1])
-
+        for header_name, header_value in scope["headers"]:
+            if header_name == b"x-request-start":
+                return int(header_value.decode('utf-8'))
         return None

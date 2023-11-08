@@ -121,7 +121,7 @@ class BaseMiddleware:
 
         self.config.web.add_to_buffer(request_queue_time)
         if not self.config.web.running():
-            await self.config.web.start()
+            self.config.web.start()
 
     def calculate_request_queue_time(self, request_start_time):
         """
