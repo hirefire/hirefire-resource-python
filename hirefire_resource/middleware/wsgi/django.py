@@ -4,56 +4,51 @@ from hirefire_resource.middleware import RequestInfo
 from hirefire_resource.middleware.wsgi import BaseMiddleware
 from hirefire_resource.resource import Resource
 
-
 class Middleware:
     """
-    Django middleware for processing requests related to HireFire.
+    Django-specific middleware for processing requests related to HireFire.
 
-    Acts as a bridge between Django's request/response flow and the
-    base HireFire middleware. It extracts request information from Django's request object
-    and forwards it to the base middleware. If the request is relevant to HireFire,
-    it constructs a response accordingly. Otherwise, it continues the regular request flow.
+    This middleware standardizes Django's request object and response flow to be compatible with
+    the HireFire base middleware. It captures and processes request queue time data, and if the
+    request is for the HireFire info path, it responds with the appropriate data. For all other
+    requests, it passes the request through the normal Django request handling process.
 
     Attributes:
-        get_response (function): A reference to the next middleware or view in the processing chain.
+        get_response (callable): The next middleware or view in Django's request-response processing chain.
     """
 
     def __init__(self, get_response):
         """
-        Initialize the middleware with a given get_response function.
+        Initialize the middleware with the get_response callable needed for Django's middleware pattern.
 
         Args:
-            get_response (function): A reference to the next middleware or view in the processing chain.
+            get_response (callable): The next middleware or view in Django's request-response processing chain.
         """
         self.get_response = get_response
 
     def __call__(self, request):
         """
-        Process the incoming Django request.
-
-        It extracts the request information, forwards it to the base HireFire middleware,
-        and either returns a HireFire related response or proceeds with the regular
-        request processing chain.
+        Process the incoming Django request by standardizing it and passing it to the base HireFire middleware.
+        If the request is for the HireFire info path, an appropriate response is returned. Otherwise, the request
+        is passed on to the next middleware or view.
 
         Args:
             request (HttpRequest): The incoming Django request object.
 
         Returns:
-            HttpResponse: The response to be returned to the client.
+            HttpResponse or callable: A Django HttpResponse if the request is for the HireFire info path,
+                                      otherwise the result of the get_response callable for further processing.
         """
         base_middleware = BaseMiddleware(Resource.configuration)
         request_info = RequestInfo(
-            request.path, request.META.get("HTTP_X_REQUEST_START")
+            path=request.path,
+            request_start_time=request.META.get("HTTP_X_REQUEST_START", "")
         )
         response_data = base_middleware.process_request(request_info)
 
-        if isinstance(response_data, tuple):
+        if response_data:
             status, headers, body = response_data
-            response = HttpResponse(content=body, status=status)
-
-            for key, value in headers.items():
-                response[key] = value
-
+            response = HttpResponse(content=body, status=status, headers=headers)
             return response
-        else:
-            return self.get_response(request)
+
+        return self.get_response(request)

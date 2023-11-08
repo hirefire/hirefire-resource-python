@@ -1,3 +1,17 @@
+import re
+
+from hirefire_resource.web import Web
+from hirefire_resource.worker import Worker
+
+
+class InvalidDynoName(Exception):
+    """Exception raised for invalid dyno names."""
+
+
+class MissingDynoProc(Exception):
+    """Exception raised when proc is missing for a worker dyno."""
+
+
 class Configuration:
     """
     Responsible for handling HireFire configuration within an application. It allows defining
