@@ -9,19 +9,26 @@ class Middleware:
     """
     Flask middleware for processing requests related to HireFire.
 
-    Acts as a bridge between Flask's request/response flow and the
-    base HireFire middleware. It extracts request information from Flask's request object
-    and forwards it to the base middleware. If the request is relevant to HireFire,
-    it constructs a response accordingly. Otherwise, it continues the regular request flow.
+    This middleware serves as an intermediary between Flask's request/response flow and the
+    HireFire base middleware. It extracts request information from Flask's global request object,
+    standardizes it, and forwards it to the base middleware. If the request is for the HireFire
+    info path, this middleware constructs and returns a response with the appropriate metrics.
+    For all other requests, it continues the normal Flask request handling process.
+
+    To properly capture request queue times, this middleware should be placed early in the Flask
+    middleware stack, ideally as one of the first middlewares to be executed.
 
     Attributes:
         app (Flask): The Flask application instance.
-        original_wsgi_app (WSGI application): The original WSGI application function that this middleware wraps.
+        original_wsgi_app (callable): The original WSGI application callable that this middleware wraps.
     """
 
     def __init__(self, app):
         """
-        Initialize the middleware with a given Flask application instance.
+        Initializes the middleware with the given Flask application instance.
+
+        The middleware wraps the Flask application's WSGI interface, intercepting requests to
+        process them for HireFire metrics or to allow normal request processing.
 
         Args:
             app (Flask): The Flask application instance.
@@ -31,33 +38,32 @@ class Middleware:
 
     def __call__(self, environ, start_response):
         """
-        Process the incoming WSGI request.
+        Processes the incoming WSGI request, forwarding it to the base HireFire middleware.
 
-        It extracts the request information, forwards it to the base HireFire middleware,
-        and either returns a HireFire related response or proceeds with the regular
-        request processing chain.
+        Extracts the necessary request information and determines if the request is for the
+        HireFire info path. If it is, the middleware constructs and returns a response with the
+        HireFire metrics. Otherwise, the request is passed to the original Flask application
+        for regular processing.
 
         Args:
-            environ (dict): The WSGI environment dictionary.
-            start_response (function): The WSGI start_response function.
+            environ (dict): The WSGI environment dict containing request data.
+            start_response (callable): The WSGI start_response callable used to initiate the HTTP response.
 
         Returns:
-            Response: The response to be returned to the client in WSGI format.
+            Response or iterable: A Flask Response object if the request is for the HireFire info path, or
+                                  the result of the original WSGI application callable.
         """
         with self.app.request_context(environ):
-            middleware = BaseMiddleware(Resource.configuration)
+            base_middleware = BaseMiddleware(Resource.configuration)
             request_info = RequestInfo(
-                request.path, request.environ.get("HTTP_X_REQUEST_START")
+                path=request.path,
+                request_start_time=request.environ.get("HTTP_X_REQUEST_START", "")
             )
-            response_data = middleware.process_request(request_info)
+            response_data = base_middleware.process_request(request_info)
 
-            if isinstance(response_data, tuple):
+            if response_data:
                 status, headers, body = response_data
-                response = Response(body, status=status)
-
-                for key, value in headers.items():
-                    response.headers[key] = value
-
+                response = Response(body, status=status, headers=headers)
                 return response(environ, start_response)
 
         return self.original_wsgi_app(environ, start_response)
