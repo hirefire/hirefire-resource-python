@@ -5,6 +5,7 @@ import threading
 import time
 from datetime import datetime
 
+
 class Web:
     """
     Responsible for collecting and dispatching web metrics to the HireFire servers.
@@ -32,6 +33,7 @@ class Web:
         TTL (int): Time-to-live for metrics in seconds. Metrics older than this value will be discarded.
 
     Raises:
+        TokenNotFoundError: If the HIREFIRE_TOKEN environment variable is not set.
         NetworkError: If there's a network-related issue that prevents communication with the HireFire server.
         TimeoutError: If the request to the HireFire server times out.
         ServerError: If the HireFire server returns a 5xx status code indicating a server-side error.
@@ -40,6 +42,9 @@ class Web:
     DISPATCH_INTERVAL = 5  # Interval between dispatch attempts in seconds.
     TIMEOUT = 5  # Timeout for HTTP requests in seconds.
     TTL = 60  # Time-to-live for metrics in seconds.
+
+    class TokenNotFoundError(Exception):
+        """Raised when the HIREFIRE_TOKEN environment variable is not found."""
 
     class NetworkError(Exception):
         """Raised when there's a network-related issue."""
@@ -196,18 +201,29 @@ class Web:
             bool: True if the submission is successful, False otherwise.
 
         Raises:
+            TokenNotFoundError: If the HIREFIRE_TOKEN environment variable is not set.
             NetworkError: For network-related issues.
             TimeoutError: If the request to the server times out.
             ServerError: If the server returns a 5xx status.
         """
+        hirefire_token = os.environ.get("HIREFIRE_TOKEN")
+
+        if not hirefire_token:
+            raise self.TokenNotFoundError(
+                "HIREFIRE_TOKEN environment variable is not set."
+            )
+
         buffer_string = json.dumps(buffer)
         headers = {
             "Content-Type": "application/json",
             "User-Agent": "HireFire Agent (Python)",
-            "HireFire-Token": os.environ.get("HIREFIRE_TOKEN", ""),
+            "HireFire-Token": hirefire_token,
         }
 
-        connection = http.client.HTTPSConnection("logdrain.hirefire.io", timeout=self.TIMEOUT)
+        connection = http.client.HTTPSConnection(
+            "logdrain.hirefire.io", timeout=self.TIMEOUT
+        )
+
         try:
             connection.request("POST", "/", buffer_string, headers)
             response = connection.getresponse()
@@ -215,9 +231,13 @@ class Web:
             if 200 <= response.status < 300:
                 return True
             elif 500 <= response.status < 600:
-                raise self.ServerError(f"Server returned {response.status}: {response.reason}")
+                raise self.ServerError(
+                    f"Server returned {response.status}: {response.reason}"
+                )
             else:
-                raise self.NetworkError(f"Request failed with {response.status}: {response.reason}")
+                raise self.NetworkError(
+                    f"Request failed with {response.status}: {response.reason}"
+                )
 
         except http.client.HTTPException as e:
             raise self.NetworkError(f"HTTP error occurred: {str(e)}")
