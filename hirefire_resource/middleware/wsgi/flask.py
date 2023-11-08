@@ -57,7 +57,7 @@ class Middleware:
             base_middleware = BaseMiddleware(Resource.configuration)
             request_info = RequestInfo(
                 path=request.path,
-                request_start_time=request.environ.get("HTTP_X_REQUEST_START", "")
+                request_start_time=request.environ.get("HTTP_X_REQUEST_START", ""),
             )
             response_data = base_middleware.process_request(request_info)
 

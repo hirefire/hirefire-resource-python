@@ -63,16 +63,22 @@ class Middleware:
             headers (dict): The HTTP headers for the response.
             body (str): The body of the response.
         """
-        response_headers = [(k.encode('utf-8'), v.encode('utf-8')) for k, v in headers.items()]
-        await send({
-            'type': 'http.response.start',
-            'status': status,
-            'headers': response_headers,
-        })
-        await send({
-            'type': 'http.response.body',
-            'body': body.encode('utf-8'),
-        })
+        response_headers = [
+            (k.encode("utf-8"), v.encode("utf-8")) for k, v in headers.items()
+        ]
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": response_headers,
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": body.encode("utf-8"),
+            }
+        )
 
     def extract_request_start_time(self, scope):
         """
@@ -86,5 +92,5 @@ class Middleware:
         """
         for header_name, header_value in scope["headers"]:
             if header_name == b"x-request-start":
-                return int(header_value.decode('utf-8'))
+                return int(header_value.decode("utf-8"))
         return None

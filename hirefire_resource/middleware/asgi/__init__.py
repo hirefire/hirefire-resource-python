@@ -117,7 +117,9 @@ class BaseMiddleware:
         if not (self.config.web and request_info.request_start_time):
             return
 
-        request_queue_time = self.calculate_request_queue_time(request_info.request_start_time)
+        request_queue_time = self.calculate_request_queue_time(
+            request_info.request_start_time
+        )
 
         self.config.web.add_to_buffer(request_queue_time)
         if not self.config.web.running():

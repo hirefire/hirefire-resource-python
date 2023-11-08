@@ -87,14 +87,20 @@ class Middleware:
             response_data (tuple): A tuple containing the response status code, headers, and body.
         """
         status, headers_dict, body = response_data
-        response_headers = [(k.encode('utf-8'), v.encode('utf-8')) for k, v in headers_dict.items()]
+        response_headers = [
+            (k.encode("utf-8"), v.encode("utf-8")) for k, v in headers_dict.items()
+        ]
 
-        await send({
-            'type': 'http.response.start',
-            'status': status,
-            'headers': response_headers,
-        })
-        await send({
-            'type': 'http.response.body',
-            'body': body.encode('utf-8'),
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": response_headers,
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": body.encode("utf-8"),
+            }
+        )

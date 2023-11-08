@@ -65,17 +65,24 @@ class Middleware:
             response_data (tuple): A tuple containing the response status, headers, and body.
         """
         status, headers, body = response_data
-        response_headers = [(key.encode('utf-8'), value.encode('utf-8')) for key, value in headers.items()]
+        response_headers = [
+            (key.encode("utf-8"), value.encode("utf-8"))
+            for key, value in headers.items()
+        ]
 
-        await send({
-            'type': 'http.response.start',
-            'status': status,
-            'headers': response_headers,
-        })
-        await send({
-            'type': 'http.response.body',
-            'body': body.encode('utf-8'),
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": response_headers,
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": body.encode("utf-8"),
+            }
+        )
 
     def extract_request_start_time(self, scope):
         """
@@ -89,7 +96,7 @@ class Middleware:
         """
         for header_name, header_value in scope["headers"]:
             if header_name.lower() == b"x-request-start":
-                timestamp_str = header_value.decode('utf-8')
+                timestamp_str = header_value.decode("utf-8")
                 try:
                     return int(timestamp_str)
                 except ValueError:

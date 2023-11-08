@@ -4,6 +4,7 @@ from hirefire_resource.middleware import RequestInfo
 from hirefire_resource.middleware.wsgi import BaseMiddleware
 from hirefire_resource.resource import Resource
 
+
 class Middleware:
     """
     Django-specific middleware for processing requests related to HireFire.
@@ -42,7 +43,7 @@ class Middleware:
         base_middleware = BaseMiddleware(Resource.configuration)
         request_info = RequestInfo(
             path=request.path,
-            request_start_time=request.META.get("HTTP_X_REQUEST_START", "")
+            request_start_time=request.META.get("HTTP_X_REQUEST_START", ""),
         )
         response_data = base_middleware.process_request(request_info)
 
