@@ -28,10 +28,10 @@ class BaseMiddleware:
 
     def __init__(self, config):
         """
-        Initializes the BaseMiddleware with the provided HireFire configuration.
+        Initializes the WSGI BaseMiddleware with the provided HireFire configuration.
 
         Args:
-            config (Configuration): Configuration object
+            config (Configuration): Configuration object.
 
         Raises:
             NotConfigured: If no configuration is provided.
@@ -46,8 +46,8 @@ class BaseMiddleware:
         construct and return the HireFire info response. Otherwise, the request should continue through
         the middleware stack.
 
-        In all cases, it'll process the request queue time and forward it to the HireFire web instance
-        for dispatching, if configured.
+        If configured, the request queue time is calculated and added to the HireFire web instance's buffer
+        for processing. The HireFire web instance is also started if it is not already running.
 
         Args:
             request_info (RequestInfo): Object containing request details.
