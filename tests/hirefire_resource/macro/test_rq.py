@@ -6,7 +6,11 @@ from freezegun import freeze_time
 from redis import Redis
 from rq import Queue
 
-from hirefire_resource.macro.rq import job_queue_latency, job_queue_size
+from hirefire_resource.macro.rq import (
+    MissingQueueError,
+    job_queue_latency,
+    job_queue_size,
+)
 
 redis_url = "redis://localhost:6379/12"
 queue_name = "default"
@@ -18,11 +22,21 @@ def clear_redis():
     r.flushdb()
 
 
-def test_latency_without_jobs():
+def test_job_queue_latency_raises_error_with_no_queues():
+    with pytest.raises(MissingQueueError) as excinfo:
+        job_queue_latency(redis_url=redis_url)
+    assert "No queue names were provided" in str(excinfo.value)
+
+
+def test_job_queue_latency_default_redis_url():
+    assert job_queue_size("test_default_redis_url") == 0
+
+
+def test_job_queue_latency_without_jobs():
     assert job_queue_latency("default", redis_url=redis_url) == 0
 
 
-def test_latency_with_jobs():
+def test_job_queue_latency_with_jobs():
     default = Queue("default", connection=Redis.from_url(redis_url))
     critical = Queue("critical", connection=Redis.from_url(redis_url))
 
@@ -43,7 +57,7 @@ def test_latency_with_jobs():
     ) == pytest.approx(200, abs=10)
 
 
-def test_latency_with_scheduled_jobs():
+def test_job_queue_latency_with_scheduled_jobs():
     default = Queue("default", connection=Redis.from_url(redis_url))
     default.enqueue_at(
         datetime.fromtimestamp(time.time() + 150, timezone.utc), "my_function"
@@ -63,11 +77,21 @@ def test_latency_with_scheduled_jobs():
     )
 
 
-def test_size_without_jobs():
+def test_job_queue_size_raises_error_with_no_queues():
+    with pytest.raises(MissingQueueError) as excinfo:
+        job_queue_size(redis_url=redis_url)
+    assert "No queue names were provided" in str(excinfo.value)
+
+
+def test_job_queue_size_default_redis_url():
+    assert job_queue_size("test_default_redis_url") == 0
+
+
+def test_job_queue_size_without_jobs():
     assert job_queue_size("default", redis_url=redis_url) == 0
 
 
-def test_size_with_jobs():
+def test_job_queue_size_with_jobs():
     default = Queue("default", connection=Redis.from_url(redis_url))
     critical = Queue("critical", connection=Redis.from_url(redis_url))
 
@@ -84,7 +108,3 @@ def test_size_with_jobs():
     assert job_queue_size("default", redis_url=redis_url) == 2
     assert job_queue_size("critical", redis_url=redis_url) == 1
     assert job_queue_size("default", "critical", redis_url=redis_url) == 3
-
-
-def test_default_redis_url():
-    assert job_queue_size("test_default_redis_url") == 0

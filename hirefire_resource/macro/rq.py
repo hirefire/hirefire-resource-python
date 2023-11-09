@@ -5,6 +5,10 @@ from datetime import datetime
 import redis
 
 
+class MissingQueueError(Exception):
+    """Exception raised when no queue names are provided."""
+
+
 def job_queue_latency(*queues, redis_url=None):
     """
     Calculates the maximum queue latency across the specified queues.
@@ -18,7 +22,7 @@ def job_queue_latency(*queues, redis_url=None):
         int: The maximum latency in seconds across the specified queues.
 
     Raises:
-        ValueError: If no queue names are provided.
+        MissingQueueError: If no queue names are provided.
 
     Examples:
         >>> job_queue_latency('default')
@@ -26,6 +30,9 @@ def job_queue_latency(*queues, redis_url=None):
         >>> job_queue_latency('default', 'mailer')
         7200
     """
+    if not queues:
+        raise MissingQueueError("No queue names were provided.")
+
     redis_url = (
         redis_url
         or os.getenv("REDIS_URL")
@@ -85,7 +92,7 @@ def job_queue_size(*queues, redis_url=None):
         int: The cumulative job count across the specified queues.
 
     Raises:
-        ValueError: If no queue names are provided.
+        MissingQueueError: If no queue names are provided.
 
     Examples:
         >>> job_queue_size('default')
@@ -93,6 +100,9 @@ def job_queue_size(*queues, redis_url=None):
         >>> job_queue_size('default', 'mailer')
         85
     """
+    if not queues:
+        raise MissingQueueError("No queue names were provided.")
+
     redis_url = (
         redis_url
         or os.getenv("REDIS_URL")

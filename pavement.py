@@ -14,6 +14,13 @@ def test():
 
 
 @task
+def test_py312():
+    sh(
+        "tox -e py312-core,py312-django4,py312-django3,py312-flask3,py312-flask2,py312-quart,py312-fastapi,py312-starlette,py312-rq"
+    )
+
+
+@task
 def lint():
     sh("autoflake --remove-all-unused-imports -r --check .")
     sh("isort --check . && poetry run black --check .")
