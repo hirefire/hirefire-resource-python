@@ -23,14 +23,14 @@ def test_py312():
 @task
 def lint():
     sh("autoflake --remove-all-unused-imports -r --check .")
-    sh("isort --check . && poetry run black --check .")
+    sh("isort --profile black --check . && poetry run black --check .")
     sh("black --check .")
 
 
 @task
 def format():
     sh("autoflake --remove-all-unused-imports -ri .")
-    sh("isort .")
+    sh("isort --profile black .")
     sh("black .")
 
 
