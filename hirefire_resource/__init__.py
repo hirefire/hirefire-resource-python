@@ -1,3 +1,14 @@
+"""
+HireFire is the oldest and a leading autoscaling service for
+applications hosted on Heroku. Since 2011, we've assisted more than
+1,000 companies in autoscaling upwards of 5,000 applications,
+involving over 10,000 dynos.
+
+This package streamlines the integration of HireFire with Python
+applications running on Heroku, offering companies substantial cost
+savings while maintaining optimal performance.
+"""
+
 from importlib.metadata import PackageNotFoundError, metadata
 
 try:
