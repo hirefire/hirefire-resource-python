@@ -10,7 +10,7 @@ from starlette.testclient import TestClient
 from hirefire_resource.configuration import Configuration
 from hirefire_resource.middleware import NotConfigured
 from hirefire_resource.middleware.asgi.django import Middleware
-from hirefire_resource.resource import Resource
+from hirefire_resource import HireFire
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
 
@@ -40,14 +40,14 @@ def async_client():
 
 @pytest.mark.asyncio
 async def test_without_configuration(async_client):
-    Resource.configuration = None
+    HireFire.configuration = None
     with pytest.raises(NotConfigured):
         async_client.get("/")
 
 
 @pytest.mark.asyncio
 async def test_without_web_and_worker(async_client, set_HIREFIRE_TOKEN):
-    Resource.configuration = Configuration()
+    HireFire.configuration = Configuration()
     path = f"/hirefire/{HIREFIRE_TOKEN}/info"
     response = async_client.get(
         path, headers={"x-request-start": str(int(time.time() * 1000 - 5))}
@@ -56,17 +56,17 @@ async def test_without_web_and_worker(async_client, set_HIREFIRE_TOKEN):
     assert response.headers["cache-control"] == "must-revalidate, private, max-age=0"
     assert response.status_code == 200
     assert response.json() == []
-    assert Resource.configuration.web is None
+    assert HireFire.configuration.web is None
 
 
 @freeze_time("2000-01-01 00:00:00")
 @pytest.mark.asyncio
 async def test_web_and_worker(async_client, set_HIREFIRE_TOKEN):
     # Configure HireFire with web and worker dynos
-    Resource.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
+    HireFire.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
 
     # Use a patch to mock the 'start' method on the web dyno
-    with patch.object(Resource.configuration.web, "start") as mock_start:
+    with patch.object(HireFire.configuration.web, "start") as mock_start:
         path = f"/hirefire/{HIREFIRE_TOKEN}/info"
         # Make a synchronous call to the test client
         response = async_client.get(
@@ -83,7 +83,7 @@ async def test_web_and_worker(async_client, set_HIREFIRE_TOKEN):
 
         # Use the frozen datetime to get the timestamp
         frozen_time = datetime.now().timestamp()
-        assert Resource.configuration.web._buffer == {int(frozen_time): [5]}
+        assert HireFire.configuration.web._buffer == {int(frozen_time): [5]}
 
         # Assert that the 'start' method was called
         mock_start.assert_called_once()
@@ -91,7 +91,7 @@ async def test_web_and_worker(async_client, set_HIREFIRE_TOKEN):
 
 @pytest.mark.asyncio
 async def test_default(async_client, set_HIREFIRE_TOKEN):
-    Resource.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
+    HireFire.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
     path = f"/hirefire/wrong/info"
     response = async_client.get(path)
     assert response.status_code == 200

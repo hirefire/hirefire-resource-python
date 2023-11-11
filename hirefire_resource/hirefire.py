@@ -3,9 +3,9 @@ from contextlib import contextmanager
 from hirefire_resource.configuration import Configuration
 
 
-class Resource:
+class HireFire:
     """
-    The `Resource` class is the main entry point for integrating the `hirefire-resource`
+    The `HireFire` class is the main entry point for integrating the `hirefire-resource`
     package into your application. It provides a configuration interface to define how
     HireFire should collect, serve, and dispatch metrics, which are essential for the
     autoscaling decisions made by HireFire for Heroku dynos. Users can configure metrics
@@ -19,10 +19,10 @@ class Resource:
                                        HireFire metrics collection and dispatching.
 
     Example:
-        from hirefire_resource import Resource
+        from hirefire_resource import HireFire
         from hirefire_resource.macro.rq import job_queue_latency
 
-        with Resource.configure() as config:
+        with HireFire.configure() as config:
             # To collect Request Queue Time metrics for autoscaling `web` dynos:
             config.dyno("web")
             # To collect Job Queue Latency metrics for autoscaling `worker` dynos:

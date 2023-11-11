@@ -58,10 +58,10 @@ pip install hirefire-resource
 2. Configure HireFire in Django's `settings.py`:
 
 ```python
-from hirefire_resource import Resource
+from hirefire_resource import HireFire
 from hirefire_resource.macro.rq import job_queue_latency
 
-with Resource.configure() as config:
+with HireFire.configure() as config:
     # To collect Request Queue Time metrics for autoscaling `web` dynos:
     config.dyno("web")
     # To collect Job Queue Latency metrics for autoscaling `worker` dynos:

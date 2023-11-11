@@ -1,6 +1,6 @@
 from hirefire_resource.middleware import RequestInfo
 from hirefire_resource.middleware.asgi import BaseMiddleware
-from hirefire_resource.resource import Resource
+from hirefire_resource import HireFire
 
 
 class Middleware:
@@ -50,7 +50,7 @@ class Middleware:
 
         # Process the request and check if it matches the HireFire info path
         request_info = self.extract_request_info(scope)
-        middleware = BaseMiddleware(Resource.configuration)
+        middleware = BaseMiddleware(HireFire.configuration)
         response_data = await middleware.process_request(request_info)
 
         if response_data:

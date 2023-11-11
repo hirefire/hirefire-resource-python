@@ -1,11 +1,11 @@
 from hirefire_resource.configuration import Configuration
-from hirefire_resource.resource import Resource
+from hirefire_resource import HireFire
 
 
 def test_configure():
-    assert None == Resource.configuration
+    assert None == HireFire.configuration
 
-    with Resource.configure() as config:
+    with HireFire.configure() as config:
         pass
 
-    assert isinstance(Resource.configuration, Configuration)
+    assert isinstance(HireFire.configuration, Configuration)

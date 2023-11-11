@@ -11,7 +11,7 @@ from starlette.routing import Route
 from hirefire_resource.configuration import Configuration
 from hirefire_resource.middleware.asgi import NotConfigured
 from hirefire_resource.middleware.asgi.starlette import Middleware
-from hirefire_resource.resource import Resource
+from hirefire_resource import HireFire
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
 
@@ -31,7 +31,7 @@ def client():
 
 @pytest.mark.asyncio
 async def test_without_configuration(client, set_HIREFIRE_TOKEN):
-    Resource.configuration = None
+    HireFire.configuration = None
     with pytest.raises(NotConfigured):
         await client.get(f"/hirefire/{HIREFIRE_TOKEN}/info")
 
@@ -39,21 +39,21 @@ async def test_without_configuration(client, set_HIREFIRE_TOKEN):
 @pytest.mark.asyncio
 @freeze_time("2000-01-01 00:00:00")
 async def test_without_web_and_worker(client, set_HIREFIRE_TOKEN):
-    Resource.configuration = Configuration()
+    HireFire.configuration = Configuration()
     headers = {"X-Request-Start": str(int(time.time() * 1000 - 5))}
     response = await client.get(f"/hirefire/{HIREFIRE_TOKEN}/info", headers=headers)
     assert response.status_code == 200
     assert response.json() == []
     assert response.headers["Content-Type"] == "application/json"
     assert response.headers["cache-control"] == "must-revalidate, private, max-age=0"
-    assert Resource.configuration.web is None
+    assert HireFire.configuration.web is None
 
 
 @pytest.mark.asyncio
 @freeze_time("2000-01-01 00:00:00")
 async def test_web_and_worker(client, set_HIREFIRE_TOKEN):
-    Resource.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
-    with patch.object(Resource.configuration.web, "start") as mock_start:
+    HireFire.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
+    with patch.object(HireFire.configuration.web, "start") as mock_start:
         headers = {"X-Request-Start": str(int(time.time() * 1000 - 5))}
         response = await client.get(f"/hirefire/{HIREFIRE_TOKEN}/info", headers=headers)
         assert response.status_code == 200
@@ -62,13 +62,13 @@ async def test_web_and_worker(client, set_HIREFIRE_TOKEN):
         assert (
             response.headers["cache-control"] == "must-revalidate, private, max-age=0"
         )
-        assert Resource.configuration.web._buffer == {946684800: [5]}
+        assert HireFire.configuration.web._buffer == {946684800: [5]}
         mock_start.assert_called()
 
 
 @pytest.mark.asyncio
 async def test_default(client, set_HIREFIRE_TOKEN):
-    Resource.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
+    HireFire.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
     response = await client.get(f"/hirefire/wrong/info")
     assert response.status_code == 200
     assert response.text == "DEFAULT"
