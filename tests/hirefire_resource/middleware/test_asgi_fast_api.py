@@ -21,10 +21,7 @@ client = TestClient(app)
 router = APIRouter()
 
 
-@router.api_route(
-    "/{path:path}",
-    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE"],
-)
+@router.api_route("/{path:path}", methods=["GET"])
 async def catch_all(request: Request):
     return Response(content="DEFAULT", media_type="text/plain")
 
