@@ -29,7 +29,7 @@ class HireFire:
             config.dyno("worker", lambda: job_queue_latency("default"))
     """
 
-    configuration = None
+    configuration = Configuration()
 
     @classmethod
     @contextmanager

@@ -7,7 +7,6 @@ from quart import Quart
 
 from hirefire_resource import HireFire
 from hirefire_resource.configuration import Configuration
-from hirefire_resource.middleware.asgi import NotConfigured
 from hirefire_resource.middleware.asgi.quart import Middleware
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
@@ -27,20 +26,10 @@ def client():
 
 
 @pytest.mark.asyncio
-async def test_without_configuration(set_HIREFIRE_TOKEN, client):
-    HireFire.configuration = None
-    with pytest.raises(NotConfigured):
-        await client.get(f"/hirefire/{HIREFIRE_TOKEN}/info")
-
-
-@pytest.mark.asyncio
-async def test_without_HIREFIRE_TOKEN(client):
+async def test_pass_through_without_HIREFIRE_TOKEN(client):
     HireFire.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
     with patch.object(HireFire.configuration.web, "start") as mock_start:
-        response = await client.get(
-            "/hirefire/wrong/info",
-            headers={"x-request-start": str(int(time.time() * 1000 - 5))},
-        )
+        response = await client.get("/any", headers={"x-request-start": "1"})
         assert response.status_code == 200
         assert (await response.get_data(as_text=True)) == "DEFAULT"
         assert response.headers["content-type"] == "text/html; charset=utf-8"
@@ -49,38 +38,37 @@ async def test_without_HIREFIRE_TOKEN(client):
 
 @freeze_time("2000-01-01 00:00:00")
 @pytest.mark.asyncio
-async def test_without_web_and_worker(set_HIREFIRE_TOKEN, client):
+async def test_pass_through_without_configuration(set_HIREFIRE_TOKEN, client):
     HireFire.configuration = Configuration()
-    headers = {"X-Request-Start": str(int(time.time() * 1000 - 5))}
-    response = await client.get(f"/hirefire/{HIREFIRE_TOKEN}/info", headers=headers)
+    response = await client.get("/any", headers={"X-Request-Start": "1"})
     assert response.status_code == 200
-    assert await response.get_json() == []
-    assert response.headers["content-type"] == "application/json"
-    assert response.headers["cache-control"] == "must-revalidate, private, max-age=0"
-    assert HireFire.configuration.web is None
+    assert response.headers["content-type"] == "text/html; charset=utf-8"
+    assert (await response.get_data(as_text=True)) == "DEFAULT"
 
 
 @freeze_time("2000-01-01 00:00:00")
 @pytest.mark.asyncio
-async def test_web_and_worker(set_HIREFIRE_TOKEN, client):
-    HireFire.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
+async def test_pass_through_and_process_web_configuration(set_HIREFIRE_TOKEN, client):
+    HireFire.configuration = Configuration().dyno("web")
     with patch.object(HireFire.configuration.web, "start") as mock_start:
-        headers = {"X-Request-Start": str(int(time.time() * 1000 - 5))}
-        response = await client.get(f"/hirefire/{HIREFIRE_TOKEN}/info", headers=headers)
-        assert response.status_code == 200
-        assert await response.get_json() == [{"name": "worker", "value": 1.23}]
-        assert response.headers["content-type"] == "application/json"
-        assert (
-            response.headers["cache-control"] == "must-revalidate, private, max-age=0"
+        response = await client.get(
+            "/any", headers={"X-Request-Start": str(int(time.time() * 1000 - 5))}
         )
+        assert response.status_code == 200
+        assert (await response.get_data(as_text=True)) == "DEFAULT"
+        assert response.headers["content-type"] == "text/html; charset=utf-8"
         assert HireFire.configuration.web._buffer == {946684800: [5]}
         mock_start.assert_called()
 
 
+@freeze_time("2000-01-01 00:00:00")
 @pytest.mark.asyncio
-async def test_default(set_HIREFIRE_TOKEN, client):
-    HireFire.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
-    response = await client.get(f"/hirefire/wrong/info")
+async def test_intercept_and_process_worker_configuration(set_HIREFIRE_TOKEN, client):
+    HireFire.configuration = Configuration().dyno("worker", lambda: 1.23)
+    response = await client.get(
+        f"/hirefire/{HIREFIRE_TOKEN}/info", headers={"X-Request-Start": "1"}
+    )
     assert response.status_code == 200
-    assert (await response.get_data(as_text=True)) == "DEFAULT"
-    assert response.headers["content-type"] == "text/html; charset=utf-8"
+    assert await response.get_json() == [{"name": "worker", "value": 1.23}]
+    assert response.headers["content-type"] == "application/json"
+    assert response.headers["cache-control"] == "must-revalidate, private, max-age=0"
