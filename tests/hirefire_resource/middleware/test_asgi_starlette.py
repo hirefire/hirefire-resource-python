@@ -28,9 +28,15 @@ def client():
     return httpx.AsyncClient(app=app, base_url="http://test")
 
 
+async def measure_queue_metric():
+    return 1.23
+
+
 @pytest.mark.asyncio
 async def test_pass_through_without_HIREFIRE_TOKEN(client):
-    HireFire.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
+    HireFire.configuration = (
+        Configuration().dyno("web").dyno("worker", measure_queue_metric)
+    )
     with patch.object(HireFire.configuration.web, "start") as mock_start:
         response = await client.get("/", headers={"x-request-start": "1"})
         assert response.status_code == 200
@@ -67,7 +73,7 @@ async def test_pass_through_and_process_web_configuration(client, set_HIREFIRE_T
 @pytest.mark.asyncio
 @freeze_time("2000-01-01 00:00:00")
 async def test_intercept_and_process_worker_configuration(client, set_HIREFIRE_TOKEN):
-    HireFire.configuration = Configuration().dyno("worker", lambda: 1.23)
+    HireFire.configuration = Configuration().dyno("worker", measure_queue_metric)
     response = await client.get(
         f"/hirefire/{HIREFIRE_TOKEN}/info", headers={"X-Request-Start": "1"}
     )
