@@ -5,10 +5,10 @@ import pytest
 from freezegun import freeze_time
 from quart import Quart
 
+from hirefire_resource import HireFire
 from hirefire_resource.configuration import Configuration
 from hirefire_resource.middleware.asgi import NotConfigured
 from hirefire_resource.middleware.asgi.quart import Middleware
-from hirefire_resource import HireFire
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
 app = Quart(__name__)
@@ -31,6 +31,20 @@ async def test_without_configuration(set_HIREFIRE_TOKEN, client):
     HireFire.configuration = None
     with pytest.raises(NotConfigured):
         await client.get(f"/hirefire/{HIREFIRE_TOKEN}/info")
+
+
+@pytest.mark.asyncio
+async def test_without_HIREFIRE_TOKEN(client):
+    HireFire.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
+    with patch.object(HireFire.configuration.web, "start") as mock_start:
+        response = await client.get(
+            "/hirefire/wrong/info",
+            headers={"x-request-start": str(int(time.time() * 1000 - 5))},
+        )
+        assert response.status_code == 200
+        assert (await response.get_data(as_text=True)) == "DEFAULT"
+        assert response.headers["content-type"] == "text/html; charset=utf-8"
+        mock_start.assert_not_called()
 
 
 @freeze_time("2000-01-01 00:00:00")

@@ -7,10 +7,10 @@ from django.http import HttpResponse
 from django.test import RequestFactory
 from freezegun import freeze_time
 
+from hirefire_resource import HireFire
 from hirefire_resource.configuration import Configuration
 from hirefire_resource.middleware.wsgi import NotConfigured
 from hirefire_resource.middleware.wsgi.django import Middleware
-from hirefire_resource import HireFire
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
 
@@ -29,6 +29,21 @@ def test_without_configuration(factory, set_HIREFIRE_TOKEN):
         request = factory.get("/")
         middleware = Middleware(default_view)
         middleware(request)
+
+
+def test_without_HIREFIRE_TOKEN(factory):
+    HireFire.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
+    with patch.object(HireFire.configuration.web, "start") as mock_start:
+        request = factory.get(
+            "/hirefire/wrong/info",
+            **{"HTTP_X_REQUEST_START": int(time.time() * 1000 - 5)},
+        )
+        middleware = Middleware(default_view)
+        response = middleware(request)
+        assert response.status_code == 200
+        assert response.content.decode("utf-8") == "DEFAULT"
+        assert response["content-type"] == "text/html; charset=utf-8"
+        mock_start.assert_not_called()
 
 
 @freeze_time("2000-01-01 00:00:00")

@@ -50,6 +50,8 @@ class BaseMiddleware:
         If configured, the request queue time is calculated and added to the HireFire web instance's buffer
         for processing. The HireFire web instance is also started if it is not already running.
 
+        Won't process the request if the `HIREFIRE_TOKEN` environment variable is not set.
+
         Args:
             request_info (RequestInfo): Object containing request details.
 
@@ -57,6 +59,9 @@ class BaseMiddleware:
             tuple: A tuple of HTTP status, headers, and response body if the request matches the info path.
                    None if the request does not match and should proceed normally.
         """
+        if not os.environ.get("HIREFIRE_TOKEN"):
+            return
+
         await self.process_request_queue_time(request_info)
 
         if self.matches_info_path(request_info):
@@ -72,8 +77,7 @@ class BaseMiddleware:
         Returns:
             bool: True if the request matches the info path, False otherwise.
         """
-        token = os.environ.get("HIREFIRE_TOKEN", "development")
-        return request_info.path == f"/hirefire/{token}/info"
+        return request_info.path == f"/hirefire/{os.environ['HIREFIRE_TOKEN']}/info"
 
     async def construct_info_response(self):
         """

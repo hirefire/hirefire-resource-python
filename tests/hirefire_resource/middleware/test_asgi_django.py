@@ -7,10 +7,10 @@ from freezegun import freeze_time
 from starlette.responses import Response
 from starlette.testclient import TestClient
 
+from hirefire_resource import HireFire
 from hirefire_resource.configuration import Configuration
 from hirefire_resource.middleware import NotConfigured
 from hirefire_resource.middleware.asgi.django import Middleware
-from hirefire_resource import HireFire
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
 
@@ -28,7 +28,6 @@ async def app(scope, receive, send):
                 return
 
 
-# Wrap the simple ASGI app with the Middleware for testing
 asgi_app = Middleware(app)
 
 
@@ -43,6 +42,20 @@ async def test_without_configuration(async_client):
     HireFire.configuration = None
     with pytest.raises(NotConfigured):
         async_client.get("/")
+
+
+@pytest.mark.asyncio
+async def test_without_HIREFIRE_TOKEN(async_client):
+    HireFire.configuration = Configuration().dyno("web").dyno("worker", lambda: 1.23)
+    with patch.object(HireFire.configuration.web, "start") as mock_start:
+        response = async_client.get(
+            "/hirefire/wrong/info",
+            headers={"x-request-start": str(int(time.time() * 1000 - 5))},
+        )
+        assert response.status_code == 200
+        assert response.content == b"DEFAULT"
+        assert response.headers["content-type"] == "text/html; charset=utf-8"
+        mock_start.assert_not_called()
 
 
 @pytest.mark.asyncio

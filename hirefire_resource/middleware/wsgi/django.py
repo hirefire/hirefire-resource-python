@@ -1,8 +1,8 @@
 from django.http import HttpResponse
 
+from hirefire_resource import HireFire
 from hirefire_resource.middleware import RequestInfo
 from hirefire_resource.middleware.wsgi import BaseMiddleware
-from hirefire_resource import HireFire
 
 
 class Middleware:
