@@ -39,7 +39,10 @@ def matches_info_path(request_info):
     Returns:
         bool: True if the request matches the info path, False otherwise.
     """
-    return request_info.path == f"/hirefire/{os.environ['HIREFIRE_TOKEN']}/info"
+    return (
+        os.environ.get("HIREFIRE_TOKEN")
+        and request_info.path == f"/hirefire/{os.environ.get('HIREFIRE_TOKEN')}/info"
+    )
 
 
 def process_request_queue_time(request_info):
@@ -49,7 +52,11 @@ def process_request_queue_time(request_info):
     Args:
         request_info (RequestInfo): Object containing request details.
     """
-    if not (HireFire.configuration.web and request_info.request_start_time):
+    if not (
+        os.environ.get("HIREFIRE_TOKEN")
+        and HireFire.configuration.web
+        and request_info.request_start_time
+    ):
         return
 
     request_queue_time = calculate_request_queue_time(request_info.request_start_time)

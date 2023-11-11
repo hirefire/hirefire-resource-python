@@ -18,7 +18,6 @@ Attributes:
 """
 
 import json
-import os
 
 from hirefire_resource import HireFire
 from hirefire_resource.middleware import (  # noqa
@@ -47,9 +46,6 @@ def request(request_info):
         tuple: A tuple of HTTP status, headers, and response body if the request matches the
                 info path.  None if the request does not match and should proceed normally.
     """
-    if not os.environ.get("HIREFIRE_TOKEN"):
-        return
-
     process_request_queue_time(request_info)
 
     if matches_info_path(request_info):
