@@ -1,6 +1,5 @@
-from hirefire_resource import HireFire
 from hirefire_resource.middleware import RequestInfo
-from hirefire_resource.middleware.asgi import BaseMiddleware
+from hirefire_resource.middleware.asgi import process_request
 
 
 class Middleware:
@@ -47,8 +46,7 @@ class Middleware:
                 path=scope["path"],
                 request_start_time=self.extract_request_start_time(scope),
             )
-            middleware = BaseMiddleware(HireFire.configuration)
-            response_data = await middleware.process_request(request_info)
+            response_data = await process_request(request_info)
 
             if response_data:
                 await self.send_response(send, response_data)

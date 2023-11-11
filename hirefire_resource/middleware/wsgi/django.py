@@ -1,8 +1,7 @@
 from django.http import HttpResponse
 
-from hirefire_resource import HireFire
 from hirefire_resource.middleware import RequestInfo
-from hirefire_resource.middleware.wsgi import BaseMiddleware
+from hirefire_resource.middleware.wsgi import process_request
 
 
 class Middleware:
@@ -40,12 +39,11 @@ class Middleware:
             HttpResponse or callable: A Django HttpResponse if the request is for the HireFire info path,
                                       otherwise the result of the get_response callable for further processing.
         """
-        base_middleware = BaseMiddleware(HireFire.configuration)
         request_info = RequestInfo(
             path=request.path,
             request_start_time=request.META.get("HTTP_X_REQUEST_START", ""),
         )
-        response_data = base_middleware.process_request(request_info)
+        response_data = process_request(request_info)
 
         if response_data:
             status, headers, body = response_data

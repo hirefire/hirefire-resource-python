@@ -1,7 +1,3 @@
-class NotConfigured(Exception):
-    """Exception raised when the necessary configuration isn't provided."""
-
-
 class RequestInfo:
     """
     Represents details of an HTTP request.
