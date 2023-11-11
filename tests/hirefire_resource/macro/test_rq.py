@@ -8,6 +8,8 @@ from rq import Queue
 
 from hirefire_resource.macro.rq import (
     MissingQueueError,
+    async_job_queue_latency,
+    async_job_queue_size,
     job_queue_latency,
     job_queue_size,
 )
@@ -77,6 +79,23 @@ def test_job_queue_latency_with_scheduled_jobs():
     )
 
 
+@pytest.mark.asyncio
+async def test_async_job_queue_latency():
+    default = Queue("default", connection=Redis.from_url(redis_url))
+
+    with pytest.raises(MissingQueueError) as excinfo:
+        await async_job_queue_latency(redis_url=redis_url)
+
+    assert "No queue names were provided" in str(excinfo.value)
+
+    with freeze_time(datetime.fromtimestamp(time.time() - 200, timezone.utc)):
+        default.enqueue("my_function")
+
+    assert await async_job_queue_latency(
+        "default", redis_url=redis_url
+    ) == pytest.approx(200, abs=10)
+
+
 def test_job_queue_size_raises_error_with_no_queues():
     with pytest.raises(MissingQueueError) as excinfo:
         job_queue_size(redis_url=redis_url)
@@ -108,3 +127,17 @@ def test_job_queue_size_with_jobs():
     assert job_queue_size("default", redis_url=redis_url) == 2
     assert job_queue_size("critical", redis_url=redis_url) == 1
     assert job_queue_size("default", "critical", redis_url=redis_url) == 3
+
+
+@pytest.mark.asyncio
+async def test_async_job_queue_size():
+    default = Queue("default", connection=Redis.from_url(redis_url))
+
+    with pytest.raises(MissingQueueError) as excinfo:
+        await async_job_queue_size(redis_url=redis_url)
+
+    assert "No queue names were provided" in str(excinfo.value)
+
+    default.enqueue("my_function")
+
+    assert await async_job_queue_size("default", redis_url=redis_url) == 1
