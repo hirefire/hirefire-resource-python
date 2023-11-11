@@ -19,7 +19,7 @@ class Web:
       time metrics recorded at that particular timestamp in milliseconds.
     - Metrics are batched together if added within the same second, enabling efficient dispatching to the HireFire server.
     - When metrics are dispatched, the entire buffer is flushed to prevent duplicate data transmission.
-    - Metrics older than the TTL (Time-to-Live) will be discarded, ensuring that only recent and relevant metrics are sent.
+    - Metrics older than the BUFFER_TTL (Time-to-Live) will be discarded, ensuring that only recent and relevant metrics are sent.
 
     Example buffer contents:
         {
@@ -29,8 +29,8 @@ class Web:
 
     Attributes:
         DISPATCH_INTERVAL (int): Interval between dispatch attempts in seconds.
-        TIMEOUT (int): Timeout for HTTP requests in seconds.
-        TTL (int): Time-to-live for metrics in seconds. Metrics older than this value will be discarded.
+        DISPATCH_TIMEOUT (int): Timeout for HTTP requests in seconds.
+        BUFFER_TTL (int): Time-to-live for metrics in seconds. Metrics older than this value will be discarded.
 
     Raises:
         TokenNotFoundError: If the HIREFIRE_TOKEN environment variable is not set.
@@ -40,8 +40,8 @@ class Web:
     """
 
     DISPATCH_INTERVAL = 5  # Interval between dispatch attempts in seconds.
-    TIMEOUT = 5  # Timeout for HTTP requests in seconds.
-    TTL = 60  # Time-to-live for metrics in seconds.
+    DISPATCH_TIMEOUT = 5  # Timeout for HTTP requests in seconds.
+    BUFFER_TTL = 60  # Time-to-live for metrics in seconds.
 
     class TokenNotFoundError(Exception):
         """Raised when the HIREFIRE_TOKEN environment variable is not found."""
@@ -60,7 +60,7 @@ class Web:
         Initializes the Web object with default values, preparing it to start collecting and dispatching metrics.
 
         The buffer is structured to group metrics by the second in which they were recorded, allowing
-        efficient batch dispatching. The buffer will only retain recent metrics as defined by the TTL value.
+        efficient batch dispatching. The buffer will only retain recent metrics as defined by the BUFFER_TTL value.
         """
         self._buffer = {}  # Stores metrics grouped by timestamp of recording.
         self._mutex = threading.Lock()  # Ensures thread-safe access to the buffer.
@@ -106,7 +106,7 @@ class Web:
             self._running = False
 
         if self._thread:
-            self._thread.join(self.TIMEOUT)
+            self._thread.join(self.DISPATCH_TIMEOUT)
             self._thread = None
 
         self._buffer.clear()
@@ -187,7 +187,7 @@ class Web:
         now = int(datetime.now().timestamp())
         with self._mutex:
             for timestamp, values in buffer.items():
-                if timestamp >= now - self.TTL:
+                if timestamp >= now - self.BUFFER_TTL:
                     self._buffer.setdefault(timestamp, []).extend(values)
 
     def _submit_buffer(self, buffer):
@@ -221,7 +221,7 @@ class Web:
         }
 
         connection = http.client.HTTPSConnection(
-            "logdrain.hirefire.io", timeout=self.TIMEOUT
+            "logdrain.hirefire.io", timeout=self.DISPATCH_TIMEOUT
         )
 
         try:

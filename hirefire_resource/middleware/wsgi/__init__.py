@@ -97,11 +97,11 @@ class BaseMiddleware:
 
     def process_request_queue_time(self, request_info):
         """
-        Calculate the request queue time from the `HTTP_X_REQUEST_START` header and
-        add it to the HireFire web instance's buffer for processing.
+        Calculate the request queue time from the `X-Request-Start` header and add it to the web
+        instance's buffer for processing.
 
-        It also ensures that the HireFire web instance is running, so that the request
-        queue time information can be periodically dispatched to HireFire's servers.
+        It also ensures that the Web instance is running, so that the request queue time information
+        can be periodically dispatched to HireFire's servers.
 
         Args:
             request_info (RequestInfo): Object containing request details.
