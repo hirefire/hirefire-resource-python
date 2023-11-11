@@ -15,9 +15,11 @@ app.asgi_app = Middleware(app)
 app.config["TESTING"] = True
 
 
-@app.route("/<path:path>")
 async def catch_all(path):
     return "DEFAULT", 200
+
+
+app.add_url_rule("/<path:path>", "catch_all", catch_all)
 
 
 @pytest.fixture

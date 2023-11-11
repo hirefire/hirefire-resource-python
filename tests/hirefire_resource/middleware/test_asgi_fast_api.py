@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI, Request, Response
+from fastapi.routing import APIRouter
 from fastapi.testclient import TestClient
 from freezegun import freeze_time
 
@@ -17,10 +18,18 @@ app.add_middleware(Middleware)
 
 client = TestClient(app)
 
+router = APIRouter()
 
-@app.route("/")
+
+@router.api_route(
+    "/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE"],
+)
 async def catch_all(request: Request):
     return Response(content="DEFAULT", media_type="text/plain")
+
+
+app.include_router(router)
 
 
 @pytest.fixture
