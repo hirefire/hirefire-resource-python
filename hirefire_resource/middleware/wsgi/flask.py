@@ -1,8 +1,6 @@
-from flask import Response, request
+from flask import Response
 
-from hirefire_resource import HireFire
-from hirefire_resource.middleware import RequestInfo
-from hirefire_resource.middleware.wsgi import process_request
+from hirefire_resource.middleware.wsgi import RequestInfo, request
 
 
 class Middleware:
@@ -54,14 +52,15 @@ class Middleware:
                                   the result of the original WSGI application callable.
         """
         with self.app.request_context(environ):
-            request_info = RequestInfo(
-                path=request.path,
-                request_start_time=request.environ.get("HTTP_X_REQUEST_START", ""),
+            response = request(
+                RequestInfo(
+                    path=environ.get("PATH_INFO"),
+                    request_start_time=environ.get("HTTP_X_REQUEST_START", ""),
+                )
             )
-            response_data = process_request(request_info)
 
-            if response_data:
-                status, headers, body = response_data
+            if response:
+                status, headers, body = response
                 response = Response(body, status=status, headers=headers)
                 return response(environ, start_response)
 

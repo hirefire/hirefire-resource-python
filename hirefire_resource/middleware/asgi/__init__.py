@@ -17,13 +17,16 @@ provides the data for measuring request queue times.
 import asyncio
 import json
 import os
-import time
 
 from hirefire_resource import HireFire
+from hirefire_resource.middleware import (  # noqa
+    RequestInfo,
+    matches_info_path,
+    process_request_queue_time,
+)
 
 
-
-async def process_request(request_info):
+async def request(request_info):
     """
     Asynchronously processes the incoming request and determines if it matches the HireFire info
     path. If it does, constructs and returns the HireFire info response. Otherwise, the request
@@ -45,22 +48,11 @@ async def process_request(request_info):
     if not os.environ.get("HIREFIRE_TOKEN"):
         return
 
-    await process_request_queue_time(request_info)
+    process_request_queue_time(request_info)
 
     if matches_info_path(request_info):
         return await construct_info_response()
 
-def matches_info_path(request_info):
-    """
-    Checks if the request path matches the HireFire info path.
-
-    Args:
-        request_info (RequestInfo): Object containing request details.
-
-    Returns:
-        bool: True if the request matches the info path, False otherwise.
-    """
-    return request_info.path == f"/hirefire/{os.environ['HIREFIRE_TOKEN']}/info"
 
 async def construct_info_response():
     """
@@ -73,11 +65,11 @@ async def construct_info_response():
         "Content-Type": "application/json",
         "Cache-Control": "must-revalidate, private, max-age=0",
     }
-
     workers_info = await collect_workers_data()
-
     body = json.dumps(workers_info)
+
     return 200, headers, body
+
 
 async def collect_workers_data():
     """
@@ -87,40 +79,11 @@ async def collect_workers_data():
         list: A list of dictionaries with worker names and their respective values.
     """
     data = []
+
     for worker in HireFire.configuration.workers:
         result = worker.proc()
         if asyncio.iscoroutine(result):
             result = await result
         data.append({"name": worker.name, "value": result})
+
     return data
-
-async def process_request_queue_time(request_info):
-    """
-    Asynchronously calculates and processes the request's time spent in the queue.
-
-    Args:
-        request_info (RequestInfo): Object containing request details.
-    """
-    if not (HireFire.configuration.web and request_info.request_start_time):
-        return
-
-    request_queue_time = calculate_request_queue_time(
-        request_info.request_start_time
-    )
-
-    HireFire.configuration.web.add_to_buffer(request_queue_time)
-    HireFire.configuration.web.start()
-
-def calculate_request_queue_time(request_start_time):
-    """
-    Calculates the time the request spent in the queue using the X-Request-Start header provide by
-    Heroku's routing layer.
-
-    Args:
-        request_start_time (str): The timestamp when Heroku's routing layer first received the request.
-
-    Returns:
-        int: The time spent in the queue in milliseconds. If the calculated time is negative, it returns 0.
-    """
-    ms = int(time.time() * 1000) - int(request_start_time)
-    return max(ms, 0)

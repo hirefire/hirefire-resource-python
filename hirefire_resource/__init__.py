@@ -28,6 +28,4 @@ except PackageNotFoundError:
     __keywords__ = "unknown"
     __docformat__ = "unknown"
 
-from hirefire_resource.hirefire import HireFire
-
-HireFire  # export
+from hirefire_resource.hirefire import HireFire  # noqa

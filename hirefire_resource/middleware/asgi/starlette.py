@@ -1,5 +1,4 @@
-from hirefire_resource.middleware import RequestInfo
-from hirefire_resource.middleware.asgi import process_request
+from hirefire_resource.middleware.asgi import RequestInfo, request
 
 
 class Middleware:
@@ -43,19 +42,14 @@ class Middleware:
                   to the wrapped ASGI application.
         """
         if scope["type"] != "http":
-            # If the request is not HTTP (e.g., WebSocket), pass it to the wrapped application
             await self.app(scope, receive, send)
             return
 
-        # Process the request and check if it matches the HireFire info path
-        request_info = self.extract_request_info(scope)
-        response_data = await process_request(request_info)
+        response = await request(self.extract_request_info(scope))
 
-        if response_data:
-            # If it's a HireFire info request, construct and send the response
-            await self.send_response(send, response_data)
+        if response:
+            await self.send_response(send, response)
         else:
-            # If not, delegate to the original ASGI application
             await self.app(scope, receive, send)
 
     @staticmethod
@@ -76,24 +70,23 @@ class Middleware:
         return RequestInfo(path, request_start_time)
 
     @staticmethod
-    async def send_response(send, response_data):
+    async def send_response(send, response):
         """
         Sends the response data back to the client using the ASGI 'send' callable.
 
         Args:
             send (callable): The ASGI send callable.
-            response_data (tuple): A tuple containing the response status code, headers, and body.
+            response (tuple): A tuple containing the response status code, headers, and body.
         """
-        status, headers_dict, body = response_data
-        response_headers = [
-            (k.encode("utf-8"), v.encode("utf-8")) for k, v in headers_dict.items()
-        ]
+        status, headers, body = response
+
+        headers = [(k.encode("utf-8"), v.encode("utf-8")) for k, v in headers.items()]
 
         await send(
             {
                 "type": "http.response.start",
                 "status": status,
-                "headers": response_headers,
+                "headers": headers,
             }
         )
         await send(

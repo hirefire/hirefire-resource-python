@@ -1,5 +1,4 @@
-from hirefire_resource.middleware import RequestInfo
-from hirefire_resource.middleware.asgi import process_request
+from hirefire_resource.middleware.asgi import RequestInfo, request
 
 
 class Middleware:
@@ -38,15 +37,15 @@ class Middleware:
             None: This method does not return but instead sends the response using the 'send' callable.
         """
         if scope["type"] == "http":
-            request_info = RequestInfo(
-                path=scope["path"],
-                request_start_time=self.extract_request_start_time(scope),
+            response = await request(
+                RequestInfo(
+                    path=scope["path"],
+                    request_start_time=self.extract_request_start_time(scope),
+                )
             )
 
-            response_data = await process_request(request_info)
-
-            if response_data:
-                await self.send_response(send, *response_data)
+            if response:
+                await self.send_response(send, *response)
                 return
 
         await self.original_app(scope, receive, send)

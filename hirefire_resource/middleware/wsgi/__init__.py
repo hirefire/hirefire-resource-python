@@ -19,12 +19,16 @@ Attributes:
 
 import json
 import os
-import time
 
 from hirefire_resource import HireFire
+from hirefire_resource.middleware import (  # noqa
+    RequestInfo,
+    matches_info_path,
+    process_request_queue_time,
+)
 
 
-def process_request(request_info):
+def request(request_info):
     """
     Process the incoming request and determine if it matches the HireFire info path. If it does,
     construct and return the HireFire info response. Otherwise, the request should continue
@@ -51,19 +55,6 @@ def process_request(request_info):
     if matches_info_path(request_info):
         return construct_info_response()
 
-def matches_info_path(request_info):
-    """
-    Check if the request path matches the HireFire info path.
-
-    The HIREFIRE_TOKEN environment variable is used to determine the info path.
-
-    Args:
-        request_info (RequestInfo): Object containing request details.
-
-    Returns:
-        bool: True if the request matches the info path, False otherwise.
-    """
-    return request_info.path == f"/hirefire/{os.environ['HIREFIRE_TOKEN']}/info"
 
 def construct_info_response():
     """
@@ -83,39 +74,3 @@ def construct_info_response():
         ]
     )
     return 200, headers, [body]
-
-def process_request_queue_time(request_info):
-    """
-    Calculate the request queue time from the `X-Request-Start` header and add it to the web
-    instance's buffer for processing.
-
-    It also ensures that the Web instance is running, so that the request queue time information
-    can be periodically dispatched to HireFire's servers.
-
-    Args:
-        request_info (RequestInfo): Object containing request details.
-    """
-    if not HireFire.configuration.web:
-        return
-
-    if not request_info.request_start_time:
-        return
-
-    request_queue_time = calculate_request_queue_time(
-        request_info.request_start_time
-    )
-    HireFire.configuration.web.add_to_buffer(request_queue_time)
-    HireFire.configuration.web.start()
-
-def calculate_request_queue_time(request_start_time):
-    """
-    Calculate the time the request spent in the queue using the Heroku-specific header.
-
-    Args:
-        request_start_time (str): The timestamp when Heroku's routing layer first received the request.
-
-    Returns:
-        int: The time spent in the queue in milliseconds. If the calculated time is negative, it returns 0.
-    """
-    ms = int(time.time() * 1000) - int(request_start_time)
-    return max(ms, 0)
