@@ -1,4 +1,5 @@
 # name: Main
+#
 # on:
 #   push:
 #     branches:
@@ -6,8 +7,10 @@
 #     tags:
 #       - '*'
 #   pull_request:
+#
 # concurrency:
 #   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref }}
+#
 # jobs:
 #   validate:
 #     runs-on: ubuntu-latest
@@ -40,6 +43,7 @@
 #       shell: bash
 #     - name: Run build
 #       run: poetry build
+#
 #   publish:
 #     needs: validate
 #     runs-on: ubuntu-latest
