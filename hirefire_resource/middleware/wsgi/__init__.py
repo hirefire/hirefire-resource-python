@@ -1,22 +1,3 @@
-"""
-@TODO incorporate into process_request?
-
-Base middleware for capturing and providing metrics required for autoscaling Heroku web and
-worker dynos. It serves two primary roles:
-
-1. Responds to specific HTTP requests with JSON-formatted queue metrics.
-2. Captures and processes request queue time data from incoming HTTP requests, forwarding it to
-    the HireFire web instance for dispatching.
-
-The middleware intercepts requests to the HireFire info endpoints and allows all other requests
-to pass through unaffected. The `HTTP_X_REQUEST_START` header, set by Heroku's routing layer,
-provides the data for measuring request queue times.
-
-Attributes:
-    config (Configuration): Configuration object for HireFire operations, containing Web and
-                            Worker object configurations.
-"""
-
 import json
 
 from hirefire_resource import HireFire
@@ -29,15 +10,21 @@ from hirefire_resource.middleware import (  # noqa
 
 def request(request_info):
     """
-    Process the incoming request and determine if it matches the HireFire info path. If it does,
-    construct and return the HireFire info response. Otherwise, the request should continue
-    through the middleware stack.
+    Framework-agnostic middleware integration function for autoscaling Heroku web and worker dynos.
+    Works with normalized request data. It performs two key operations:
 
-    If configured, the request queue time is calculated and added to the HireFire web instance's
-    buffer for processing. The HireFire web instance is also started if it is not already
-    running.
+    1. Capturing and processing request queue time data and forwarding it to the `Web` instance.
+    2. Responding to specific HTTP requests with JSON-formatted job queue metrics from `Worker` instances.
 
-    Won't process the request if the `HIREFIRE_TOKEN` environment variable is not set.
+    The caller (frameworks-specific middleware) is responsible for extracting the request path and
+    request start time from the request object and passing it to this function in a `RequestInfo`
+    object.
+
+    The function either returns a tuple of HTTP status, headers, and response body if the request
+    matches the info path, or None if the request does not match and should proceed normally.
+
+    Note that the 'HIREFIRE_TOKEN' environment variable is required to perform the above-mentioned
+    operations.
 
     Args:
         request_info (RequestInfo): Object containing request details.
@@ -45,6 +32,7 @@ def request(request_info):
     Returns:
         tuple: A tuple of HTTP status, headers, and response body if the request matches the
                 info path.  None if the request does not match and should proceed normally.
+
     """
     process_request_queue_time(request_info)
 
