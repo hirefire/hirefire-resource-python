@@ -26,6 +26,10 @@ class Middleware:
         """
         Asynchronous call method to process all incoming requests.
 
+        This method checks if the incoming request is an HTTP request and, if so, uses the 'request'
+        function from hirefire_resource.middleware.asgi to decide the appropriate action based on
+        the request information.
+
         Args:
             scope (dict): The ASGI scope dictionary containing request details.
             receive (callable): An awaitable callable that yields the next event.
@@ -78,6 +82,9 @@ class Middleware:
     def extract_request_start_time(self, scope):
         """
         Extracts the request start time from the ASGI scope, which contains HTTP headers.
+
+        This method prepares data, specifically the request start time, for the 'request' function,
+        which is used to determine how to handle the incoming HTTP request.
 
         Args:
             scope (dict): The ASGI scope containing request details.

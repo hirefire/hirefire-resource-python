@@ -84,6 +84,9 @@ class Middleware:
         """
         Extracts the request start time from the ASGI scope, which contains HTTP headers.
 
+        This method prepares data, specifically the request start time, for the 'request' function,
+        which is used to determine how to handle the incoming HTTP request.
+
         Args:
             scope (dict): The ASGI scope containing request details.
 
