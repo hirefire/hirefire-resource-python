@@ -51,10 +51,18 @@ def construct_info_response():
         "Content-Type": "application/json",
         "Cache-Control": "must-revalidate, private, max-age=0",
     }
-    body = json.dumps(
-        [
-            {"name": worker.name, "value": worker.proc()}
-            for worker in HireFire.configuration.workers
-        ]
-    )
+    body = json.dumps(collect_workers_data())
     return 200, headers, [body]
+
+
+def collect_workers_data():
+    """
+    Collects data from all defined workers.
+
+    Returns:
+        list: A list of dictionaries with worker names and their respective metric values.
+    """
+    return [
+        {"name": worker.name, "value": worker.proc()}
+        for worker in HireFire.configuration.workers
+    ]

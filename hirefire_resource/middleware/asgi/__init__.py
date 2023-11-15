@@ -15,7 +15,8 @@ async def request(request_info):
     Works with normalized request data. It performs two key operations:
 
     1. Capturing and processing request queue time data and forwarding it to the `Web` instance.
-    2. Responding to specific HTTP requests with JSON-formatted job queue metrics from `Worker` instances.
+    2. Responding to specific HTTP requests with JSON-formatted job queue metrics from `Worker`
+       instances.
 
     The caller (frameworks-specific middleware) is responsible for extracting the request path and
     request start time from the request object and passing it to this function in a `RequestInfo`
@@ -42,7 +43,7 @@ async def request(request_info):
 
 async def construct_info_response():
     """
-    Asynchronously constructs a JSON response containing the current metrics for each configured worker.
+    Constructs a JSON response containing the current metrics for each configured worker.
 
     Returns:
         tuple: A tuple of HTTP status, headers, and JSON body containing the metrics.
@@ -59,10 +60,10 @@ async def construct_info_response():
 
 async def collect_workers_data():
     """
-    Collects data from all workers asynchronously.
+    Collects data from all defined workers.
 
     Returns:
-        list: A list of dictionaries with worker names and their respective values.
+        list: A list of dictionaries with worker names and their respective metric values.
     """
     data = []
 

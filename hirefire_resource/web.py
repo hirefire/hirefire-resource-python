@@ -8,35 +8,23 @@ from datetime import datetime
 
 class Web:
     """
-    Responsible for collecting and dispatching web metrics to the HireFire servers.
+    Handles the collection and dispatch of web metrics to HireFire's servers.
 
-    This class is designed to function efficiently in both non-forked (single-process) and forked (multi-process)
-    web server architectures. In a forked environment, it is recommended to instantiate Web objects within a
-    server's initialization code to ensure that each process maintains its own dispatcher.
-
-    The internal buffer (`_buffer`) is a critical component:
-    - It's a dictionary where keys are timestamps (in seconds since the Epoch), and the values are lists of request queue
-      time metrics recorded at that particular timestamp in milliseconds.
-    - Metrics are batched together if added within the same second, enabling efficient dispatching to the HireFire server.
-    - When metrics are dispatched, the entire buffer is flushed to prevent duplicate data transmission.
-    - Metrics older than the BUFFER_TTL (Time-to-Live) will be discarded, ensuring that only recent and relevant metrics are sent.
-
-    Example buffer contents:
-        {
-            1634367001: [3, 9],
-            1634367002: [10, 12, 8],
-        }
+    This class is designed to operate efficiently in various web server architectures, including
+    both non-forked (single-process) and forked (multi-process) server models.  It is thread-safe,
+    making it suitable for use with multithreaded servers.  In forked environments, each worker
+    process should have its own instance of this class.
 
     Attributes:
         DISPATCH_INTERVAL (int): Interval between dispatch attempts in seconds.
         DISPATCH_TIMEOUT (int): Timeout for HTTP requests in seconds.
-        BUFFER_TTL (int): Time-to-live for metrics in seconds. Metrics older than this value will be discarded.
+        BUFFER_TTL (int): Time-to-live for metrics in the buffer in seconds.
 
     Raises:
         TokenNotFoundError: If the HIREFIRE_TOKEN environment variable is not set.
-        NetworkError: If there's a network-related issue that prevents communication with the HireFire server.
-        TimeoutError: If the request to the HireFire server times out.
-        ServerError: If the HireFire server returns a 5xx status code indicating a server-side error.
+        NetworkError: For network-related issues.
+        TimeoutError: When a request to the server times out.
+        ServerError: When the server returns a 5xx status.
     """
 
     DISPATCH_INTERVAL = 5  # Interval between dispatch attempts in seconds.
@@ -47,7 +35,7 @@ class Web:
         """Raised when the HIREFIRE_TOKEN environment variable is not found."""
 
     class NetworkError(Exception):
-        """Raised when there's a network-related issue."""
+        """Raised for network-related issues."""
 
     class TimeoutError(Exception):
         """Raised when the request to the server times out."""
@@ -56,28 +44,14 @@ class Web:
         """Raised when the server returns a 5xx status."""
 
     def __init__(self):
-        """
-        Initializes the Web object with default values, preparing it to start collecting and dispatching metrics.
-
-        The buffer is structured to group metrics by the second in which they were recorded, allowing
-        efficient batch dispatching. The buffer will only retain recent metrics as defined by the BUFFER_TTL value.
-        """
-        self._buffer = {}  # Stores metrics grouped by timestamp of recording.
-        self._mutex = threading.Lock()  # Ensures thread-safe access to the buffer.
-        self._running = False  # Indicates if the dispatcher thread is running.
-        self._thread = None  # Will hold the dispatcher thread once started.
+        """Initializes a new Web instance."""
+        self._buffer = {}
+        self._mutex = threading.Lock()
+        self._running = False
+        self._thread = None
 
     def start(self):
-        """
-        Starts the dispatcher in a separate thread to continuously dispatch web metrics to the HireFire servers.
-
-        If the dispatcher is already running, this method will have no effect. After starting, the dispatcher
-        logs an informational message indicating its state.
-
-        Example:
-            web = Web()
-            web.start()
-        """
+        """Starts the dispatcher in a separate thread to dispatch web metrics."""
         with self._mutex:
             if self._running:
                 return
@@ -88,18 +62,7 @@ class Web:
         self._thread.start()
 
     def stop(self):
-        """
-        Stops the dispatcher thread, ensuring that no further metrics are dispatched to the HireFire server.
-
-        This method waits for the dispatcher's thread to complete before marking it as stopped.
-        After stopping, the buffer is cleared and an informational message is logged.
-
-        Example:
-            web = Web()
-            web.start()
-            # ... some time later ...
-            web.stop()
-        """
+        """Stops the dispatcher thread and clears the metric buffer."""
         with self._mutex:
             if not self._running:
                 return
@@ -124,14 +87,10 @@ class Web:
 
     def add_to_buffer(self, value):
         """
-        Adds a value to the buffer, associating it with the current timestamp.
+        Adds a value to the metric buffer.
 
         Args:
             value (int): The request queue time in milliseconds.
-
-        Example:
-            web = Web()
-            web.add_to_buffer(150)
         """
         with self._mutex:
             timestamp = int(datetime.now().timestamp())
@@ -139,10 +98,10 @@ class Web:
 
     def flush(self):
         """
-        Flushes the buffer, returning its contents, and creates a new empty buffer.
+        Flushes the current buffer, returning its contents.
 
         Returns:
-            dict: The buffer's contents before the flush.
+            dict: The contents of the buffer before clearing.
         """
         with self._mutex:
             buffer = self._buffer
@@ -150,15 +109,9 @@ class Web:
             return buffer
 
     def dispatch(self):
-        """
-        Dispatches the metrics buffer to the HireFire servers.
-
-        If the buffer is not empty, it submits the buffer contents. In case of an exception, it attempts to
-        repopulate the buffer with the undelivered metrics.
-
-        Note: This method does not return any value.
-        """
+        """Dispatches the buffer contents to HireFire's servers."""
         buffer = self.flush()
+
         if buffer:
             try:
                 self._submit_buffer(buffer)
@@ -167,9 +120,7 @@ class Web:
                 print(f"[HireFire] Error while dispatching web metrics: {str(e)}")
 
     def _run(self):
-        """
-        The dispatcher's main loop that triggers the dispatch of metrics at set intervals.
-        """
+        """Runs the dispatcher loop in a separate thread."""
         while self.running():
             try:
                 self.dispatch()
@@ -178,12 +129,7 @@ class Web:
             time.sleep(self.DISPATCH_INTERVAL)
 
     def _repopulate_buffer(self, buffer):
-        """
-        Repopulates the buffer with valid metrics if a dispatch attempt fails.
-
-        Args:
-            buffer (dict): The buffer containing metrics to repopulate.
-        """
+        """Repopulates the buffer with given contents, filtering out old entries."""
         now = int(datetime.now().timestamp())
         with self._mutex:
             for timestamp, values in buffer.items():
@@ -191,21 +137,7 @@ class Web:
                     self._buffer.setdefault(timestamp, []).extend(values)
 
     def _submit_buffer(self, buffer):
-        """
-        Submits the buffer to the HireFire servers via an HTTP POST request.
-
-        Args:
-            buffer (dict): The buffer containing metrics to be dispatched.
-
-        Returns:
-            bool: True if the submission is successful, False otherwise.
-
-        Raises:
-            TokenNotFoundError: If the HIREFIRE_TOKEN environment variable is not set.
-            NetworkError: For network-related issues.
-            TimeoutError: If the request to the server times out.
-            ServerError: If the server returns a 5xx status.
-        """
+        """Submits the buffer contents to HireFire's servers via an HTTP POST request."""
         hirefire_token = os.environ.get("HIREFIRE_TOKEN")
 
         if not hirefire_token:

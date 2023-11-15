@@ -6,7 +6,7 @@ from hirefire_resource import HireFire
 
 class RequestInfo:
     """
-    Represents details of an HTTP request.
+    Represents normalized details of an HTTP request.
 
     Attributes:
         path (str): The request path.
@@ -34,7 +34,7 @@ def matches_info_path(request_info):
     Checks if the request path matches the HireFire info path.
 
     Args:
-        request_info (RequestInfo): Object containing request details.
+        request_info (RequestInfo): Object containing normalized request details.
 
     Returns:
         bool: True if the request matches the info path, False otherwise.
@@ -47,7 +47,7 @@ def matches_info_path(request_info):
 
 def process_request_queue_time(request_info):
     """
-    Asynchronously calculates and processes the request's time spent in the queue.
+    Calculates and processes the request's time spent in the queue.
 
     Args:
         request_info (RequestInfo): Object containing request details.

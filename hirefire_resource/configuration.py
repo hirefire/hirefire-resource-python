@@ -5,65 +5,85 @@ from hirefire_resource.worker import Worker
 
 
 class InvalidDynoName(Exception):
-    """Exception raised for invalid dyno names."""
+    """
+    Exception raised when an invalid dyno name is provided.
+
+    This error indicates that the provided name does not conform to the Procfile naming restrictions.
+    """
 
 
 class MissingDynoProc(Exception):
-    """Exception raised when proc is missing for a worker dyno."""
+    """
+    Exception raised when a required callable (proc) is not provided for a worker instance configuration.
+
+    Worker dynos must have a callable that defines how to measure the job queue metric.
+    """
 
 
 class Configuration:
     """
-    Responsible for handling HireFire configuration within an application. It allows defining
-    the collection of metrics for web and worker dynos as required for autoscaling decisions
-    by HireFire for Heroku dynos.
+    The `Configuration` class is responsible for managing the configuration settings for the
+    `hirefire-resource` package in a Python application. It allows defining settings for collecting
+    and dispatching metrics to HireFire's servers. These metrics are used for autoscaling Heroku
+    web and worker dynos.
 
     Attributes:
-        web (Web or None): Instance of the Web class responsible for collecting and dispatching web metrics to
-                           HireFire's servers. It is set when calling `dyno("web")`.
-        workers (list of Worker): List of Worker class instances, each configured with a dyno name
-                                  and a proc that defines its job queue metric measurement logic.
+        web (Web, None): Instance of the `Web` class for managing web dyno metrics, or `None` if not configured.
+        workers (list): A list of `Worker` instances, each representing a configured worker dyno with
+                        its specific metric measurement logic.
 
-    Raises:
-        InvalidDynoName: Raised if the provided dyno name does not conform to the Procfile naming restrictions.
-        MissingDynoProc: Raised if a required proc is not provided for a worker dyno configuration.
+    Exceptions:
+        InvalidDynoName: Raised when an invalid dyno name is provided, indicating non-conformance with
+                         Procfile naming restrictions.
+        MissingDynoProc: Raised when a required callable (proc) is not provided for a worker instance configuration.
+                         Worker instances must have a callable that defines how to measure the job queue metric.
+
+    Methods:
+        dyno: Configures Web and Worker objects by setting up their metrics collection mechanisms.
+
+    Examples:
+        Configuring HireFire for web dyno metrics:
+
+            config = Configuration()
+            config.dyno("web")
+
+        Configuring HireFire to measure and provide job queue metrics for a worker dyno:
+
+            config = Configuration()
+            config.dyno("worker", lambda: some_metric_collection_logic)
     """
 
     def __init__(self):
         """
-        Initializes the Configuration instance, preparing it to handle web and worker dyno configurations.
+        Initializes a new `Configuration` instance with default settings.
         """
         self.web = None
         self.workers = []
 
     def dyno(self, name, proc=None):
         """
-        Configures Web and Worker objects.
-
-        The proc is ignored for Web objects, as the Web object as it is not used for collecting
-        web metrics.
-
-        The proc is required for Worker objects as it should return the job queue latency or
-        job queue size metric.
+        Configures Web and Worker objects for the HireFire metrics collection. For web dynos, this
+        method initializes a `Web` instance. For worker dynos, it requires a callable (proc) that
+        defines the metric collection logic.
 
         Args:
             name (str): The name of the dyno as declared in the Procfile.
-            proc (callable, optional): The proc for worker dynos that returns an integer representing
-                                       the job queue metric. It must be defined for worker dynos.
-
-        Returns:
-            Configuration: The current Configuration instance for method chaining.
+            proc (callable, optional): A callable for worker dynos that returns a metric (e.g., job queue latency).
+                                       Required for worker dynos.
 
         Raises:
-            InvalidDynoName: If the dyno name does not match Procfile naming restrictions.
-            MissingDynoProc: If a proc is missing for a worker dyno.
+            InvalidDynoName: If the dyno name is invalid according to Procfile naming restrictions.
+            MissingDynoProc: If a required callable (proc) is not provided for a worker dyno.
+
+        Returns:
+            Configuration: The instance of `Configuration` for chaining method calls.
 
         Examples:
-            >>> config = Configuration()
-            # For the collection and dispatching of request queue time metrics
-            >>> config.dyno("web")
-            # For the collection and serving of job queue metrics
-            >>> config.dyno("worker", lambda: job_queue_latency("default"))
+            Configuring a web instance:
+                config.dyno("web")
+
+            Configuring a worker instance with custom metric collection logic:
+                config.dyno("worker", lambda: some_metric_collection_logic)
         """
         if name == "web":
             self.web = Web()

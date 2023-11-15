@@ -3,12 +3,14 @@ from hirefire_resource.middleware.asgi import RequestInfo, request
 
 class Middleware:
     """
-    ASGI middleware for processing requests related to HireFire within Django's ASGI application.
+    Django (ASGI) middleware for autoscaling Heroku web and worker dynos using HireFire.
 
-    This middleware captures incoming requests and determines if they are intended for HireFire,
-    in which case it responds with appropriate metrics. Otherwise, it allows the Django application
-    to handle the request as usual. It's designed to integrate with Django's ASGI lifecycle and should
-    be placed early in the middleware stack to ensure accurate request queue time measurement.
+    This middleware delegates request processing to the `request` function.  It handles incoming
+    HTTP requests by analyzing the request path and start time.
+
+    The middleware checks for specific conditions (like request path) and, if met, responds with the
+    necessary job queue metrics. If the conditions are not met, it passes control to the next
+    middleware in the stack.
 
     Attributes:
         inner (callable): The inner application or middleware wrapped by this middleware.
@@ -26,11 +28,6 @@ class Middleware:
     async def __call__(self, scope, receive, send):
         """
         Asynchronous call method to process all incoming ASGI requests.
-
-        Extracts the necessary request information and determines if the request is for the
-        HireFire info path. If it is, the middleware constructs and returns a response with
-        the HireFire metrics. Otherwise, the request is passed on to the next application or
-        middleware.
 
         Args:
             scope (dict): The ASGI scope dictionary containing request details.
@@ -98,6 +95,5 @@ class Middleware:
                 try:
                     return int(timestamp_str)
                 except ValueError:
-                    # If the header is not in the expected format, ignore it and continue
                     pass
         return None

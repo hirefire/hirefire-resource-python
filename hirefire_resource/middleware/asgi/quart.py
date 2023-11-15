@@ -3,15 +3,16 @@ from hirefire_resource.middleware.asgi import RequestInfo, request
 
 class Middleware:
     """
-    Quart middleware for processing requests related to HireFire in an ASGI environment.
+    Quart (ASGI) middleware for autoscaling Heroku web and worker dynos using HireFire.
 
-    This middleware serves as a bridge between Quart's asynchronous request/response flow and the
-    HireFire base ASGI middleware. It standardizes incoming request information for the base middleware,
-    which then decides whether to respond with HireFire metrics or to pass the request along for normal
-    Quart processing.
+    This middleware delegates request processing to the `request` function.  It handles incoming
+    HTTP requests by analyzing the request path and start time.
+
+    The middleware checks for specific conditions (like request path) and, if met, responds with the
+    necessary job queue metrics. If the conditions are not met, it passes control to the next
+    middleware in the stack.
 
     Attributes:
-        app (Quart): The Quart application instance.
         original_app (callable): The original ASGI app callable that this middleware wraps.
     """
 

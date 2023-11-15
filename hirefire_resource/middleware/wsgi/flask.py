@@ -5,16 +5,14 @@ from hirefire_resource.middleware.wsgi import RequestInfo, request
 
 class Middleware:
     """
-    Flask middleware for processing requests related to HireFire.
+    Flask (WSGI) middleware for autoscaling Heroku web and worker dynos using HireFire.
 
-    This middleware serves as an intermediary between Flask's request/response flow and the
-    HireFire base middleware. It extracts request information from Flask's global request object,
-    standardizes it, and forwards it to the base middleware. If the request is for the HireFire
-    info path, this middleware constructs and returns a response with the appropriate metrics.
-    For all other requests, it continues the normal Flask request handling process.
+    This middleware delegates request processing to the `request` function.  It handles incoming
+    HTTP requests by analyzing the request path and start time.
 
-    To properly capture request queue times, this middleware should be placed early in the Flask
-    middleware stack, ideally as one of the first middlewares to be executed.
+    The middleware checks for specific conditions (like request path) and, if met, responds with the
+    necessary job queue metrics. If the conditions are not met, it passes control to the next
+    middleware in the stack.
 
     Attributes:
         app (Flask): The Flask application instance.
@@ -23,25 +21,18 @@ class Middleware:
 
     def __init__(self, app):
         """
-        Initializes the middleware with the given Flask application instance.
-
-        The middleware wraps the Flask application's WSGI interface, intercepting requests to
-        process them for HireFire metrics or to allow normal request processing.
+        Initializes the middleware with the next WSGI application or middleware in the stack.
 
         Args:
-            app (Flask): The Flask application instance.
+            app (WSGI application): The WSGI application instance. This could be a Flask
+            application, another WSGI-compatible application, or a middleware component.
         """
         self.app = app
         self.original_wsgi_app = app.wsgi_app
 
     def __call__(self, environ, start_response):
         """
-        Processes the incoming WSGI request, forwarding it to the base HireFire middleware.
-
-        Extracts the necessary request information and determines if the request is for the
-        HireFire info path. If it is, the middleware constructs and returns a response with the
-        HireFire metrics. Otherwise, the request is passed to the original Flask application
-        for regular processing.
+        Synchronous call method to process all incoming WSGI requests.
 
         Args:
             environ (dict): The WSGI environment dict containing request data.

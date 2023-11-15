@@ -5,12 +5,14 @@ from hirefire_resource.middleware.wsgi import RequestInfo, request
 
 class Middleware:
     """
-    Django-specific middleware for processing requests related to HireFire.
+    Django (WSGI) middleware for autoscaling Heroku web and worker dynos using HireFire.
 
-    This middleware standardizes Django's request object and response flow to be compatible with
-    the HireFire base middleware. It captures and processes request queue time data, and if the
-    request is for the HireFire info path, it responds with the appropriate data. For all other
-    requests, it passes the request through the normal Django request handling process.
+    This middleware delegates request processing to the `request` function.  It handles incoming
+    HTTP requests by analyzing the request path and start time.
+
+    The middleware checks for specific conditions (like request path) and, if met, responds with the
+    necessary job queue metrics. If the conditions are not met, it passes control to the next
+    middleware in the stack.
 
     Attributes:
         get_response (callable): The next middleware or view in Django's request-response processing chain.
@@ -27,9 +29,7 @@ class Middleware:
 
     def __call__(self, req):
         """
-        Process the incoming Django request by standardizing it and passing it to the base HireFire middleware.
-        If the request is for the HireFire info path, an appropriate response is returned. Otherwise, the request
-        is passed on to the next middleware or view.
+        Synchronous call method to process all incoming WSGI requests.
 
         Args:
             request (HttpRequest): The incoming Django request object.

@@ -3,12 +3,14 @@ from hirefire_resource.middleware.asgi import RequestInfo, request
 
 class Middleware:
     """
-    ASGI middleware for processing requests related to HireFire in a Starlette application.
+    Starlette (ASGI) middleware for autoscaling Heroku web and worker dynos using HireFire.
 
-    This middleware intercepts incoming requests and checks if they are targeting the HireFire
-    info endpoint. If so, it gathers the required metrics and constructs a response. For all
-    other requests, it passes control to the next item in the ASGI application chain, allowing
-    for standard processing within the Starlette framework.
+    This middleware delegates request processing to the `request` function.  It handles incoming
+    HTTP requests by analyzing the request path and start time.
+
+    The middleware checks for specific conditions (like request path) and, if met, responds with the
+    necessary job queue metrics. If the conditions are not met, it passes control to the next
+    middleware in the stack.
 
     Attributes:
         app (ASGI application): The ASGI application instance that this middleware wraps.
@@ -26,11 +28,6 @@ class Middleware:
     async def __call__(self, scope, receive, send):
         """
         Asynchronous call method to process incoming requests via the ASGI interface.
-
-        This method is the entry point for handling requests within the ASGI application. It
-        extracts the necessary information from the ASGI scope, determines if the request is
-        for the HireFire info path, and processes it accordingly. If not, it delegates to the
-        wrapped ASGI application for regular processing.
 
         Args:
             scope (dict): The ASGI scope dictionary containing request details.
