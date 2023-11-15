@@ -28,12 +28,19 @@ class Middleware:
         """
         Synchronous call method to process all incoming WSGI requests.
 
+        This method evaluates the incoming request using the 'request' function from
+        hirefire_resource.middleware.wsgi.  If the 'request' function indicates that a response
+        should be sent (e.g., job queue metrics for autoscaling), it creates and returns an
+        HttpResponse directly. Otherwise, it passes the request to the next middleware or view in
+        the chain for further processing.
+
         Args:
             req (HttpRequest): The incoming Django request object.
 
         Returns:
-            HttpResponse or callable: A Django HttpResponse if the request is for the HireFire info path,
-                                      otherwise the result of the get_response callable for further processing.
+            HttpResponse or callable: A Django HttpResponse if the request is handled by the
+                                      'request' function, otherwise the result of the get_response
+                                      callable for further processing.
         """
         response = request(
             RequestInfo(

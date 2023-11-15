@@ -31,16 +31,20 @@ class Middleware:
         """
         Synchronous call method to process all incoming WSGI requests.
 
+        Within a Flask request context, this method evaluates the request using the 'request'
+        function from hirefire_resource.middleware.wsgi. If the 'request' function indicates a
+        custom response is required (e.g., job queue metrics for autoscaling), a Flask Response
+        object is created and returned.  Otherwise, the request is passed to the original WSGI
+        application callable for further processing.
+
         Args:
             environ (dict): The WSGI environment dict containing request data.
-            start_response (callable): The WSGI start_response callable used to initiate the HTTP response.
-                                  the result of the original WSGI application callable.
+            start_response (callable): The WSGI start_response callable used to initiate the HTTP
+                                       response.
 
         Returns:
-            Response or iterable: A Flask Response object is returned if the 'request' function
-                                  determines that a custom response is required (e.g., for the
-                                  HireFire info path). Otherwise, it passes the request to the
-                                  original WSGI application callable.
+            Response or iterable: A Flask Response object or the result of the original WSGI
+                                  application callable.
         """
         with self.app.request_context(environ):
             response = request(
