@@ -5,12 +5,9 @@ class Middleware:
     """
     Django (ASGI) middleware for autoscaling Heroku web and worker dynos using HireFire.
 
-    This middleware delegates request processing to the `request` function.  It handles incoming
-    HTTP requests by analyzing the request path and start time.
-
-    The middleware checks for specific conditions (like request path) and, if met, responds with the
-    necessary job queue metrics. If the conditions are not met, it passes control to the next
-    middleware in the stack.
+    This middleware interacts with the 'request' function (from hirefire_resource.middleware.asgi)
+    to determine how to process each incoming HTTP request. The 'request' function is used to assess
+    whether to respond with job queue metrics or pass the request to the next middleware.
 
     Attributes:
         inner (callable): The inner application or middleware wrapped by this middleware.
@@ -27,7 +24,11 @@ class Middleware:
 
     async def __call__(self, scope, receive, send):
         """
-        Asynchronous call method to process all incoming ASGI requests.
+        Asynchronous call method to process all incoming requests.
+
+        This method checks if the incoming request is HTTP and, if so, uses the 'request' function
+        to decide the appropriate action. See 'request' in hirefire_resource.middleware.asgi for
+        more details on how the processing is determined.
 
         Args:
             scope (dict): The ASGI scope dictionary containing request details.
