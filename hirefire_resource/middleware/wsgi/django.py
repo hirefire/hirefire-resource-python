@@ -7,12 +7,9 @@ class Middleware:
     """
     Django (WSGI) middleware for autoscaling Heroku web and worker dynos using HireFire.
 
-    This middleware delegates request processing to the `request` function.  It handles incoming
-    HTTP requests by analyzing the request path and start time.
-
-    The middleware checks for specific conditions (like request path) and, if met, responds with the
-    necessary job queue metrics. If the conditions are not met, it passes control to the next
-    middleware in the stack.
+    This middleware interacts with the 'request' function to determine how to process each incoming
+    HTTP request. Based on the output of the 'request' function, it either responds with job queue
+    metrics for autoscaling purposes or passes the request to the next middleware in the stack.
 
     Attributes:
         get_response (callable): The next middleware or view in Django's request-response processing chain.
