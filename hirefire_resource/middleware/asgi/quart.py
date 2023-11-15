@@ -86,6 +86,6 @@ class Middleware:
             int: The request start time in milliseconds if found, otherwise None.
         """
         for header_name, header_value in scope["headers"]:
-            if header_name == b"x-request-start":
+            if header_name.lower() == b"x-request-start":
                 return int(header_value.decode("utf-8"))
         return None
