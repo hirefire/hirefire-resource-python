@@ -29,7 +29,7 @@ class Middleware:
         Synchronous call method to process all incoming WSGI requests.
 
         Args:
-            request (HttpRequest): The incoming Django request object.
+            req (HttpRequest): The incoming Django request object.
 
         Returns:
             HttpResponse or callable: A Django HttpResponse if the request is for the HireFire info path,
@@ -47,4 +47,4 @@ class Middleware:
             response = HttpResponse(content=body, status=status, headers=headers)
             return response
 
-        return self.get_response(request)
+        return self.get_response(req)
