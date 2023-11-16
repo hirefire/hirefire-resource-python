@@ -1,5 +1,6 @@
 from hirefire_resource.middleware.asgi import RequestInfo, request
 
+
 class Middleware:
     """
     Starlette (ASGI) middleware for autoscaling Heroku web and worker dynos using HireFire.
