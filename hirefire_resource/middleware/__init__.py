@@ -59,21 +59,21 @@ def process_request_queue_time(request_info):
     ):
         return
 
-    request_queue_time = calculate_request_queue_time(request_info.request_start_time)
+    request_queue_time = calculate_request_queue_time(request_info)
 
     HireFire.configuration.web.add_to_buffer(request_queue_time)
     HireFire.configuration.web.start()
 
 
-def calculate_request_queue_time(request_start_time):
+def calculate_request_queue_time(request_info):
     """
     Calculates the time the request spent in the queue using the X-Request-Start header provide by
     Heroku's routing layer.
 
     Args:
-        request_start_time (str): The timestamp when Heroku's routing layer first received the request.
+        request_info (RequestInfo): Object containing request details.
 
     Returns:
         int: The time spent in the queue in milliseconds. If the calculated time is negative, it returns 0.
     """
-    return max(int(time.time() * 1000) - int(request_start_time), 0)
+    return max(int(time.time() * 1000) - request_info.request_start_time, 0)
