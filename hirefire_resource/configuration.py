@@ -30,7 +30,7 @@ class Configuration:
     Attributes:
         web (Web, None): Instance of the `Web` class for managing web dyno metrics, or `None` if not configured.
         workers (list): A list of `Worker` instances, each representing a configured worker dyno with
-                        its specific metric measurement logic.
+            its specific metric measurement logic.
 
     Exceptions:
         InvalidDynoName: Raised when an invalid dyno name is provided, indicating non-conformance with

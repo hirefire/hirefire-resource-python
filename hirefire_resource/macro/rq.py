@@ -18,7 +18,8 @@ def job_queue_latency(*queues, redis_url=None):
     Args:
         queues: A variable number of queue names as strings.
         redis_url (str, optional): The Redis server URL. Defaults to the environment variable
-            REDIS_URL, then REDIS_TLS_URL, and falls back to "redis://localhost:6379" if neither is set.
+                                   REDIS_URL, then REDIS_TLS_URL, and falls back to
+                                   "redis://localhost:6379" if neither is set.
 
     Returns:
         int: The maximum job queue latency in seconds across the specified queues.
@@ -93,7 +94,8 @@ async def async_job_queue_latency(*queues, redis_url=None):
     Args:
         queues (str): A variable number of queue names as strings.
         redis_url (str, optional): The Redis server URL. Defaults to the environment variable
-            REDIS_URL, then REDIS_TLS_URL, and falls back to "redis://localhost:6379" if neither is set.
+                                   REDIS_URL, then REDIS_TLS_URL, and falls back to
+                                   "redis://localhost:6379" if neither is set.
 
     Returns:
         int: The maximum job queue latency in seconds across the specified queues.
@@ -119,7 +121,8 @@ def job_queue_size(*queues, redis_url=None):
     Args:
         queues: A variable number of queue names as strings.
         redis_url (str, optional): The Redis server URL. Defaults to the environment variable
-            REDIS_URL, then REDIS_TLS_URL, and falls back to "redis://localhost:6379" if neither is set.
+                                   REDIS_URL, then REDIS_TLS_URL, and falls back to
+                                   "redis://localhost:6379" if neither is set.
 
     Returns:
         int: The cumulative job queue size across the specified queues.
@@ -170,7 +173,8 @@ async def async_job_queue_size(*queues, redis_url=None):
     Args:
         queues (str): A variable number of queue names as strings.
         redis_url (str, optional): The Redis server URL. Defaults to the environment variable
-            REDIS_URL, then REDIS_TLS_URL, and falls back to "redis://localhost:6379" if neither is set.
+                                   REDIS_URL, then REDIS_TLS_URL, and falls back to
+                                   "redis://localhost:6379" if neither is set.
 
     Returns:
         int: The cumulative job queue size across the specified queues.

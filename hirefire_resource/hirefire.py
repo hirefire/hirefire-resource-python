@@ -16,7 +16,7 @@ class HireFire:
 
     Attributes:
         configuration (Configuration): An instance of the `Configuration` class to hold the HireFire
-        configuration settings.
+                                       configuration settings.
 
     Examples:
         Configuring HireFire to collect metrics for web (i.e., Gunicorn) and worker (i.e., RQ):
@@ -32,7 +32,7 @@ class HireFire:
 
     Methods:
         configure: A class method that yields the current configuration to a block, allowing for the
-        configuration of the `hirefire-resource` package.
+                   configuration of the `hirefire-resource` package.
     """
 
     configuration = Configuration()

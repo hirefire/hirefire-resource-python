@@ -24,7 +24,8 @@ class Worker:
         self.proc = proc
 
     def call(self):
-        """Executes the callable passed during initialization and returns its result.
+        """
+        Executes the callable passed during initialization and returns its result.
 
         The result should be an integer representing the measured queue metric,
         which will be made available to HireFire's servers.
