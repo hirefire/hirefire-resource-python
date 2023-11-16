@@ -7,7 +7,7 @@ from django.http import HttpResponse
 from django.test import RequestFactory
 from freezegun import freeze_time
 
-from hirefire_resource import HireFire
+from hirefire_resource import HireFire, __version__
 from hirefire_resource.configuration import Configuration
 from hirefire_resource.middleware.wsgi.django import Middleware
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
@@ -79,6 +79,7 @@ def test_intercept_and_process_worker_configuration(client, set_HIREFIRE_TOKEN):
     expected_headers = {
         "content-type": "application/json",
         "cache-control": "must-revalidate, private, max-age=0",
+        "hirefire-resource": f"Python-{__version__}",
     }
     assert response.headers == expected_headers
     assert response.status_code == 200

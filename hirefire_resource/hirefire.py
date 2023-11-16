@@ -5,48 +5,51 @@ from hirefire_resource.configuration import Configuration
 
 class HireFire:
     """
-    The `HireFire` class serves as the main entry point for integrating the `hirefire-resource`
-    package into your Python application. It offers a configuration interface for specifying how
-    HireFire collects, serves, and dispatches metrics, which are necessary for the autoscaling
-    decisions made by dyno managers on HireFire.
-
-    This setup is typically implemented in an initializer within a Django or Flask application.  For
-    other Python applications, the configuration should be placed in a part of your codebase that is
-    executed during application startup.
+    Represents the main interface for integrating the `hirefire-resource` package into Python
+    applications. This class facilitates the configuration of metric collection, dispatching and
+    serving, for Heroku dyno autoscaling with HireFire. It supports metrics configuration for both
+    web and worker dynos. It is typically instantiated during the application's initialization
+    phase.
 
     Attributes:
-        configuration (Configuration): An instance of the `Configuration` class to hold the HireFire
-                                       configuration settings.
+        configuration (Configuration): Holds the configuration settings for HireFire. It is an
+                                       instance of the `Configuration` class, initialized by
+                                       default.
 
     Examples:
-        Configuring HireFire to collect metrics for web (i.e., Gunicorn) and worker (i.e., RQ):
+        Setting up HireFire for a web application with specific metrics collection for different
+        dyno types:
 
             from hirefire_resource import HireFire
             from hirefire_resource.macro.rq import job_queue_latency
 
             with HireFire.configure() as config:
-                # To collect Request Queue Time metrics for autoscaling `web` dynos:
+                # Configure metrics collection for `web` dynos
                 config.dyno("web")
-                # To collect Job Queue Latency metrics for autoscaling `worker` dynos:
+                # Configure metrics collection for `worker` dynos, using job queue latency
                 config.dyno("worker", lambda: job_queue_latency("default"))
 
     Methods:
-        configure: A class method that yields the current configuration to a block, allowing for the
-                   configuration of the `hirefire-resource` package.
-    """
+        configure: Yields the current configuration instance, allowing for the customization of the
+                   `hirefire-resource` package. Typically used within an application's
+                   initialization script or setup file.
 
+    """
     configuration = Configuration()
 
     @classmethod
     @contextmanager
     def configure(cls):
         """
-        A context manager that yields the current configuration instance, allowing for the
-        configuration of the `hirefire-resource` package. This method is typically called from an
-        initializer file or any other setup script in your application.
+        Provides a way to configure the `hirefire-resource` package. This method yields the current
+        configuration instance, enabling the user to modify it as needed. It is designed to be used
+        in application initialization or setup scripts.
+
+        If the `configuration` attribute is None, a new `Configuration` instance is created and
+        assigned.
 
         Yields:
-            Configuration: The current configuration instance to be modified.
+            Configuration: The current configuration instance, allowing for modifications to be applied.
         """
         if cls.configuration is None:
             cls.configuration = Configuration()

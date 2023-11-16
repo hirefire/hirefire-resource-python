@@ -5,7 +5,7 @@ import pytest
 from freezegun import freeze_time
 from quart import Quart
 
-from hirefire_resource import HireFire
+from hirefire_resource import HireFire, __version__
 from hirefire_resource.configuration import Configuration
 from hirefire_resource.middleware.asgi.quart import Middleware
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
@@ -80,3 +80,4 @@ async def test_intercept_and_process_worker_configuration(set_HIREFIRE_TOKEN, cl
     assert await response.get_json() == [{"name": "worker", "value": 1.23}]
     assert response.headers["content-type"] == "application/json"
     assert response.headers["cache-control"] == "must-revalidate, private, max-age=0"
+    assert response.headers["hirefire-resource"] == f"Python-{__version__}"

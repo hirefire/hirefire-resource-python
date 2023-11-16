@@ -22,10 +22,7 @@ class MissingDynoProc(Exception):
 
 class Configuration:
     """
-    The `Configuration` class is responsible for managing the configuration settings for the
-    `hirefire-resource` package in a Python application. It allows defining settings for collecting
-    and dispatching metrics to HireFire's servers. These metrics are used for autoscaling Heroku
-    web and worker dynos.
+    Contains the configuration for the HireFire integration.
 
     Attributes:
         web (Web, None): Instance of the `Web` class for managing web dyno metrics, or `None` if not configured.

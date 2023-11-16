@@ -5,7 +5,7 @@ import pytest
 from flask import Flask
 from freezegun import freeze_time
 
-from hirefire_resource import HireFire
+from hirefire_resource import HireFire, __version__
 from hirefire_resource.configuration import Configuration
 from hirefire_resource.middleware.wsgi.flask import Middleware
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
@@ -76,4 +76,5 @@ def test_intercept_and_process_worker_configuration(client, set_HIREFIRE_TOKEN):
     assert response.status_code == 200
     assert response.get_json() == [{"name": "worker", "value": 1.23}]
     assert response.headers["Content-Type"] == "application/json"
-    assert response.headers["cache-control"] == "must-revalidate, private, max-age=0"
+    assert response.headers["Cache-Control"] == "must-revalidate, private, max-age=0"
+    assert response.headers["Hirefire-Resource"] == f"Python-{__version__}"

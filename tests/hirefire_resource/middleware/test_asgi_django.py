@@ -7,7 +7,7 @@ from freezegun import freeze_time
 from starlette.responses import Response
 from starlette.testclient import TestClient
 
-from hirefire_resource import HireFire
+from hirefire_resource import HireFire, __version__
 from hirefire_resource.configuration import Configuration
 from hirefire_resource.middleware.asgi.django import Middleware
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
@@ -87,5 +87,6 @@ async def test_intercept_and_process_worker_configuration(client, set_HIREFIRE_T
     )
     assert response.headers["content-type"] == "application/json"
     assert response.headers["cache-control"] == "must-revalidate, private, max-age=0"
+    assert response.headers["hirefire-resource"] == f"Python-{__version__}"
     assert response.status_code == 200
     assert response.json() == [{"name": "worker", "value": 1.23}]
