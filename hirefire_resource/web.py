@@ -21,7 +21,6 @@ class Web:
         BUFFER_TTL (int): Time-to-live for metrics in the buffer in seconds.
 
     Raises:
-        TokenNotFoundError: If the HIREFIRE_TOKEN environment variable is not set.
         NetworkError: For network-related issues.
         TimeoutError: When a request to the server times out.
         ServerError: When the server returns a 5xx status.
@@ -30,9 +29,6 @@ class Web:
     DISPATCH_INTERVAL = 5  # Interval between dispatch attempts in seconds.
     DISPATCH_TIMEOUT = 5  # Timeout for HTTP requests in seconds.
     BUFFER_TTL = 60  # Time-to-live for metrics in seconds.
-
-    class TokenNotFoundError(Exception):
-        """Raised when the HIREFIRE_TOKEN environment variable is not found."""
 
     class NetworkError(Exception):
         """Raised for network-related issues."""
@@ -138,18 +134,11 @@ class Web:
 
     def _submit_buffer(self, buffer):
         """Submits the buffer contents to HireFire's servers via an HTTP POST request."""
-        hirefire_token = os.environ.get("HIREFIRE_TOKEN")
-
-        if not hirefire_token:
-            raise self.TokenNotFoundError(
-                "HIREFIRE_TOKEN environment variable is not set."
-            )
-
         buffer_string = json.dumps(buffer)
         headers = {
             "Content-Type": "application/json",
             "User-Agent": "HireFire Agent (Python)",
-            "HireFire-Token": hirefire_token,
+            "HireFire-Token": os.environ.get("HIREFIRE_TOKEN"),
         }
 
         connection = http.client.HTTPSConnection(

@@ -91,12 +91,3 @@ def test_submit_buffer_http_information(set_HIREFIRE_TOKEN):
     assert expected_buffer_string == last_request.body.decode("utf-8")
     for header, value in expected_headers.items():
         assert value == last_request.headers.get(header)
-
-
-def test_dispatch_without_token_prints_error(capsys):
-    web = Web()
-    web.add_to_buffer(5)  # Add a metric to ensure buffer is not empty
-    web.dispatch()
-
-    captured = capsys.readouterr()
-    assert "HIREFIRE_TOKEN environment variable is not set" in captured.out
