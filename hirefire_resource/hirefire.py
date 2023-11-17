@@ -11,4 +11,5 @@ class HireFire:
     def configure(cls):
         if cls.configuration is None:
             cls.configuration = Configuration()
+
         yield cls.configuration

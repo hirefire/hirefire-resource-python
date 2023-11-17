@@ -1,3 +1,5 @@
+import pytest
+
 from hirefire_resource.worker import InvalidDynoName, MissingDynoProc, Worker
 
 
