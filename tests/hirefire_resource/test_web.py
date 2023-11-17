@@ -6,7 +6,6 @@ from unittest.mock import patch
 import httpretty
 from freezegun import freeze_time
 
-
 from hirefire_resource import __version__
 from hirefire_resource.web import Web
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa

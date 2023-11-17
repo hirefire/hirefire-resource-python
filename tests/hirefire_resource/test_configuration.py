@@ -4,11 +4,13 @@ from hirefire_resource.worker import Worker
 
 
 def test_web():
-    config = Configuration().dyno("web")
+    config = Configuration()
+    config.dyno("web")
     assert isinstance(config.web, Web)
 
 
 def test_worker():
-    config = Configuration().dyno("worker", lambda: 1.23)
+    config = Configuration()
+    config.dyno("worker", lambda: 1.23)
     assert isinstance(config.workers[0], Worker)
     assert len(config.workers) == 1
