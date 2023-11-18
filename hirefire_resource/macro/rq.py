@@ -6,9 +6,7 @@ from datetime import datetime
 
 import redis
 
-
-class MissingQueueError(Exception):
-    """Exception raised when no queue names are provided."""
+from hirefire_resource.errors import MissingQueueError
 
 
 def job_queue_latency(*queues, redis_url=None):
@@ -194,19 +192,6 @@ async def async_job_queue_size(*queues, redis_url=None):
 
 
 def _iso_to_unix(iso_time):
-    """
-    Converts an ISO 8601 formatted string to a Unix timestamp.
-
-    Args:
-        iso_time: A string representing the time in ISO 8601 format.
-
-    Returns:
-        An integer Unix timestamp representing the given time.
-
-    Examples:
-        >>> _iso_to_unix("2023-01-01T00:00:00Z")
-        1672531200
-    """
     dt = datetime.fromisoformat(iso_time.replace("Z", "+00:00"))
     unix_time = int(dt.timestamp())
 

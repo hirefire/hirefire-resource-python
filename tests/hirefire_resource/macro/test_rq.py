@@ -6,8 +6,8 @@ from freezegun import freeze_time
 from redis import Redis
 from rq import Queue
 
+from hirefire_resource.errors import MissingQueueError
 from hirefire_resource.macro.rq import (
-    MissingQueueError,
     async_job_queue_latency,
     async_job_queue_size,
     job_queue_latency,

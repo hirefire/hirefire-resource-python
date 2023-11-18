@@ -11,7 +11,7 @@ def test_worker_initialization_and_methods():
 
 def test_invalid_dyno_name_exception():
     with pytest.raises(InvalidDynoName):
-        Worker("invalid name!", lambda: 1.23)
+        Worker("invalid name", lambda: 1.23)
 
 
 def test_missing_dyno_proc_exception():

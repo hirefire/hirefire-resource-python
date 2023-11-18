@@ -1,0 +1,2 @@
+class MissingQueueError(Exception):
+    pass
