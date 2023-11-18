@@ -1,6 +1,6 @@
 import pytest
 
-from hirefire_resource.worker import InvalidDynoName, MissingDynoProc, Worker
+from hirefire_resource.worker import InvalidDynoNameError, MissingDynoProcError, Worker
 
 
 def test_worker_initialization_and_methods():
@@ -10,10 +10,10 @@ def test_worker_initialization_and_methods():
 
 
 def test_invalid_dyno_name_exception():
-    with pytest.raises(InvalidDynoName):
+    with pytest.raises(InvalidDynoNameError):
         Worker("invalid name", lambda: 1.23)
 
 
 def test_missing_dyno_proc_exception():
-    with pytest.raises(MissingDynoProc):
+    with pytest.raises(MissingDynoProcError):
         Worker("worker")
