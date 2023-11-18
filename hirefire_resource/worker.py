@@ -19,7 +19,7 @@ class Worker:
         return self.proc()
 
     def _validate(self, name, proc):
-        if not re.match(r"^[a-zA-Z][a-zA-Z0-9_]{0,29}$", name):
+        if not re.match(r"^[a-zA-Z][a-zA-Z0-9_]{0,29}$", name or ""):
             raise InvalidDynoNameError(
                 f"Invalid name for Worker({name}, proc). "
                 "Ensure it matches the Procfile process name (i.e. web, worker)."
