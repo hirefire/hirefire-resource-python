@@ -1,5 +1,6 @@
 import copy
 import json
+import logging
 from datetime import datetime
 from unittest.mock import patch
 
@@ -17,13 +18,17 @@ def mock_http_response(status=200, content=""):
     )
 
 
-def test_start_and_stop():
+def test_start_and_stop(caplog):
+    caplog.set_level(logging.INFO)
     with patch("time.sleep", return_value=None):
         web = Web()
         web.start()
         assert web.running() == True
+        assert "[HireFire] Starting web metrics dispatcher." in caplog.text
+        caplog.clear()
         web.stop()
         assert web.running() == False
+        assert "[HireFire] Web metrics dispatcher stopped." in caplog.text
 
 
 def test_add_to_buffer_and_flush():
@@ -58,7 +63,7 @@ def test_successful_dispatch(set_HIREFIRE_TOKEN):
 
 
 @httpretty.activate
-def test_repopulation_and_stdout_on_dispatch_error(capsys):
+def test_repopulation_and_stdout_on_dispatch_error(caplog):
     mock_http_response(status=500)
     web = Web()
     web.add_to_buffer(5)
@@ -67,7 +72,7 @@ def test_repopulation_and_stdout_on_dispatch_error(capsys):
     web.dispatch()
 
     assert web._buffer == initial_buffer
-    assert "[HireFire] Error while dispatching web metrics:" in capsys.readouterr().out
+    assert "[HireFire] Error while dispatching web metrics:" in caplog.text
 
 
 @httpretty.activate

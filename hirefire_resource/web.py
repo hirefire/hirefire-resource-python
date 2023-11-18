@@ -1,5 +1,6 @@
 import http.client
 import json
+import logging
 import os
 import threading
 import time
@@ -13,20 +14,19 @@ class Web:
     DISPATCH_TIMEOUT = 5
     BUFFER_TTL = 60
 
-    class NetworkError(Exception):
-        pass
-
-    class TimeoutError(Exception):
-        pass
-
-    class ServerError(Exception):
-        pass
-
     def __init__(self):
         self._buffer = {}
         self._mutex = threading.Lock()
         self._running = False
         self._thread = None
+        self.configuration = None
+
+    @property
+    def logger(self):
+        if self.configuration:
+            return self.configuration.logger
+        else:
+            return logging.getLogger()
 
     def start(self):
         with self._mutex:
@@ -34,7 +34,8 @@ class Web:
                 return
             self._running = True
 
-        print("[HireFire] Starting web metrics dispatcher.")
+        self.logger.info("[HireFire] Starting web metrics dispatcher.")
+
         self._thread = threading.Thread(target=self._start)
         self._thread.start()
 
@@ -48,8 +49,9 @@ class Web:
             self._thread.join(self.DISPATCH_TIMEOUT)
             self._thread = None
 
-        self._buffer.clear()
-        print("[HireFire] Web metrics dispatcher stopped.")
+        self.flush()
+
+        self.logger.info("[HireFire] Web metrics dispatcher stopped.")
 
     def running(self):
         with self._mutex:
@@ -74,7 +76,9 @@ class Web:
                 self._submit_buffer(buffer)
             except Exception as e:
                 self._repopulate_buffer(buffer)
-                print(f"[HireFire] Error while dispatching web metrics: {str(e)}")
+                self.logger.error(
+                    f"[HireFire] Error while dispatching web metrics: {str(e)}"
+                )
 
     def _start(self):
         while self.running():
@@ -108,19 +112,17 @@ class Web:
             if 200 <= response.status < 300:
                 return True
             elif 500 <= response.status < 600:
-                raise self.ServerError(
-                    f"Server returned {response.status}: {response.reason}"
-                )
+                raise Exception(f"Server returned {response.status}: {response.reason}")
             else:
-                raise self.NetworkError(
+                raise Exception(
                     f"Request failed with {response.status}: {response.reason}"
                 )
 
         except http.client.HTTPException as e:
-            raise self.NetworkError(f"HTTP error occurred: {str(e)}")
+            raise Exception(f"HTTP error occurred: {str(e)}")
         except socket.timeout:
-            raise self.TimeoutError("The request to the server timed out.")
+            raise Exception("The request to the server timed out.")
         except Exception as e:
-            raise self.NetworkError(f"Unexpected error occurred: {str(e)}")
+            raise Exception(f"Unexpected error occurred: {str(e)}")
         finally:
             connection.close()
