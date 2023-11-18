@@ -9,11 +9,11 @@ def test_worker_initialization_and_methods():
     assert worker.call() == 1.23
 
 
-def test_invalid_dyno_name_exception():
+def test_invalid_dyno_name_error():
     with pytest.raises(InvalidDynoNameError):
         Worker("invalid name", lambda: 1.23)
 
 
-def test_missing_dyno_proc_exception():
+def test_missing_dyno_proc_error():
     with pytest.raises(MissingDynoProcError):
         Worker("worker")
