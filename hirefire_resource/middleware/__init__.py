@@ -32,7 +32,7 @@ def process_request_queue_time(request_info):
     request_queue_time = calculate_request_queue_time(request_info)
 
     HireFire.configuration.web.add_to_buffer(request_queue_time)
-    HireFire.configuration.web.start()
+    HireFire.configuration.web.start_dispatcher()
 
 
 def calculate_request_queue_time(request_info):

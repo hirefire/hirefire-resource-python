@@ -18,42 +18,35 @@ class Web:
         self._buffer = {}
         self._mutex = threading.Lock()
         self._running = False
-        self._thread = None
+        self._dispatcher = None
         self.configuration = None
 
-    @property
-    def logger(self):
-        if self.configuration:
-            return self.configuration.logger
-        else:
-            return logging.getLogger()
-
-    def start(self):
+    def start_dispatcher(self):
         with self._mutex:
             if self._running:
                 return
             self._running = True
 
-        self.logger.info("[HireFire] Starting web metrics dispatcher.")
+        self._logger.info("[HireFire] Starting web metrics dispatcher.")
 
-        self._thread = threading.Thread(target=self._start)
-        self._thread.start()
+        self._dispatcher = threading.Thread(target=self._start_dispatcher)
+        self._dispatcher.start()
 
-    def stop(self):
+    def stop_dispatcher(self):
         with self._mutex:
             if not self._running:
                 return
             self._running = False
 
-        if self._thread:
-            self._thread.join(self.DISPATCH_TIMEOUT)
-            self._thread = None
+        if self._dispatcher:
+            self._dispatcher.join(self.DISPATCH_TIMEOUT)
+            self._dispatcher = None
 
-        self.flush()
+        self.flush_buffer()
 
-        self.logger.info("[HireFire] Web metrics dispatcher stopped.")
+        self._logger.info("[HireFire] Web metrics dispatcher stopped.")
 
-    def running(self):
+    def dispatcher_running(self):
         with self._mutex:
             return self._running
 
@@ -62,27 +55,27 @@ class Web:
             timestamp = int(datetime.now().timestamp())
             self._buffer.setdefault(timestamp, []).append(value)
 
-    def flush(self):
+    def flush_buffer(self):
         with self._mutex:
             buffer = self._buffer
             self._buffer = {}
             return buffer
 
-    def dispatch(self):
-        buffer = self.flush()
+    def dispatch_buffer(self):
+        buffer = self.flush_buffer()
 
         if buffer:
             try:
                 self._submit_buffer(buffer)
             except Exception as e:
                 self._repopulate_buffer(buffer)
-                self.logger.error(
+                self._logger.error(
                     f"[HireFire] Error while dispatching web metrics: {str(e)}"
                 )
 
-    def _start(self):
-        while self.running():
-            self.dispatch()
+    def _start_dispatcher(self):
+        while self.dispatcher_running():
+            self.dispatch_buffer()
             time.sleep(self.DISPATCH_INTERVAL)
 
     def _repopulate_buffer(self, buffer):
@@ -126,3 +119,10 @@ class Web:
             raise Exception(f"Unexpected error occurred: {str(e)}")
         finally:
             connection.close()
+
+    @property
+    def _logger(self):
+        if self.configuration:
+            return self.configuration.logger
+        else:
+            return logging.getLogger()

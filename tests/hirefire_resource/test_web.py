@@ -22,12 +22,12 @@ def test_start_and_stop(caplog):
     caplog.set_level(logging.INFO)
     with patch("time.sleep", return_value=None):
         web = Web()
-        web.start()
-        assert web.running() == True
+        web.start_dispatcher()
+        assert web.dispatcher_running() == True
         assert "[HireFire] Starting web metrics dispatcher." in caplog.text
         caplog.clear()
-        web.stop()
-        assert web.running() == False
+        web.stop_dispatcher()
+        assert web.dispatcher_running() == False
         assert "[HireFire] Web metrics dispatcher stopped." in caplog.text
 
 
@@ -48,7 +48,7 @@ def test_add_to_buffer_and_flush():
         timestamp_2 = int(datetime(2000, 1, 1, 0, 0, 1).timestamp())
         assert web._buffer == {timestamp_1: [5, 10], timestamp_2: [15, 20]}
 
-    data = web.flush()
+    data = web.flush_buffer()
     assert data == {timestamp_1: [5, 10], timestamp_2: [15, 20]}
     assert web._buffer == {}
 
@@ -58,7 +58,7 @@ def test_successful_dispatch(set_HIREFIRE_TOKEN):
     mock_http_response()
     web = Web()
     web.add_to_buffer(5)
-    web.dispatch()
+    web.dispatch_buffer()
     assert web._buffer == {}
 
 
@@ -69,7 +69,7 @@ def test_repopulation_and_stdout_on_dispatch_error(caplog):
     web.add_to_buffer(5)
     initial_buffer = copy.deepcopy(web._buffer)
 
-    web.dispatch()
+    web.dispatch_buffer()
 
     assert web._buffer == initial_buffer
     assert "[HireFire] Error while dispatching web metrics:" in caplog.text

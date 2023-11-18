@@ -51,7 +51,7 @@ async def test_pass_through_without_HIREFIRE_TOKEN(client):
     with HireFire.configure() as config:
         config.dyno("web")
         config.dyno("worker", measure_queue_metric)
-    with patch.object(HireFire.configuration.web, "start") as mock_start:
+    with patch.object(HireFire.configuration.web, "start_dispatcher") as mock_start:
         response = client.get("/", headers={"x-request-start": "1"})
         assert response.status_code == 200
         assert response.content == b"DEFAULT"
@@ -73,7 +73,7 @@ async def test_pass_through_without_configuration(client, set_HIREFIRE_TOKEN):
 async def test_pass_through_and_process_web_configuration(client, set_HIREFIRE_TOKEN):
     with HireFire.configure() as config:
         config.dyno("web")
-    with patch.object(HireFire.configuration.web, "start") as mock_start:
+    with patch.object(HireFire.configuration.web, "start_dispatcher") as mock_start:
         response = client.get(
             "/", headers={"x-request-start": str(int(time.time() * 1000 - 5))}
         )
