@@ -17,15 +17,15 @@ class Web:
     def __init__(self):
         self._buffer = {}
         self._mutex = threading.Lock()
-        self._running = False
+        self._dispatcher_running = False
         self._dispatcher = None
         self.configuration = None
 
     def start_dispatcher(self):
         with self._mutex:
-            if self._running:
+            if self._dispatcher_running:
                 return
-            self._running = True
+            self._dispatcher_running = True
 
         self._logger.info("[HireFire] Starting web metrics dispatcher.")
 
@@ -34,9 +34,9 @@ class Web:
 
     def stop_dispatcher(self):
         with self._mutex:
-            if not self._running:
+            if not self._dispatcher_running:
                 return
-            self._running = False
+            self._dispatcher_running = False
 
         if self._dispatcher:
             self._dispatcher.join(self.DISPATCH_TIMEOUT)
@@ -48,7 +48,7 @@ class Web:
 
     def dispatcher_running(self):
         with self._mutex:
-            return self._running
+            return self._dispatcher_running
 
     def add_to_buffer(self, value):
         with self._mutex:
