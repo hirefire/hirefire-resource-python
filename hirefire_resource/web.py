@@ -6,7 +6,7 @@ import threading
 import time
 from datetime import datetime
 
-from hirefire_resource import __version__
+from hirefire_resource.version import VERSION
 
 
 class Web:
@@ -91,7 +91,7 @@ class Web:
             "Content-Type": "application/json",
             "User-Agent": "HireFire Agent (Python)",
             "HireFire-Token": os.environ.get("HIREFIRE_TOKEN"),
-            "HireFire-Resource": f"Python-{__version__}",
+            "HireFire-Resource": f"Python-{VERSION}",
         }
 
         connection = http.client.HTTPSConnection(

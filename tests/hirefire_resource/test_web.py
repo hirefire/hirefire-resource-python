@@ -7,7 +7,7 @@ from unittest.mock import patch
 import httpretty
 from freezegun import freeze_time
 
-from hirefire_resource import __version__
+from hirefire_resource.version import VERSION
 from hirefire_resource.web import Web
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
@@ -83,7 +83,7 @@ def test_submit_buffer_http_information(set_HIREFIRE_TOKEN):
         "Content-Type": "application/json",
         "User-Agent": "HireFire Agent (Python)",
         "HireFire-Token": HIREFIRE_TOKEN,
-        "HireFire-Resource": f"Python-{__version__}",
+        "HireFire-Resource": f"Python-{VERSION}",
     }
     expected_buffer = {1634367001: [3, 9], 1634367002: [10, 12, 8]}
     expected_buffer_string = json.dumps(expected_buffer)

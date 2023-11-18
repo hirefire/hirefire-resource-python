@@ -1,12 +1,13 @@
 import asyncio
 import json
 
-from hirefire_resource import HireFire, __version__
+from hirefire_resource import HireFire
 from hirefire_resource.middleware import (  # noqa
     RequestInfo,
     matches_info_path,
     process_request_queue_time,
 )
+from hirefire_resource.version import VERSION
 
 
 async def request(request_info):
@@ -20,7 +21,7 @@ async def construct_info_response():
     headers = {
         "Content-Type": "application/json",
         "Cache-Control": "must-revalidate, private, max-age=0",
-        "HireFire-Resource": f"Python-{__version__}",
+        "HireFire-Resource": f"Python-{VERSION}",
     }
     workers_info = await collect_workers_data()
     body = json.dumps(workers_info)
