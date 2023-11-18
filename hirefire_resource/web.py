@@ -35,7 +35,7 @@ class Web:
             self._running = True
 
         print("[HireFire] Starting web metrics dispatcher.")
-        self._thread = threading.Thread(target=self._run)
+        self._thread = threading.Thread(target=self._start)
         self._thread.start()
 
     def stop(self):
@@ -76,12 +76,9 @@ class Web:
                 self._repopulate_buffer(buffer)
                 print(f"[HireFire] Error while dispatching web metrics: {str(e)}")
 
-    def _run(self):
+    def _start(self):
         while self.running():
-            try:
-                self.dispatch()
-            except Exception as e:
-                print(f"[HireFire] Unexpected error during dispatch: {str(e)}")
+            self.dispatch()
             time.sleep(self.DISPATCH_INTERVAL)
 
     def _repopulate_buffer(self, buffer):
