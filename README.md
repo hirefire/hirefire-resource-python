@@ -58,6 +58,7 @@ pip install hirefire-resource
 2. Configure HireFire in Django's `settings.py`:
 
 ```python
+import logging
 from hirefire_resource import HireFire
 from hirefire_resource.macro.rq import job_queue_latency
 
@@ -66,6 +67,8 @@ with HireFire.configure() as config:
     config.dyno("web")
     # To collect Job Queue Latency metrics for autoscaling `worker` dynos:
     config.dyno("worker", lambda: job_queue_latency("default"))
+    # To use a different logger
+    config.logger = logging.getLogger()
 
 MIDDLEWARE = [
     # Inject as high up in the stack as possible
