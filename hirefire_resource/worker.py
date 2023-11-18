@@ -27,6 +27,6 @@ class Worker:
 
         if proc is None:
             raise MissingDynoProc(
-                f"Missing block for Worker({name}, proc). "
+                f"Missing proc for Worker({name}, proc). "
                 "Ensure that you provide a proc that returns the job queue metric."
             )
