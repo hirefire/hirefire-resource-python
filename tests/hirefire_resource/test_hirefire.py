@@ -7,7 +7,6 @@ from hirefire_resource.configuration import Configuration
 @pytest.fixture(autouse=True)
 def setup():
     HireFire.configuration = Configuration()
-    yield
 
 
 def test_default_configuration():
