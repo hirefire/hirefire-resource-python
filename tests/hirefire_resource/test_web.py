@@ -7,6 +7,7 @@ from unittest.mock import patch
 import httpretty
 from freezegun import freeze_time
 
+from hirefire_resource.configuration import Configuration
 from hirefire_resource.version import VERSION
 from hirefire_resource.web import Web
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
@@ -21,7 +22,7 @@ def mock_http_response(status=200, content=""):
 def test_start_and_stop(caplog):
     caplog.set_level(logging.INFO)
     with patch("time.sleep", return_value=None):
-        web = Web()
+        web = Web(Configuration())
         web.start_dispatcher()
         assert web.dispatcher_running() == True
         assert "[HireFire] Starting web metrics dispatcher." in caplog.text
@@ -32,7 +33,7 @@ def test_start_and_stop(caplog):
 
 
 def test_add_to_buffer_and_flush():
-    web = Web()
+    web = Web(Configuration())
 
     with freeze_time("2000-01-01 00:00:00"):
         web.add_to_buffer(5)
@@ -56,7 +57,7 @@ def test_add_to_buffer_and_flush():
 @httpretty.activate
 def test_successful_dispatch(set_HIREFIRE_TOKEN):
     mock_http_response()
-    web = Web()
+    web = Web(Configuration())
     web.add_to_buffer(5)
     web._dispatch_buffer()
     assert web._buffer == {}
@@ -65,7 +66,7 @@ def test_successful_dispatch(set_HIREFIRE_TOKEN):
 @httpretty.activate
 def test_repopulation_and_stdout_on_dispatch_error(caplog):
     mock_http_response(status=500)
-    web = Web()
+    web = Web(Configuration())
     web.add_to_buffer(5)
     initial_buffer = copy.deepcopy(web._buffer)
 
@@ -88,7 +89,7 @@ def test_submit_buffer_http_information(set_HIREFIRE_TOKEN):
     expected_buffer = {1634367001: [3, 9], 1634367002: [10, 12, 8]}
     expected_buffer_string = json.dumps(expected_buffer)
 
-    web = Web()
+    web = Web(Configuration())
 
     web._submit_buffer(expected_buffer)
 

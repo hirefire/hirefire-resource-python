@@ -1,6 +1,5 @@
 import http.client
 import json
-import logging
 import os
 import threading
 import time
@@ -14,7 +13,7 @@ class Web:
     DISPATCH_TIMEOUT = 5
     BUFFER_TTL = 60
 
-    def __init__(self, configuration=None):
+    def __init__(self, configuration):
         self._buffer = {}
         self._mutex = threading.Lock()
         self._dispatcher_running = False
@@ -50,10 +49,10 @@ class Web:
         with self._mutex:
             return self._dispatcher_running
 
-    def add_to_buffer(self, value):
+    def add_to_buffer(self, request_queue_time):
         with self._mutex:
             timestamp = int(datetime.now().timestamp())
-            self._buffer.setdefault(timestamp, []).append(value)
+            self._buffer.setdefault(timestamp, []).append(request_queue_time)
 
     def _flush_buffer(self):
         with self._mutex:
@@ -122,7 +121,4 @@ class Web:
 
     @property
     def _logger(self):
-        if self._configuration:
-            return self._configuration.logger
-        else:
-            return logging.getLogger()
+        return self._configuration.logger
