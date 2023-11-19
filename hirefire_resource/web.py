@@ -1,6 +1,7 @@
 import http.client
 import json
 import os
+import socket
 import threading
 import time
 from datetime import datetime
@@ -23,18 +24,18 @@ class Web:
     def start_dispatcher(self):
         with self._mutex:
             if self._dispatcher_running:
-                return
+                return False
             self._dispatcher_running = True
 
         self._logger.info("[HireFire] Starting web metrics dispatcher.")
-
         self._dispatcher = threading.Thread(target=self._start_dispatcher)
         self._dispatcher.start()
+        return True
 
     def stop_dispatcher(self):
         with self._mutex:
             if not self._dispatcher_running:
-                return
+                return False
             self._dispatcher_running = False
 
         if self._dispatcher:
@@ -43,6 +44,7 @@ class Web:
 
         self._flush_buffer()
         self._logger.info("[HireFire] Web metrics dispatcher stopped.")
+        return True
 
     def dispatcher_running(self):
         with self._mutex:
@@ -85,9 +87,10 @@ class Web:
 
     def _submit_buffer(self, buffer):
         buffer_string = json.dumps(buffer)
+
         headers = {
             "Content-Type": "application/json",
-            "HireFire-Token": os.environ.get("HIREFIRE_TOKEN"),
+            "HireFire-Token": os.environ["HIREFIRE_TOKEN"],
             "HireFire-Resource": f"Python-{VERSION}",
         }
 
@@ -99,21 +102,16 @@ class Web:
             connection.request("POST", "/", buffer_string, headers)
             response = connection.getresponse()
 
-            if 200 <= response.status < 300:
-                return True
-            elif 500 <= response.status < 600:
-                raise Exception(f"Server returned {response.status}: {response.reason}")
-            else:
-                raise Exception(
-                    f"Request failed with {response.status}: {response.reason}"
+            if response.status >= 400:
+                raise http.client.HTTPException(
+                    f"HTTP error occurred: {response.status} {response.reason}"
                 )
-
         except http.client.HTTPException as e:
             raise Exception(f"HTTP error occurred: {str(e)}")
         except socket.timeout:
             raise Exception("The request to the server timed out.")
         except Exception as e:
-            raise Exception(f"Unexpected error occurred: {str(e)}")
+            raise Exception(f"Error occurred during request: {str(e)}")
         finally:
             connection.close()
 

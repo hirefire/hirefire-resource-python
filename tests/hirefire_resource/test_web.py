@@ -1,6 +1,7 @@
 import copy
 import json
 import logging
+import socket
 from datetime import datetime
 from unittest.mock import patch
 
@@ -33,12 +34,14 @@ def web(configuration):
 def test_start_and_stop(web, caplog):
     caplog.set_level(logging.INFO)
     with patch("time.sleep", return_value=None):
-        web.start_dispatcher()
+        assert web.start_dispatcher() == True
         assert web.dispatcher_running() == True
+        assert web.start_dispatcher() == False
         assert "[HireFire] Starting web metrics dispatcher." in caplog.text
         caplog.clear()
-        web.stop_dispatcher()
+        assert web.stop_dispatcher() == True
         assert web.dispatcher_running() == False
+        assert web.stop_dispatcher() == False
         assert "[HireFire] Web metrics dispatcher stopped." in caplog.text
 
 
@@ -78,6 +81,34 @@ def test_repopulation_and_stdout_on_dispatch_error(web, caplog):
     web._dispatch_buffer()
     assert web._buffer == initial_buffer
     assert "[HireFire] Error while dispatching web metrics:" in caplog.text
+
+
+@httpretty.activate
+def test_http_exception_handling(web, caplog, set_HIREFIRE_TOKEN):
+    httpretty.register_uri(
+        httpretty.POST, "https://logdrain.hirefire.io/", status=500, body="Server Error"
+    )
+    web.add_to_buffer(5)
+    web._dispatch_buffer()
+    assert "HTTP error occurred:" in caplog.text
+
+
+@httpretty.activate
+def test_socket_timeout_handling(web, caplog, set_HIREFIRE_TOKEN):
+    with patch("http.client.HTTPSConnection.request", side_effect=socket.timeout):
+        web.add_to_buffer(5)
+        web._dispatch_buffer()
+        assert "The request to the server timed out." in caplog.text
+
+
+@httpretty.activate
+def test_generic_exception_handling(web, caplog, set_HIREFIRE_TOKEN):
+    with patch(
+        "http.client.HTTPSConnection.request", side_effect=Exception("Generic Error")
+    ):
+        web.add_to_buffer(5)
+        web._dispatch_buffer()
+    assert "Error occurred during request: Generic Error" in caplog.text
 
 
 @httpretty.activate
