@@ -42,6 +42,7 @@ def test_start_and_stop(web, caplog):
         assert web.stop_dispatcher() == True
         assert web.dispatcher_running() == False
         assert web.stop_dispatcher() == False
+        assert web._flush_buffer() == {}
         assert "[HireFire] Web metrics dispatcher stopped." in caplog.text
 
 
