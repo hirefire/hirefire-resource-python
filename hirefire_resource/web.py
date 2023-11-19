@@ -42,7 +42,6 @@ class Web:
             self._dispatcher = None
 
         self._flush_buffer()
-
         self._logger.info("[HireFire] Web metrics dispatcher stopped.")
 
     def dispatcher_running(self):
