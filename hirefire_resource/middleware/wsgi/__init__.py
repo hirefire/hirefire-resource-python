@@ -28,6 +28,6 @@ def construct_info_response():
 
 def collect_workers_data():
     return [
-        {"name": worker.name, "value": worker.proc()}
+        {"name": worker.name, "value": worker.value()}
         for worker in HireFire.configuration.workers
     ]

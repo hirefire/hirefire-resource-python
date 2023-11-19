@@ -33,7 +33,7 @@ async def collect_workers_data():
     data = []
 
     for worker in HireFire.configuration.workers:
-        result = worker.proc()
+        result = worker.value()
         if asyncio.iscoroutine(result):
             result = await result
         data.append({"name": worker.name, "value": result})

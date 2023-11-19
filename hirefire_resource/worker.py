@@ -17,7 +17,7 @@ class Worker:
         self.name = name
         self.proc = proc
 
-    def call(self):
+    def value(self):
         return self.proc()
 
     def _validate(self, name, proc):
