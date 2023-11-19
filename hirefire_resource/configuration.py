@@ -12,7 +12,6 @@ class Configuration:
 
     def dyno(self, name, proc=None):
         if name == "web":
-            self.web = Web()
-            self.web.configuration = self
+            self.web = Web(self)
         else:
             self.workers.append(Worker(name, proc))

@@ -48,7 +48,7 @@ def test_add_to_buffer_and_flush():
         timestamp_2 = int(datetime(2000, 1, 1, 0, 0, 1).timestamp())
         assert web._buffer == {timestamp_1: [5, 10], timestamp_2: [15, 20]}
 
-    data = web.flush_buffer()
+    data = web._flush_buffer()
     assert data == {timestamp_1: [5, 10], timestamp_2: [15, 20]}
     assert web._buffer == {}
 
@@ -58,7 +58,7 @@ def test_successful_dispatch(set_HIREFIRE_TOKEN):
     mock_http_response()
     web = Web()
     web.add_to_buffer(5)
-    web.dispatch_buffer()
+    web._dispatch_buffer()
     assert web._buffer == {}
 
 
@@ -69,7 +69,7 @@ def test_repopulation_and_stdout_on_dispatch_error(caplog):
     web.add_to_buffer(5)
     initial_buffer = copy.deepcopy(web._buffer)
 
-    web.dispatch_buffer()
+    web._dispatch_buffer()
 
     assert web._buffer == initial_buffer
     assert "[HireFire] Error while dispatching web metrics:" in caplog.text

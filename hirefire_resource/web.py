@@ -14,12 +14,12 @@ class Web:
     DISPATCH_TIMEOUT = 5
     BUFFER_TTL = 60
 
-    def __init__(self):
+    def __init__(self, configuration=None):
         self._buffer = {}
         self._mutex = threading.Lock()
         self._dispatcher_running = False
         self._dispatcher = None
-        self.configuration = None
+        self._configuration = configuration
 
     def start_dispatcher(self):
         with self._mutex:
@@ -42,7 +42,7 @@ class Web:
             self._dispatcher.join(self.DISPATCH_TIMEOUT)
             self._dispatcher = None
 
-        self.flush_buffer()
+        self._flush_buffer()
 
         self._logger.info("[HireFire] Web metrics dispatcher stopped.")
 
@@ -55,14 +55,14 @@ class Web:
             timestamp = int(datetime.now().timestamp())
             self._buffer.setdefault(timestamp, []).append(value)
 
-    def flush_buffer(self):
+    def _flush_buffer(self):
         with self._mutex:
             buffer = self._buffer
             self._buffer = {}
             return buffer
 
-    def dispatch_buffer(self):
-        buffer = self.flush_buffer()
+    def _dispatch_buffer(self):
+        buffer = self._flush_buffer()
 
         if buffer:
             try:
@@ -75,7 +75,7 @@ class Web:
 
     def _start_dispatcher(self):
         while self.dispatcher_running():
-            self.dispatch_buffer()
+            self._dispatch_buffer()
             time.sleep(self.DISPATCH_INTERVAL)
 
     def _repopulate_buffer(self, buffer):
@@ -122,7 +122,7 @@ class Web:
 
     @property
     def _logger(self):
-        if self.configuration:
-            return self.configuration.logger
+        if self._configuration:
+            return self._configuration.logger
         else:
             return logging.getLogger()
