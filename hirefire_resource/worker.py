@@ -15,10 +15,10 @@ class Worker:
     def __init__(self, name, proc=None):
         self._validate(name, proc)
         self.name = name
-        self.proc = proc
+        self._proc = proc
 
     def value(self):
-        return self.proc()
+        return self._proc()
 
     def _validate(self, name, proc):
         if not re.match(self.PROCESS_NAME_PATTERN, name or ""):
