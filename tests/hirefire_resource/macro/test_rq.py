@@ -27,7 +27,9 @@ def clear_redis():
 def test_job_queue_latency_raises_error_with_no_queues():
     with pytest.raises(MissingQueueError) as excinfo:
         job_queue_latency(redis_url=redis_url)
-    assert "No queue names were provided" in str(excinfo.value)
+    assert "No queue was specified. Please specify at least one queue." in str(
+        excinfo.value
+    )
 
 
 def test_job_queue_latency_default_redis_url():
@@ -86,7 +88,9 @@ async def test_async_job_queue_latency():
     with pytest.raises(MissingQueueError) as excinfo:
         await async_job_queue_latency(redis_url=redis_url)
 
-    assert "No queue names were provided" in str(excinfo.value)
+    assert "No queue was specified. Please specify at least one queue." in str(
+        excinfo.value
+    )
 
     with freeze_time(datetime.fromtimestamp(time.time() - 200, timezone.utc)):
         default.enqueue("my_function")
@@ -99,7 +103,9 @@ async def test_async_job_queue_latency():
 def test_job_queue_size_raises_error_with_no_queues():
     with pytest.raises(MissingQueueError) as excinfo:
         job_queue_size(redis_url=redis_url)
-    assert "No queue names were provided" in str(excinfo.value)
+    assert "No queue was specified. Please specify at least one queue." in str(
+        excinfo.value
+    )
 
 
 def test_job_queue_size_default_redis_url():
@@ -136,7 +142,9 @@ async def test_async_job_queue_size():
     with pytest.raises(MissingQueueError) as excinfo:
         await async_job_queue_size(redis_url=redis_url)
 
-    assert "No queue names were provided" in str(excinfo.value)
+    assert "No queue was specified. Please specify at least one queue." in str(
+        excinfo.value
+    )
 
     default.enqueue("my_function")
 

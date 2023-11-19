@@ -32,7 +32,7 @@ def job_queue_latency(*queues, redis_url=None):
         7200
     """
     if not queues:
-        raise MissingQueueError("No queue names were provided.")
+        raise MissingQueueError()
 
     redis_url = (
         redis_url
@@ -135,7 +135,7 @@ def job_queue_size(*queues, redis_url=None):
         85
     """
     if not queues:
-        raise MissingQueueError("No queue names were provided.")
+        raise MissingQueueError()
 
     redis_url = (
         redis_url

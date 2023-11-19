@@ -80,9 +80,9 @@ class Web:
     def _repopulate_buffer(self, buffer):
         now = int(datetime.now().timestamp())
         with self._mutex:
-            for timestamp, values in buffer.items():
+            for timestamp, request_queue_times in buffer.items():
                 if timestamp >= now - self.BUFFER_TTL:
-                    self._buffer.setdefault(timestamp, []).extend(values)
+                    self._buffer.setdefault(timestamp, []).extend(request_queue_times)
 
     def _submit_buffer(self, buffer):
         buffer_string = json.dumps(buffer)
