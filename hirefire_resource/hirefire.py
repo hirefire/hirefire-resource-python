@@ -9,7 +9,4 @@ class HireFire:
     @classmethod
     @contextmanager
     def configure(cls):
-        if cls.configuration is None:
-            cls.configuration = Configuration()
-
         yield cls.configuration
