@@ -10,18 +10,11 @@ def default():
 
 @task
 def test():
-    sh("tox")
+    sh("pytest --cov=hirefire_resource --cov-report=html tests/")
 
 
 @task
-def test_py312():
-    sh(
-        "tox -e py312-core,py312-django4,py312-django3,py312-flask3,py312-flask2,py312-quart,py312-fastapi,py312-starlette,py312-rq"
-    )
-
-
-@task
-def lint():
+def check():
     sh("autoflake --remove-all-unused-imports -r --check .")
     sh("isort --profile black --check . && poetry run black --check .")
     sh("black --check .")
@@ -32,14 +25,3 @@ def format():
     sh("autoflake --remove-all-unused-imports -ri .")
     sh("isort --profile black .")
     sh("black .")
-
-
-@task
-def coverage_report():
-    sh("coverage report")
-
-
-@task
-def coverage_html():
-    sh("coverage html")
-    sh("open htmlcov/index.html")
