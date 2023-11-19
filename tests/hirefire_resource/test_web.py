@@ -85,7 +85,6 @@ def test_submit_buffer_http_information(web, set_HIREFIRE_TOKEN):
     mock_http_response()
     expected_headers = {
         "Content-Type": "application/json",
-        "User-Agent": "HireFire Agent (Python)",
         "HireFire-Token": HIREFIRE_TOKEN,
         "HireFire-Resource": f"Python-{VERSION}",
     }

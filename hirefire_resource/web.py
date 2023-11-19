@@ -87,7 +87,6 @@ class Web:
         buffer_string = json.dumps(buffer)
         headers = {
             "Content-Type": "application/json",
-            "User-Agent": "HireFire Agent (Python)",
             "HireFire-Token": os.environ.get("HIREFIRE_TOKEN"),
             "HireFire-Resource": f"Python-{VERSION}",
         }
