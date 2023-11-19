@@ -5,6 +5,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 import httpretty
+import pytest
 from freezegun import freeze_time
 
 from hirefire_resource.configuration import Configuration
@@ -19,10 +20,19 @@ def mock_http_response(status=200, content=""):
     )
 
 
-def test_start_and_stop(caplog):
+@pytest.fixture
+def configuration():
+    return Configuration()
+
+
+@pytest.fixture
+def web(configuration):
+    return Web(configuration)
+
+
+def test_start_and_stop(web, caplog):
     caplog.set_level(logging.INFO)
     with patch("time.sleep", return_value=None):
-        web = Web(Configuration())
         web.start_dispatcher()
         assert web.dispatcher_running() == True
         assert "[HireFire] Starting web metrics dispatcher." in caplog.text
@@ -32,9 +42,7 @@ def test_start_and_stop(caplog):
         assert "[HireFire] Web metrics dispatcher stopped." in caplog.text
 
 
-def test_add_to_buffer_and_flush():
-    web = Web(Configuration())
-
+def test_add_to_buffer_and_flush(web):
     with freeze_time("2000-01-01 00:00:00"):
         web.add_to_buffer(5)
         web.add_to_buffer(10)
@@ -55,31 +63,26 @@ def test_add_to_buffer_and_flush():
 
 
 @httpretty.activate
-def test_successful_dispatch(set_HIREFIRE_TOKEN):
+def test_successful_dispatch(web, set_HIREFIRE_TOKEN):
     mock_http_response()
-    web = Web(Configuration())
     web.add_to_buffer(5)
     web._dispatch_buffer()
     assert web._buffer == {}
 
 
 @httpretty.activate
-def test_repopulation_and_stdout_on_dispatch_error(caplog):
+def test_repopulation_and_stdout_on_dispatch_error(web, caplog):
     mock_http_response(status=500)
-    web = Web(Configuration())
     web.add_to_buffer(5)
     initial_buffer = copy.deepcopy(web._buffer)
-
     web._dispatch_buffer()
-
     assert web._buffer == initial_buffer
     assert "[HireFire] Error while dispatching web metrics:" in caplog.text
 
 
 @httpretty.activate
-def test_submit_buffer_http_information(set_HIREFIRE_TOKEN):
+def test_submit_buffer_http_information(web, set_HIREFIRE_TOKEN):
     mock_http_response()
-
     expected_headers = {
         "Content-Type": "application/json",
         "User-Agent": "HireFire Agent (Python)",
@@ -88,13 +91,8 @@ def test_submit_buffer_http_information(set_HIREFIRE_TOKEN):
     }
     expected_buffer = {1634367001: [3, 9], 1634367002: [10, 12, 8]}
     expected_buffer_string = json.dumps(expected_buffer)
-
-    web = Web(Configuration())
-
     web._submit_buffer(expected_buffer)
-
     last_request = httpretty.last_request()
-
     assert "POST" == last_request.method
     assert expected_buffer_string == last_request.body.decode("utf-8")
     for header, value in expected_headers.items():
