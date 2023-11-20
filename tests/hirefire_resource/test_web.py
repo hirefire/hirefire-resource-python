@@ -128,3 +128,42 @@ def test_submit_buffer_http_information(web, set_HIREFIRE_TOKEN):
     assert expected_buffer_string == last_request.body.decode("utf-8")
     for header, value in expected_headers.items():
         assert value == last_request.headers.get(header)
+
+
+@httpretty.activate
+def test_buffer_ttl_discards_old_entries(web, set_HIREFIRE_TOKEN):
+    with freeze_time("2000-01-01 00:00:00"):
+        web.add_to_buffer(5)
+        timestamp_1 = int(datetime(2000, 1, 1, 0, 0, 0).timestamp())
+        assert web._buffer == {timestamp_1: [5]}
+    with freeze_time("2000-01-01 00:00:30"):
+        web.add_to_buffer(10)
+        timestamp_2 = int(datetime(2000, 1, 1, 0, 0, 30).timestamp())
+        assert web._buffer == {timestamp_1: [5], timestamp_2: [10]}
+    with freeze_time("2000-01-01 00:01:00"):
+        mock_http_response(status=500)
+        web._dispatch_buffer()
+        assert web._buffer == {timestamp_1: [5], timestamp_2: [10]}
+    with freeze_time("2000-01-01 00:01:01"):
+        mock_http_response(status=500)
+        web._dispatch_buffer()
+        assert web._buffer == {timestamp_2: [10]}
+
+
+@httpretty.activate
+def test_updates_variables_based_on_response_headers(web, set_HIREFIRE_TOKEN):
+    httpretty.register_uri(
+        httpretty.POST,
+        "https://logdrain.hirefire.io/",
+        adding_headers={
+            "HireFire-Resource-Dispatch-Interval": "10",
+            "HireFire-Resource-Dispatch-Timeout": "10",
+            "HireFire-Resource-Buffer-TTL": "120",
+        },
+        status=200,
+    )
+    web.add_to_buffer(5)
+    web._dispatch_buffer()
+    assert web._dispatch_interval == 10
+    assert web._dispatch_timeout == 10
+    assert web._buffer_ttl == 120

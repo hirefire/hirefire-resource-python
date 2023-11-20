@@ -10,15 +10,14 @@ from hirefire_resource.version import VERSION
 
 
 class Web:
-    DISPATCH_INTERVAL = 5
-    DISPATCH_TIMEOUT = 5
-    BUFFER_TTL = 60
-
     def __init__(self, configuration):
         self._buffer = {}
         self._mutex = threading.Lock()
         self._dispatcher_running = False
         self._dispatcher = None
+        self._dispatch_interval = 5
+        self._dispatch_timeout = 5
+        self._buffer_ttl = 60
         self._configuration = configuration
 
     def start_dispatcher(self):
@@ -39,7 +38,7 @@ class Web:
             self._dispatcher_running = False
 
         if self._dispatcher:
-            self._dispatcher.join(self.DISPATCH_TIMEOUT)
+            self._dispatcher.join(self._dispatch_timeout)
             self._dispatcher = None
 
         self._flush_buffer()
@@ -76,13 +75,13 @@ class Web:
     def _start_dispatcher(self):
         while self.dispatcher_running():
             self._dispatch_buffer()
-            time.sleep(self.DISPATCH_INTERVAL)
+            time.sleep(self._dispatch_interval)
 
     def _repopulate_buffer(self, buffer):
         now = int(datetime.now().timestamp())
         with self._mutex:
             for timestamp, request_queue_times in buffer.items():
-                if timestamp >= now - self.BUFFER_TTL:
+                if timestamp >= now - self._buffer_ttl:
                     self._buffer.setdefault(timestamp, []).extend(request_queue_times)
 
     def _submit_buffer(self, buffer):
@@ -95,7 +94,7 @@ class Web:
         }
 
         connection = http.client.HTTPSConnection(
-            "logdrain.hirefire.io", timeout=self.DISPATCH_TIMEOUT
+            "logdrain.hirefire.io", timeout=self._dispatch_timeout
         )
 
         try:
@@ -106,6 +105,18 @@ class Web:
                 raise http.client.HTTPException(
                     f"HTTP error occurred: {response.status} {response.reason}"
                 )
+
+            if "HireFire-Resource-Dispatch-Interval" in response.headers:
+                self._dispatch_interval = int(
+                    response.headers["HireFire-Resource-Dispatch-Interval"]
+                )
+            if "HireFire-Resource-Dispatch-Timeout" in response.headers:
+                self._dispatch_timeout = int(
+                    response.headers["HireFire-Resource-Dispatch-Timeout"]
+                )
+            if "HireFire-Resource-Buffer-TTL" in response.headers:
+                self._buffer_ttl = int(response.headers["HireFire-Resource-Buffer-TTL"])
+
         except http.client.HTTPException as e:
             raise Exception(f"HTTP error occurred: {str(e)}")
         except socket.timeout:
