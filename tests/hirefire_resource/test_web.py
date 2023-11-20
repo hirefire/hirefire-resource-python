@@ -151,7 +151,7 @@ def test_buffer_ttl_discards_old_entries(web, set_HIREFIRE_TOKEN):
 
 
 @httpretty.activate
-def test_updates_variables_based_on_response_headers(web, set_HIREFIRE_TOKEN):
+def test_adjust_parameters_based_on_response_headers(web, set_HIREFIRE_TOKEN):
     httpretty.register_uri(
         httpretty.POST,
         "https://logdrain.hirefire.io/",

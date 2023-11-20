@@ -105,16 +105,9 @@ class Web:
                 raise http.client.HTTPException(
                     f"HTTP error occurred: {response.status} {response.reason}"
                 )
-            if "HireFire-Resource-Dispatch-Interval" in response.headers:
-                self._dispatch_interval = int(
-                    response.headers["HireFire-Resource-Dispatch-Interval"]
-                )
-            if "HireFire-Resource-Dispatch-Timeout" in response.headers:
-                self._dispatch_timeout = int(
-                    response.headers["HireFire-Resource-Dispatch-Timeout"]
-                )
-            if "HireFire-Resource-Buffer-TTL" in response.headers:
-                self._buffer_ttl = int(response.headers["HireFire-Resource-Buffer-TTL"])
+
+            self._adjust_parameters(response)
+            return response
         except http.client.HTTPException as e:
             raise Exception(f"HTTP error occurred: {str(e)}")
         except socket.timeout:
@@ -123,6 +116,18 @@ class Web:
             raise Exception(f"Error occurred during request: {str(e)}")
         finally:
             connection.close()
+
+    def _adjust_parameters(self, response):
+        if "HireFire-Resource-Dispatch-Interval" in response.headers:
+            self._dispatch_interval = int(
+                response.headers["HireFire-Resource-Dispatch-Interval"]
+            )
+        if "HireFire-Resource-Dispatch-Timeout" in response.headers:
+            self._dispatch_timeout = int(
+                response.headers["HireFire-Resource-Dispatch-Timeout"]
+            )
+        if "HireFire-Resource-Buffer-TTL" in response.headers:
+            self._buffer_ttl = int(response.headers["HireFire-Resource-Buffer-TTL"])
 
     @property
     def _logger(self):
