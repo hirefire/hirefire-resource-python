@@ -167,3 +167,13 @@ def test_adjust_parameters_based_on_response_headers(web, set_HIREFIRE_TOKEN):
     assert web._dispatch_interval == 10
     assert web._dispatch_timeout == 10
     assert web._buffer_ttl == 120
+
+
+def test_submit_buffer_without_hirefire_token(web, caplog):
+    with pytest.raises(EnvironmentError) as exc_info:
+        web._submit_buffer({})
+    assert str(exc_info.value) == (
+        "The HIREFIRE_TOKEN environment variable is not set. Unable to submit "
+        "Request Queue Time metric data. The HIREFIRE_TOKEN can be found in "
+        "the HireFire Web UI in the web dyno manager settings."
+    )

@@ -85,11 +85,20 @@ class Web:
                     self._buffer.setdefault(timestamp, []).extend(request_queue_times)
 
     def _submit_buffer(self, buffer):
+        hirefire_token = os.environ.get("HIREFIRE_TOKEN")
+
+        if not hirefire_token:
+            raise EnvironmentError(
+                "The HIREFIRE_TOKEN environment variable is not set. Unable to submit "
+                "Request Queue Time metric data. The HIREFIRE_TOKEN can be found in "
+                "the HireFire Web UI in the web dyno manager settings."
+            )
+
         buffer_string = json.dumps(buffer)
 
         headers = {
             "Content-Type": "application/json",
-            "HireFire-Token": os.environ["HIREFIRE_TOKEN"],
+            "HireFire-Token": hirefire_token,
             "HireFire-Resource": f"Python-{VERSION}",
         }
 
