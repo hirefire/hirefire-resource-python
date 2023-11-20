@@ -105,7 +105,6 @@ class Web:
                 raise http.client.HTTPException(
                     f"HTTP error occurred: {response.status} {response.reason}"
                 )
-
             if "HireFire-Resource-Dispatch-Interval" in response.headers:
                 self._dispatch_interval = int(
                     response.headers["HireFire-Resource-Dispatch-Interval"]
@@ -116,7 +115,6 @@ class Web:
                 )
             if "HireFire-Resource-Buffer-TTL" in response.headers:
                 self._buffer_ttl = int(response.headers["HireFire-Resource-Buffer-TTL"])
-
         except http.client.HTTPException as e:
             raise Exception(f"HTTP error occurred: {str(e)}")
         except socket.timeout:
