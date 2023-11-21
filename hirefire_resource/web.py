@@ -9,6 +9,10 @@ from datetime import datetime
 from hirefire_resource.version import VERSION
 
 
+class DispatchError(Exception):
+    pass
+
+
 class Web:
     def __init__(self, configuration):
         self._buffer = {}
@@ -88,7 +92,7 @@ class Web:
         hirefire_token = os.environ.get("HIREFIRE_TOKEN")
 
         if not hirefire_token:
-            raise EnvironmentError(
+            raise DispatchError(
                 "The HIREFIRE_TOKEN environment variable is not set. Unable to submit "
                 "Request Queue Time metric data. The HIREFIRE_TOKEN can be found in "
                 "the HireFire Web UI in the web dyno manager settings."
@@ -111,18 +115,18 @@ class Web:
             response = connection.getresponse()
 
             if response.status >= 400:
-                raise http.client.HTTPException(
+                raise DispatchError(
                     f"HTTP error occurred: {response.status} {response.reason}"
                 )
 
             self._adjust_parameters(response)
             return response
         except http.client.HTTPException as e:
-            raise Exception(f"HTTP error occurred: {str(e)}")
+            raise DispatchError(f"HTTP error occurred: {str(e)}")
         except socket.timeout:
-            raise Exception("The request to the server timed out.")
+            raise DispatchError("The request to the server timed out.")
         except Exception as e:
-            raise Exception(f"Error occurred during request: {str(e)}")
+            raise DispatchError(f"Error occurred during request: {str(e)}")
         finally:
             connection.close()
 

@@ -11,7 +11,7 @@ from freezegun import freeze_time
 
 from hirefire_resource.configuration import Configuration
 from hirefire_resource.version import VERSION
-from hirefire_resource.web import Web
+from hirefire_resource.web import DispatchError, Web
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
 
@@ -170,7 +170,7 @@ def test_adjust_parameters_based_on_response_headers(web, set_HIREFIRE_TOKEN):
 
 
 def test_submit_buffer_without_hirefire_token(web, caplog):
-    with pytest.raises(EnvironmentError) as exc_info:
+    with pytest.raises(DispatchError) as exc_info:
         web._submit_buffer({})
     assert str(exc_info.value) == (
         "The HIREFIRE_TOKEN environment variable is not set. Unable to submit "
