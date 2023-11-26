@@ -106,9 +106,8 @@ class Web:
             "HireFire-Resource": f"Python-{VERSION}",
         }
 
-        connection = http.client.HTTPSConnection(
-            "logdrain.hirefire.io", timeout=self._dispatch_timeout
-        )
+        hirefire_dispatch_url = os.environ.get("HIREFIRE_DISPATCH_URL", "logdrain.hirefire.io")
+        connection = http.client.HTTPSConnection(hirefire_dispatch_url, timeout=self._dispatch_timeout)
 
         try:
             connection.request("POST", "/", buffer_string, headers)
