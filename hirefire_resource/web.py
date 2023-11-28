@@ -1,6 +1,7 @@
 import http.client
 import json
 import os
+import re
 import socket
 import threading
 import time
@@ -106,8 +107,10 @@ class Web:
             "HireFire-Resource": f"Python-{VERSION}",
         }
 
-        hirefire_dispatch_url = os.environ.get(
-            "HIREFIRE_DISPATCH_URL", "logdrain.hirefire.io"
+        hirefire_dispatch_url = re.sub(
+            r"^https?://",
+            "",
+            os.environ.get("HIREFIRE_DISPATCH_URL", "logdrain.hirefire.io"),
         )
         connection = http.client.HTTPSConnection(
             hirefire_dispatch_url, timeout=self._dispatch_timeout
