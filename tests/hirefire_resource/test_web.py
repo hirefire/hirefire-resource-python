@@ -177,3 +177,16 @@ def test_submit_buffer_without_hirefire_token(web, caplog):
         "Request Queue Time metric data. The HIREFIRE_TOKEN can be found in "
         "the HireFire Web UI in the web dyno manager settings."
     )
+
+
+@httpretty.activate
+def test_submit_buffer_with_custom_dispatch_url(web, set_HIREFIRE_TOKEN, monkeypatch):
+    custom_dispatch_url = "custom.hirefire.io"
+    monkeypatch.setenv("HIREFIRE_DISPATCH_URL", custom_dispatch_url)
+    httpretty.register_uri(
+        httpretty.POST, f"https://{custom_dispatch_url}/", status=200
+    )
+    web.add_to_buffer(5)
+    web._submit_buffer({1634367001: [5]})
+    last_request = httpretty.last_request()
+    assert last_request.headers.get("host") == custom_dispatch_url
