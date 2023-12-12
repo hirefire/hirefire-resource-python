@@ -93,3 +93,23 @@ def test_intercept_and_process_worker_configuration(client, set_HIREFIRE_TOKEN):
     assert response.headers == expected_headers
     assert response.status_code == 200
     assert json.loads(response.content) == [{"name": "worker", "value": 1.23}]
+
+
+@freeze_time("2000-01-01 00:00:00")
+def test_intercept_and_process_worker_configuration_with_token(
+    client, set_HIREFIRE_TOKEN
+):
+    with HireFire.configure() as config:
+        config.dyno("worker", measure_queue_metric)
+    response = client.request(
+        f"/hirefire",
+        **{"HTTP_X_REQUEST_START": "1", "HTTP_HIREFIRE_TOKEN": HIREFIRE_TOKEN},
+    )
+    expected_headers = {
+        "content-type": "application/json",
+        "cache-control": "must-revalidate, private, max-age=0",
+        "hirefire-resource": f"Python-{VERSION}",
+    }
+    assert response.headers == expected_headers
+    assert response.status_code == 200
+    assert json.loads(response.content) == [{"name": "worker", "value": 1.23}]

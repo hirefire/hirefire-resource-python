@@ -13,7 +13,8 @@ class Middleware:
             response = request(
                 RequestInfo(
                     path=environ.get("PATH_INFO"),
-                    request_start_time=environ.get("HTTP_X_REQUEST_START", ""),
+                    request_start_time=environ.get("HTTP_X_REQUEST_START"),
+                    token=environ.get("HTTP_HIREFIRE_TOKEN"),
                 )
             )
 

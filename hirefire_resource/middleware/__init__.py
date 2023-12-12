@@ -5,7 +5,7 @@ from hirefire_resource import HireFire
 
 
 class RequestInfo:
-    def __init__(self, path, request_start_time=None):
+    def __init__(self, path, request_start_time=None, token=None):
         self.path = path
 
         if request_start_time:
@@ -13,11 +13,21 @@ class RequestInfo:
         else:
             self.request_start_time = None
 
+        self.token = token
+
 
 def matches_info_path(request_info):
     return (
         os.environ.get("HIREFIRE_TOKEN")
         and request_info.path == f"/hirefire/{os.environ.get('HIREFIRE_TOKEN')}/info"
+    )
+
+
+def matches_hirefire_path(request_info):
+    return (
+        os.environ.get("HIREFIRE_TOKEN")
+        and request_info.path == "/hirefire"
+        and request_info.token == os.environ.get("HIREFIRE_TOKEN")
     )
 
 

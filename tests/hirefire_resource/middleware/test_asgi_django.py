@@ -99,3 +99,20 @@ async def test_intercept_and_process_worker_configuration(client, set_HIREFIRE_T
     assert response.headers["hirefire-resource"] == f"Python-{VERSION}"
     assert response.status_code == 200
     assert response.json() == [{"name": "worker", "value": 1.23}]
+
+
+@freeze_time("2000-01-01 00:00:00")
+@pytest.mark.asyncio
+async def test_intercept_and_process_worker_configuration_with_token(
+    client, set_HIREFIRE_TOKEN
+):
+    with HireFire.configure() as config:
+        config.dyno("worker", measure_queue_metric)
+    response = client.get(
+        "/hirefire", headers={"x-request-start": "1", "hirefire-token": HIREFIRE_TOKEN}
+    )
+    assert response.headers["content-type"] == "application/json"
+    assert response.headers["cache-control"] == "must-revalidate, private, max-age=0"
+    assert response.headers["hirefire-resource"] == f"Python-{VERSION}"
+    assert response.status_code == 200
+    assert response.json() == [{"name": "worker", "value": 1.23}]

@@ -11,7 +11,8 @@ class Middleware:
         response = request(
             RequestInfo(
                 path=req.path,
-                request_start_time=req.META.get("HTTP_X_REQUEST_START", ""),
+                request_start_time=req.META.get("HTTP_X_REQUEST_START"),
+                token=req.META.get("HTTP_HIREFIRE_TOKEN"),
             )
         )
 

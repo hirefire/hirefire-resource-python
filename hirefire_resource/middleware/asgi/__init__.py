@@ -4,6 +4,7 @@ import json
 from hirefire_resource import HireFire
 from hirefire_resource.middleware import (  # noqa
     RequestInfo,
+    matches_hirefire_path,
     matches_info_path,
     process_request_queue_time,
 )
@@ -13,7 +14,7 @@ from hirefire_resource.version import VERSION
 async def request(request_info):
     process_request_queue_time(request_info)
 
-    if matches_info_path(request_info):
+    if matches_hirefire_path(request_info) or matches_info_path(request_info):
         return await construct_info_response()
 
 

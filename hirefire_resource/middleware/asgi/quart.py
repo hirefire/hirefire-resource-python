@@ -7,10 +7,17 @@ class Middleware:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
+            token = None
+            for header_name, header_value in scope["headers"]:
+                if header_name.lower() == b"hirefire-token":
+                    token = header_value.decode("utf-8")
+                    break
+
             response = await request(
                 RequestInfo(
                     path=scope["path"],
                     request_start_time=self.extract_request_start_time(scope),
+                    token=token,
                 )
             )
 

@@ -23,7 +23,9 @@ class Middleware:
         headers = dict(scope.get("headers", []))
         request_start = headers.get(b"x-request-start")
         request_start_time = request_start.decode() if request_start else None
-        return RequestInfo(path, request_start_time)
+        hirefire_token = headers.get(b"hirefire-token")
+        hirefire_token = hirefire_token.decode() if hirefire_token else None
+        return RequestInfo(path, request_start_time, hirefire_token)
 
     @staticmethod
     async def send_response(send, response):
