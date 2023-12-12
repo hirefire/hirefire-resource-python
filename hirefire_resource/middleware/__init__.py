@@ -16,18 +16,18 @@ class RequestInfo:
         self.token = token
 
 
-def matches_info_path(request_info):
-    return (
-        os.environ.get("HIREFIRE_TOKEN")
-        and request_info.path == f"/hirefire/{os.environ.get('HIREFIRE_TOKEN')}/info"
-    )
-
-
 def matches_hirefire_path(request_info):
     return (
         os.environ.get("HIREFIRE_TOKEN")
         and request_info.path == "/hirefire"
         and request_info.token == os.environ.get("HIREFIRE_TOKEN")
+    )
+
+
+def matches_info_path(request_info):
+    return (
+        os.environ.get("HIREFIRE_TOKEN")
+        and request_info.path == f"/hirefire/{os.environ.get('HIREFIRE_TOKEN')}/info"
     )
 
 
