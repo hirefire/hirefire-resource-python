@@ -20,7 +20,7 @@ class Web:
         self._mutex = threading.Lock()
         self._dispatcher_running = False
         self._dispatcher = None
-        self._dispatch_interval = 5
+        self._dispatch_interval = 1
         self._dispatch_timeout = 5
         self._buffer_ttl = 60
         self._configuration = configuration
