@@ -70,6 +70,8 @@ class Web:
 
         if buffer:
             try:
+                if os.environ.get("HIREFIRE_VERBOSE"):
+                    self._logger.info(f"[HireFire] Dispatching web metrics: {buffer}")
                 self._submit_buffer(buffer)
             except Exception as e:
                 self._repopulate_buffer(buffer)
