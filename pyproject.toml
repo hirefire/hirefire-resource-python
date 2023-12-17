@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "hirefire-resource"
-version = "0.1.0"
+version = "1.0.0"
 description = "Advanced Heroku Dyno Autoscaling"
 authors = ["Michael van Rooijen <support@hirefire.io>"]
 license = "MIT"
