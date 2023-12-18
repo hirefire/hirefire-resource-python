@@ -2,15 +2,21 @@
 
 [HireFire] is the oldest autoscaling service for applications running on [Heroku]. Since 2011, we've assisted more than 1,000 companies in autoscaling upwards of 5,000 applications, with over 10,000 dynos.
 
-This gem collects metrics from Python applications running on Heroku and makes them available to HireFire in order to autoscale web and worker dynos.
+This package collects metrics from Python applications running on Heroku and provides them to HireFire in order to autoscale web and worker dynos.
 
-WIP: See our [Getting Started with Python] guide on how to set up HireFire with your Python application.
+## Guides & Documentation
+
+Please refer to our [Python Guide] for instructions on setting up HireFire with your Python application.
 
 ## Development
 
-Run `bin/setup` to prepare the environment. Run `poetry shell` to boot up the development environment. See `paver --help` for common tasks.
+Run `bin/setup` to prepare the environment.
 
-## Release Procedure
+Run `poetry shell` to boot up the development environment.
+
+See `paver --help` for common tasks.
+
+## Release
 
 1. Update the `version` property in `pyproject.toml`.
 2. Ensure that `CHANGELOG.md` is up-to-date.
@@ -24,4 +30,4 @@ This package is licensed under the MIT license. See LICENSE.
 
 [HireFire]: https://www.hirefire.io/
 [Heroku]: https://www.heroku.com/
-[Getting Started with Python]: https://help.hirefire.io/TODO
+[Python Guide]: https://help.hirefire.io/TODO
