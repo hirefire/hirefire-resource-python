@@ -3,7 +3,7 @@ from django.http import HttpResponse
 from hirefire_resource.middleware.wsgi import RequestInfo, request
 
 
-class Middleware:
+class HireFireMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 

@@ -9,13 +9,13 @@ from freezegun import freeze_time
 
 from hirefire_resource import HireFire
 from hirefire_resource.configuration import Configuration
-from hirefire_resource.middleware.asgi.starlette import Middleware
+from hirefire_resource.middleware.asgi.starlette import HireFireMiddleware
 from hirefire_resource.version import VERSION
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
 app = FastAPI()
 
-app.add_middleware(Middleware)
+app.add_middleware(HireFireMiddleware)
 
 client = TestClient(app)
 

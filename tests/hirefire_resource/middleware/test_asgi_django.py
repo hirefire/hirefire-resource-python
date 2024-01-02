@@ -9,7 +9,7 @@ from starlette.testclient import TestClient
 
 from hirefire_resource import HireFire
 from hirefire_resource.configuration import Configuration
-from hirefire_resource.middleware.asgi.django import Middleware
+from hirefire_resource.middleware.asgi.django import HireFireMiddleware
 from hirefire_resource.version import VERSION
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
@@ -28,7 +28,7 @@ async def app(scope, receive, send):
                 return
 
 
-asgi_app = Middleware(app)
+asgi_app = HireFireMiddleware(app)
 
 
 @pytest.fixture(autouse=True)

@@ -9,7 +9,7 @@ from freezegun import freeze_time
 
 from hirefire_resource import HireFire
 from hirefire_resource.configuration import Configuration
-from hirefire_resource.middleware.wsgi.django import Middleware
+from hirefire_resource.middleware.wsgi.django import HireFireMiddleware
 from hirefire_resource.version import VERSION
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
@@ -20,7 +20,7 @@ class Client:
 
     def request(self, path, **kwargs):
         request = self.factory.get(path, **kwargs)
-        middleware = Middleware(self.default_view)
+        middleware = HireFireMiddleware(self.default_view)
         return middleware(request)
 
     def default_view(self, request):

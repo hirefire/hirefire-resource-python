@@ -10,7 +10,7 @@ from starlette.routing import Route
 
 from hirefire_resource import HireFire
 from hirefire_resource.configuration import Configuration
-from hirefire_resource.middleware.asgi.starlette import Middleware
+from hirefire_resource.middleware.asgi.starlette import HireFireMiddleware
 from hirefire_resource.version import VERSION
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
@@ -21,7 +21,7 @@ async def catch_all(request):
 
 routes = [Route("/{path:path}", catch_all)]
 app = Starlette(routes=routes)
-app = Middleware(app)
+app = HireFireMiddleware(app)
 
 
 @pytest.fixture(autouse=True)

@@ -86,8 +86,8 @@ async def async_job_queue_latency(*queues, redis_url=None):
 
     This function is an asynchronous wrapper around the synchronous `job_queue_latency` function. It
     executes the synchronous function in a separate thread using asyncio's event loop and
-    `run_in_executor` method. This approach ensures that the synchronous Redis I/O operations do not
-    block the asyncio event loop.
+    `run_in_executor` method. This ensures that the synchronous Redis I/O operations do not block
+    the asyncio event loop.
 
     Args:
         queues (str): A variable number of queue names as strings.

@@ -1,7 +1,7 @@
 from hirefire_resource.middleware.asgi import RequestInfo, request
 
 
-class Middleware:
+class HireFireMiddleware:
     def __init__(self, app):
         self.original_app = app.asgi_app
 

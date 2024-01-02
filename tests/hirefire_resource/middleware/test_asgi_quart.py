@@ -7,12 +7,12 @@ from quart import Quart
 
 from hirefire_resource import HireFire
 from hirefire_resource.configuration import Configuration
-from hirefire_resource.middleware.asgi.quart import Middleware
+from hirefire_resource.middleware.asgi.quart import HireFireMiddleware
 from hirefire_resource.version import VERSION
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
 
 app = Quart(__name__)
-app.asgi_app = Middleware(app)
+app.asgi_app = HireFireMiddleware(app)
 app.config["TESTING"] = True
 
 

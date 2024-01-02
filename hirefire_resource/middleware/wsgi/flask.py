@@ -3,7 +3,7 @@ from flask import Response
 from hirefire_resource.middleware.wsgi import RequestInfo, request
 
 
-class Middleware:
+class HireFireMiddleware:
     def __init__(self, app):
         self.app = app
         self.original_wsgi_app = app.wsgi_app
