@@ -38,7 +38,7 @@ def job_queue_latency(*queues, redis_url=None):
         redis_url
         or os.getenv("REDIS_URL")
         or os.getenv("REDIS_TLS_URL")
-        or "redis://localhost:6379"
+        or "redis://localhost:6379/0"
     )
     r = redis.Redis.from_url(redis_url)
     current_time = int(time.time())
@@ -141,7 +141,7 @@ def job_queue_size(*queues, redis_url=None):
         redis_url
         or os.getenv("REDIS_URL")
         or os.getenv("REDIS_TLS_URL")
-        or "redis://localhost:6379"
+        or "redis://localhost:6379/0"
     )
     r = redis.Redis.from_url(redis_url)
     current_time = int(time.time())
