@@ -1,6 +1,6 @@
+import json
 import os
 import time
-import json
 from datetime import datetime
 
 from celery import Celery
@@ -160,19 +160,14 @@ def job_queue_latency(*queues, broker_url=None):
         return 0
 
 
-
-
 def _job_queue_latency_redis(channel, queue):
-    # Get the oldest job in the queue
     oldest_job = channel.client.lindex(queue, -1)
     if oldest_job:
-        # Decode and deserialize the job
         oldest_job = json.loads(oldest_job.decode("utf-8"))
-        # Get the 'run_at' header
         run_at = oldest_job.get("headers", {}).get("run_at")
         if run_at:
-            # Calculate the latency
-            return time.time() - run_at
+            latency = time.time() - run_at
+            return max(0, latency)
     return 0
 
 
@@ -182,65 +177,31 @@ def _job_queue_latency_rabbitmq(channel, queue):
         if message:
             run_at = message.headers.get("run_at")
             if run_at:
-                return time.time() - run_at
+                latency = time.time() - run_at
+                return max(0, latency)
         else:
             return 0
     except ChannelError:
         return 0
 
-@before_task_publish.connect
-def run_at_header_signal(
-    sender=None, headers=None, body=None, properties=None, **kwargs
-):
-    # Initialize headers if not already set
-    headers = headers or {}
-
-    # Check for 'eta' and 'countdown' in properties
-    eta = properties.get("eta") if properties else None
-    countdown = properties.get("countdown") if properties else None
-
-    if eta:
-        # If 'eta' is set, use its timestamp
-        # Ensure that 'eta' is a datetime object
-        if isinstance(eta, str):
-            eta = datetime.fromisoformat(eta)
-        run_at_time = eta.timestamp()
-    elif countdown is not None:
-        # If 'countdown' is set, calculate the future time
-        run_at_time = time.time() + countdown
-    else:
-        # Otherwise, use the current time
-        run_at_time = time.time()
-
-    # Set the calculated time in headers
-    headers["run_at"] = run_at_time
-
 
 @before_task_publish.connect
 def run_at_header_signal(
     sender=None, headers=None, body=None, properties=None, **kwargs
 ):
-    # Initialize headers if not already set
     headers = headers or {}
 
-    # Check if 'run_at' is already set in headers
     if "run_at" not in headers:
-        # Check for 'eta' and 'countdown' in properties
         eta = properties.get("eta") if properties else None
         countdown = properties.get("countdown") if properties else None
 
         if eta:
-            # If 'eta' is set, use its timestamp
-            # Ensure that 'eta' is a datetime object
             if isinstance(eta, str):
                 eta = datetime.fromisoformat(eta)
             run_at_time = eta.timestamp()
         elif countdown is not None:
-            # If 'countdown' is set, calculate the future time
             run_at_time = time.time() + countdown
         else:
-            # Otherwise, use the current time
             run_at_time = time.time()
 
-        # Set the calculated time in headers
         headers["run_at"] = run_at_time

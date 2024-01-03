@@ -8,6 +8,7 @@ from hirefire_resource.macro.celery import job_queue_latency, job_queue_size
 
 broker_urls = ["redis://localhost:6379/12", "amqp://guest:guest@localhost:5672/"]
 
+
 @pytest.fixture(scope="session", params=broker_urls)
 def celery_app(request):
     return Celery(broker=request.param)
@@ -53,7 +54,9 @@ def test_job_queue_latency_with_jobs(celery_app):
 
     for i in reversed(range(5)):
         celery_app.send_task("test_task", queue="default", headers={"run_at": now - i})
-        celery_app.send_task("test_task", queue="mailer", headers={"run_at": now - i * 2})
+        celery_app.send_task(
+            "test_task", queue="mailer", headers={"run_at": now - i * 2}
+        )
 
     assert math.isclose(
         job_queue_latency("default", broker_url=celery_app.conf.broker_url),
