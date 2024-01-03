@@ -1,6 +1,10 @@
 import os
+import time
+import json
+from datetime import datetime
 
 from celery import Celery
+from celery.signals import before_task_publish
 from kombu.exceptions import OperationalError
 
 try:
@@ -96,3 +100,147 @@ def _job_queue_size_rabbitmq(channel, queue):
         return channel.queue_declare(queue=queue, passive=True).message_count
     except ChannelError:
         return 0
+
+
+import time
+
+
+def job_queue_latency(*queues, broker_url=None):
+    """
+    Calculates the maximum latency across the specified queues using Celery with either
+    Redis or RabbitMQ (AMQP) as the broker.
+
+    This function dynamically selects the broker based on the provided broker_url, environment variables,
+    or falls back to a default local broker URL. If RabbitMQ (AMQP) is available, it is preferred;
+    otherwise, Redis is used.
+
+    Args:
+        queues (str): A variable number of queue names as strings.
+        broker_url (str, optional): The broker URL. Defaults in order:
+                                    - Passed argument broker_url.
+                                    - Environment variables AMQP_URL, CLOUDAMQP_URL, REDIS_URL, REDIS_TLS_URL.
+                                    - "amqp://guest:guest@localhost:5672/" if AMQP is available, otherwise
+                                      "redis://localhost:6379/0".
+
+    Returns:
+        int: The maximum latency across the specified queues.
+
+    Raises:
+        MissingQueueError: If no queue names are provided.
+    """
+    if not queues:
+        raise MissingQueueError()
+
+    broker_url = (
+        broker_url
+        or os.environ.get("AMQP_URL")
+        or os.environ.get("CLOUDAMQP_URL")
+        or os.environ.get("REDIS_URL")
+        or os.environ.get("REDIS_TLS_URL")
+    )
+
+    if not broker_url:
+        if AMQP_AVAILABLE:
+            broker_url = "amqp://guest:guest@localhost:5672/"
+        else:
+            broker_url = "redis://localhost:6379/0"
+
+    app = Celery(broker=broker_url)
+
+    try:
+        with app.connection_or_acquire() as connection:
+            with connection.channel() as channel:
+                if hasattr(channel, "_size"):
+                    fn = _job_queue_latency_redis
+                else:
+                    fn = _job_queue_latency_rabbitmq
+                return max(fn(channel, queue) for queue in queues)
+
+    except OperationalError:
+        return 0
+
+
+
+
+def _job_queue_latency_redis(channel, queue):
+    # Get the oldest job in the queue
+    oldest_job = channel.client.lindex(queue, -1)
+    if oldest_job:
+        # Decode and deserialize the job
+        oldest_job = json.loads(oldest_job.decode("utf-8"))
+        # Get the 'run_at' header
+        run_at = oldest_job.get("headers", {}).get("run_at")
+        if run_at:
+            # Calculate the latency
+            return time.time() - run_at
+    return 0
+
+
+def _job_queue_latency_rabbitmq(channel, queue):
+    try:
+        message = channel.basic_get(queue)
+        if message:
+            run_at = message.headers.get("run_at")
+            if run_at:
+                return time.time() - run_at
+        else:
+            return 0
+    except ChannelError:
+        return 0
+
+@before_task_publish.connect
+def run_at_header_signal(
+    sender=None, headers=None, body=None, properties=None, **kwargs
+):
+    # Initialize headers if not already set
+    headers = headers or {}
+
+    # Check for 'eta' and 'countdown' in properties
+    eta = properties.get("eta") if properties else None
+    countdown = properties.get("countdown") if properties else None
+
+    if eta:
+        # If 'eta' is set, use its timestamp
+        # Ensure that 'eta' is a datetime object
+        if isinstance(eta, str):
+            eta = datetime.fromisoformat(eta)
+        run_at_time = eta.timestamp()
+    elif countdown is not None:
+        # If 'countdown' is set, calculate the future time
+        run_at_time = time.time() + countdown
+    else:
+        # Otherwise, use the current time
+        run_at_time = time.time()
+
+    # Set the calculated time in headers
+    headers["run_at"] = run_at_time
+
+
+@before_task_publish.connect
+def run_at_header_signal(
+    sender=None, headers=None, body=None, properties=None, **kwargs
+):
+    # Initialize headers if not already set
+    headers = headers or {}
+
+    # Check if 'run_at' is already set in headers
+    if "run_at" not in headers:
+        # Check for 'eta' and 'countdown' in properties
+        eta = properties.get("eta") if properties else None
+        countdown = properties.get("countdown") if properties else None
+
+        if eta:
+            # If 'eta' is set, use its timestamp
+            # Ensure that 'eta' is a datetime object
+            if isinstance(eta, str):
+                eta = datetime.fromisoformat(eta)
+            run_at_time = eta.timestamp()
+        elif countdown is not None:
+            # If 'countdown' is set, calculate the future time
+            run_at_time = time.time() + countdown
+        else:
+            # Otherwise, use the current time
+            run_at_time = time.time()
+
+        # Set the calculated time in headers
+        headers["run_at"] = run_at_time
