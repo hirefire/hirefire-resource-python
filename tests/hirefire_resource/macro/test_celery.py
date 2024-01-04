@@ -49,7 +49,7 @@ def test_job_queue_latency_without_jobs(celery_app):
     assert job_queue_latency("default", broker_url=celery_app.conf.broker_url) == 0
 
 
-def test_job_queue_latency_with_jobs(celery_app):
+def enqueue_for_job_queue_latency_with_job(celery_app):
     now = time.time()
 
     for i in reversed(range(5)):
@@ -57,6 +57,10 @@ def test_job_queue_latency_with_jobs(celery_app):
         celery_app.send_task(
             "test_task", queue="mailer", headers={"run_at": now - i * 2}
         )
+
+
+def test_job_queue_latency_with_jobs(celery_app):
+    enqueue_for_job_queue_latency_with_job(celery_app)
 
     assert math.isclose(
         job_queue_latency("default", broker_url=celery_app.conf.broker_url),
@@ -66,8 +70,23 @@ def test_job_queue_latency_with_jobs(celery_app):
     assert math.isclose(
         job_queue_latency("mailer", broker_url=celery_app.conf.broker_url), 8, abs_tol=1
     )
+
+    # Verify that peeking doesn't discard the message
+    assert (
+        job_queue_size("default", "mailer", broker_url=celery_app.conf.broker_url) == 10
+    )
+
+
+def test_job_queue_latency_with_jobs_multi(celery_app):
+    enqueue_for_job_queue_latency_with_job(celery_app)
+
     assert math.isclose(
         job_queue_latency("default", "mailer", broker_url=celery_app.conf.broker_url),
         8,
         abs_tol=1,
+    )
+
+    # Verify that peeking doesn't discard the message
+    assert (
+        job_queue_size("default", "mailer", broker_url=celery_app.conf.broker_url) == 10
     )

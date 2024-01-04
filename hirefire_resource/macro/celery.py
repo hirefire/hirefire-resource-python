@@ -102,9 +102,6 @@ def _job_queue_size_rabbitmq(channel, queue):
         return 0
 
 
-import time
-
-
 def job_queue_latency(*queues, broker_url=None):
     """
     Calculates the maximum latency across the specified queues using Celery with either
@@ -174,13 +171,18 @@ def _job_queue_latency_redis(channel, queue):
 def _job_queue_latency_rabbitmq(channel, queue):
     try:
         message = channel.basic_get(queue)
-        if message:
-            run_at = message.headers.get("run_at")
-            if run_at:
-                latency = time.time() - run_at
-                return max(0, latency)
-        else:
+        if message is None:
             return 0
+
+        run_at = message.headers.get("run_at")
+        if run_at:
+            latency = time.time() - run_at
+            result = max(0, latency)
+        else:
+            result = 0
+
+        channel.basic_reject(message.delivery_tag, requeue=True)
+        return result
     except ChannelError:
         return 0
 
