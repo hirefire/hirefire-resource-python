@@ -194,8 +194,8 @@ def run_at_header_signal(
     headers = headers or {}
 
     if "run_at" not in headers:
-        eta = properties.get("eta") if properties else None
-        countdown = properties.get("countdown") if properties else None
+        eta = headers.get("eta")
+        countdown = headers.get("countdown")
 
         if eta:
             if isinstance(eta, str):
