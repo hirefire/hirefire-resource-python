@@ -19,6 +19,10 @@ jobs:
         image: redis:latest
         ports:
           - 6379:6379
+      rabbitmq:
+        image: rabbitmq:latest
+        ports:
+          - 5672:5672
     strategy:
       fail-fast: false
       matrix:
