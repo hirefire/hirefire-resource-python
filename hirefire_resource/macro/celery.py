@@ -181,6 +181,7 @@ def job_queue_latency(*queues, broker_url=None):
                     fn = _job_queue_latency_redis
                 else:
                     fn = _job_queue_latency_rabbitmq
+
                 return max(fn(channel, queue) for queue in queues)
 
     except OperationalError:
@@ -189,22 +190,27 @@ def job_queue_latency(*queues, broker_url=None):
 
 def _job_queue_latency_redis(channel, queue):
     oldest_job = channel.client.lindex(queue, -1)
+
     if oldest_job:
         oldest_job = json.loads(oldest_job.decode("utf-8"))
         run_at = oldest_job.get("headers", {}).get("run_at")
+
         if run_at:
             latency = time.time() - run_at
             return max(0, latency)
+
     return 0
 
 
 def _job_queue_latency_rabbitmq(channel, queue):
     try:
         message = channel.basic_get(queue)
+
         if message is None:
             return 0
 
         run_at = message.headers.get("run_at")
+
         if run_at:
             latency = time.time() - run_at
             result = max(0, latency)
@@ -212,6 +218,7 @@ def _job_queue_latency_rabbitmq(channel, queue):
             result = 0
 
         channel.basic_reject(message.delivery_tag, requeue=True)
+
         return result
     except ChannelError:
         return 0
@@ -230,6 +237,7 @@ def run_at_header_signal(
         if eta:
             if isinstance(eta, str):
                 eta = datetime.fromisoformat(eta)
+
             run_at_time = eta.timestamp()
         elif countdown is not None:
             run_at_time = time.time() + countdown
