@@ -1,5 +1,5 @@
 import math
-import time
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from celery import Celery
@@ -56,12 +56,14 @@ def test_job_queue_latency_without_jobs(celery_app):
 
 
 def enqueue_for_job_queue_latency_with_job(celery_app):
-    now = time.time()
+    now = datetime.now(timezone.utc)
 
     for i in reversed(range(5)):
-        celery_app.send_task("test_task", queue="default", headers={"run_at": now - i})
         celery_app.send_task(
-            "test_task", queue="mailer", headers={"run_at": now - i * 2}
+            "test_task", queue="default", eta=(now - timedelta(seconds=i))
+        )
+        celery_app.send_task(
+            "test_task", queue="mailer", eta=(now - timedelta(seconds=i * 2))
         )
 
 
@@ -76,7 +78,6 @@ def test_job_queue_latency_with_jobs(celery_app):
     assert math.isclose(
         job_queue_latency("mailer", broker_url=celery_app.conf.broker_url), 8, abs_tol=1
     )
-
     # Verify that peeking doesn't discard the message
     assert (
         job_queue_size("default", "mailer", broker_url=celery_app.conf.broker_url) == 10
@@ -91,7 +92,6 @@ def test_job_queue_latency_with_jobs_multi(celery_app):
         8,
         abs_tol=1,
     )
-
     # Verify that peeking doesn't discard the message
     assert (
         job_queue_size("default", "mailer", broker_url=celery_app.conf.broker_url) == 10

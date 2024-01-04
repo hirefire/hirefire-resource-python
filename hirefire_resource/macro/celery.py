@@ -1,11 +1,13 @@
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
+from amqp.exceptions import ChannelError
 from celery import Celery
 from celery.signals import before_task_publish
 from dateutil import parser
+from dateutil.parser import parse
 from kombu.exceptions import OperationalError
 
 try:
@@ -179,7 +181,8 @@ def _job_queue_latency_redis(channel, queue):
         run_at = oldest_job.get("headers", {}).get("run_at")
 
         if run_at:
-            latency = time.time() - run_at
+            run_at_time = parse(run_at)
+            latency = time.time() - run_at_time.timestamp()
             return max(0, latency)
 
     return 0
@@ -195,7 +198,8 @@ def _job_queue_latency_rabbitmq(channel, queue):
         run_at = message.headers.get("run_at")
 
         if run_at:
-            latency = time.time() - run_at
+            run_at_time = parse(run_at)
+            latency = time.time() - run_at_time.timestamp()
             result = max(0, latency)
         else:
             result = 0
@@ -259,19 +263,9 @@ def run_at_header_signal(
     sender=None, headers=None, body=None, properties=None, **kwargs
 ):
     headers = headers or {}
+    eta = headers.get("eta")
 
-    if "run_at" not in headers:
-        eta = headers.get("eta")
-        countdown = headers.get("countdown")
-
-        if eta:
-            if isinstance(eta, str):
-                eta = datetime.fromisoformat(eta)
-
-            run_at_time = eta.timestamp()
-        elif countdown is not None:
-            run_at_time = time.time() + countdown
-        else:
-            run_at_time = time.time()
-
-        headers["run_at"] = run_at_time
+    if eta:
+        headers["run_at"] = eta
+    else:
+        headers["run_at"] = datetime.now(timezone.utc).isoformat()
