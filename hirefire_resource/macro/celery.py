@@ -45,14 +45,14 @@ def job_queue_size(*queues, broker_url=None):
         MissingQueueError: If no queue names are provided.
 
     Examples:
-        >>> job_queue_size('default')
+        >>> job_queue_size('celery')
         42
-        >>> job_queue_size('default', 'high_priority')
+        >>> job_queue_size('celery', 'mailer')
         85
-        >>> job_queue_size('default', broker_url='amqp://user:password@host:5672/vhost')
+        >>> job_queue_size('celery', broker_url='amqp://user:password@host:5672/vhost')
         30
 
-    Note:
+    Note: @TODO
         - Due to performance concerns, this function does not take into account tasks scheduled to
           run in the future using eta or countdown. Autoscaling queues containing such tasks is not
           recommended. A potential workaround is to create a separate 'scheduled' queue and assign a
@@ -81,14 +81,44 @@ def job_queue_size(*queues, broker_url=None):
     try:
         with app.connection_or_acquire() as connection:
             with connection.channel() as channel:
-                if hasattr(channel, "_size"):
-                    fn = _job_queue_size_redis
-                else:
-                    fn = _job_queue_size_rabbitmq
-                return sum(fn(channel, queue) for queue in queues)
+                worker_task_count = _job_queue_size_worker(app, queues)
+                broker_task_count = _job_queue_size_broker(channel, queues)
+                return worker_task_count + broker_task_count
 
     except OperationalError:
         return 0
+
+
+def _job_queue_size_worker(app, queues):
+    i = app.control.inspect()
+    queues = set(queues)
+
+    active_tasks = 0
+    active = i.active()
+    if active is not None:
+        for worker, tasks in active.items():
+            for task in tasks:
+                if task["delivery_info"]["routing_key"] in queues:
+                    active_tasks += 1
+
+    reserved_tasks = 0
+    reserved = i.reserved()
+    if reserved is not None:
+        for worker, tasks in reserved.items():
+            for task in tasks:
+                if task["delivery_info"]["routing_key"] in queues:
+                    reserved_tasks += 1
+
+    return active_tasks + reserved_tasks
+
+
+def _job_queue_size_broker(channel, queues):
+    if hasattr(channel, "_size"):
+        fn = _job_queue_size_redis
+    else:
+        fn = _job_queue_size_rabbitmq
+
+    return sum(fn(channel, queue) for queue in queues)
 
 
 def _job_queue_size_redis(channel, queue):

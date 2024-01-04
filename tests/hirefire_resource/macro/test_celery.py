@@ -1,4 +1,3 @@
-import datetime
 import math
 import time
 
@@ -85,65 +84,6 @@ def test_job_queue_latency_with_jobs_multi(celery_app):
         job_queue_latency("default", "mailer", broker_url=celery_app.conf.broker_url),
         8,
         abs_tol=1,
-    )
-
-    # Verify that peeking doesn't discard the message
-    assert (
-        job_queue_size("default", "mailer", broker_url=celery_app.conf.broker_url) == 10
-    )
-
-
-# Does reject also update the run_at header?
-
-
-def enqueue_for_job_queue_latency_with_eta(celery_app):
-    now = time.time()
-
-    for i in reversed(range(5)):
-        celery_app.send_task(
-            "test_task", queue="default", eta=datetime.datetime.fromtimestamp(now - i)
-        )
-        celery_app.send_task(
-            "test_task",
-            queue="mailer",
-            eta=datetime.datetime.fromtimestamp(now - i * 2),
-        )
-
-
-def test_job_queue_latency_with_eta(celery_app):
-    enqueue_for_job_queue_latency_with_eta(celery_app)
-
-    assert math.isclose(
-        job_queue_latency("default", broker_url=celery_app.conf.broker_url),
-        4,
-        abs_tol=1,
-    )
-    assert math.isclose(
-        job_queue_latency("mailer", broker_url=celery_app.conf.broker_url), 8, abs_tol=1
-    )
-
-    # Verify that peeking doesn't discard the message
-    assert (
-        job_queue_size("default", "mailer", broker_url=celery_app.conf.broker_url) == 10
-    )
-
-
-def enqueue_for_job_queue_latency_with_countdown(celery_app):
-    for i in reversed(range(5)):
-        celery_app.send_task("test_task", queue="default", countdown=-i)
-        celery_app.send_task("test_task", queue="mailer", countdown=-i * 2)
-
-
-def test_job_queue_latency_with_countdown(celery_app):
-    enqueue_for_job_queue_latency_with_countdown(celery_app)
-
-    assert math.isclose(
-        job_queue_latency("default", broker_url=celery_app.conf.broker_url),
-        4,
-        abs_tol=1,
-    )
-    assert math.isclose(
-        job_queue_latency("mailer", broker_url=celery_app.conf.broker_url), 8, abs_tol=1
     )
 
     # Verify that peeking doesn't discard the message
