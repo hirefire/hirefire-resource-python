@@ -5,6 +5,7 @@ from datetime import datetime
 
 from celery import Celery
 from celery.signals import before_task_publish
+from dateutil import parser
 from kombu.exceptions import OperationalError
 
 try:
@@ -90,26 +91,8 @@ def job_queue_size(*queues, broker_url=None):
 
 
 def _job_queue_size_worker(app, queues):
-    i = app.control.inspect()
-    queues = set(queues)
-
-    active_tasks = 0
-    active = i.active()
-    if active is not None:
-        for worker, tasks in active.items():
-            for task in tasks:
-                if task["delivery_info"]["routing_key"] in queues:
-                    active_tasks += 1
-
-    reserved_tasks = 0
-    reserved = i.reserved()
-    if reserved is not None:
-        for worker, tasks in reserved.items():
-            for task in tasks:
-                if task["delivery_info"]["routing_key"] in queues:
-                    reserved_tasks += 1
-
-    return active_tasks + reserved_tasks
+    worker_data = _worker_data(app)
+    return sum(worker_data.get(queue, 0) for queue in queues)
 
 
 def _job_queue_size_broker(channel, queues):
@@ -222,6 +205,53 @@ def _job_queue_latency_rabbitmq(channel, queue):
         return result
     except ChannelError:
         return 0
+
+
+_worker_data_cache_enabled = True
+_worker_data_cache_value = None
+_worker_data_cache_time = time.time() - (5 + 1)
+
+
+def cache_worker_data(enabled):
+    global _worker_data_cache_enabled
+    _worker_data_cache_enabled = enabled
+
+
+def _worker_data(app):
+    global _worker_data_cache_value, _worker_data_cache_time
+
+    if not _worker_data_cache_enabled or (_worker_data_cache_time + 5) < time.time():
+        i = app.control.inspect()
+        now = time.time()
+        queue_info = {}
+
+        for collection in [i.active(), i.reserved(), i.scheduled()]:
+            if collection is not None:
+                for worker, tasks in collection.items():
+                    for task in tasks:
+                        task_info = task
+
+                        if task.get("eta"):
+                            eta_string = task.get("eta")
+                            eta_datetime = parser.parse(eta_string)
+                            eta_timestamp = eta_datetime.timestamp()
+
+                            if now < eta_timestamp:
+                                continue
+
+                            task_info = task["request"]
+
+                        queue = task_info["delivery_info"]["routing_key"]
+
+                        if queue not in queue_info:
+                            queue_info[queue] = 0
+
+                        queue_info[queue] += 1
+
+        _worker_data_cache_value = queue_info
+        _worker_data_cache_time = time.time()
+
+    return _worker_data_cache_value
 
 
 @before_task_publish.connect

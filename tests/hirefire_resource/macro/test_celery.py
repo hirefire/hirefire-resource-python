@@ -4,7 +4,13 @@ import time
 import pytest
 from celery import Celery
 
-from hirefire_resource.macro.celery import job_queue_latency, job_queue_size
+from hirefire_resource.macro.celery import (
+    cache_worker_data,
+    job_queue_latency,
+    job_queue_size,
+)
+
+cache_worker_data(False)
 
 broker_urls = ["redis://localhost:6379/12", "amqp://guest:guest@localhost:5672/"]
 
