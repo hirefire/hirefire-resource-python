@@ -16,7 +16,7 @@ def job_queue_latency(*queues, redis_url=None):
     This function dynamically selects the Redis broker based on the provided redis_url or environment
     variables, or falls back to a default local Redis URL.
 
-     Args:
+    Args:
         *queues (str): The names of the queues to be included in the measurement of job queue latency.
         redis_url (str, optional): The Redis URL. Defaults in the following order:
             - Passed argument `redis_url`.
@@ -24,7 +24,7 @@ def job_queue_latency(*queues, redis_url=None):
             - "redis://localhost:6379/0".
 
     Returns:
-        float: The maximum job queue latency in seconds across the specified queues with sub-second precision.
+        float: The maximum latency in seconds across the specified queues.
 
     Raises:
         MissingQueueError: If no queue names are provided.
@@ -107,7 +107,7 @@ async def async_job_queue_latency(*queues, redis_url=None):
            - "redis://localhost:6379/0".
 
    Returns:
-       float: The maximum job queue latency in seconds across the specified queues with sub-second precision.
+       float: The maximum latency in seconds across the specified queues.
 
    Raises:
        MissingQueueError: If no queue names are provided.

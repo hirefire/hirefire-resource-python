@@ -68,7 +68,7 @@ def job_queue_latency(*queues, broker_url=None):
               "redis://localhost:6379/0".
 
     Returns:
-        float: The maximum latency across the specified queues.
+        float: The maximum latency in seconds across the specified queues.
 
     Raises:
         MissingQueueError: If no queue names are provided.
@@ -164,7 +164,7 @@ async def async_job_queue_latency(*queues, broker_url=None):
               "redis://localhost:6379/0".
 
     Returns:
-        float: The maximum latency across the specified queues.
+        float: The maximum latency in seconds across the specified queues.
 
     Raises:
         MissingQueueError: If no queue names are provided.
