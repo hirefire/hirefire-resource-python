@@ -15,21 +15,24 @@ def job_queue_latency(*queues, redis_url=None):
 
     Args:
         queues: A variable number of queue names as strings.
-        redis_url (str, optional): The Redis server URL. Defaults to the environment variable
-                                   REDIS_URL, then REDIS_TLS_URL, and falls back to
-                                   "redis://localhost:6379" if neither is set.
+        redis_url (str, optional): The redis URL. Defaults in the following order:
+            - Passed argument `redis_url`.
+            - Environment variables `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
+            - "redis://localhost:6379/0".
 
     Returns:
-        int: The maximum job queue latency in seconds across the specified queues.
+        float: The maximum job queue latency in seconds across the specified queues with sub-second precision.
 
     Raises:
         MissingQueueError: If no queue names are provided.
 
     Examples:
-        >>> job_queue_latency('default')
-        3600
-        >>> job_queue_latency('default', 'mailer')
-        7200
+        >>> job_queue_latency("default")
+        10.172
+        >>> job_queue_latency("default", "mailer")
+        22.918
+        >>> job_queue_latency("default", redis_url="redis://localhost:6379/0")
+        15.234
     """
     if not queues:
         raise MissingQueueError()
@@ -38,10 +41,13 @@ def job_queue_latency(*queues, redis_url=None):
         redis_url
         or os.getenv("REDIS_URL")
         or os.getenv("REDIS_TLS_URL")
+        or os.getenv("REDISTOGO_URL")
+        or os.getenv("REDISCLOUD_URL")
+        or os.getenv("OPENREDIS_URL")
         or "redis://localhost:6379/0"
     )
     r = redis.Redis.from_url(redis_url)
-    current_time = int(time.time())
+    current_time = time.time()
     pipe = r.pipeline()
 
     for queue_name in queues:
@@ -90,8 +96,26 @@ async def async_job_queue_latency(*queues, redis_url=None):
     `run_in_executor` method. This ensures that the synchronous Redis I/O operations do not block
     the asyncio event loop.
 
-    For more details about the arguments, return value, and exceptions, refer to the docstring of
-    `job_queue_latency`.
+    Args:
+        queues: A variable number of queue names as strings.
+        redis_url (str, optional): The redis URL. Defaults in the following order:
+            - Passed argument `redis_url`.
+            - Environment variables `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
+            - "redis://localhost:6379/0".
+
+    Returns:
+        float: The maximum job queue latency in seconds across the specified queues with sub-second precision.
+
+    Raises:
+        MissingQueueError: If no queue names are provided.
+
+    Examples:
+        >>> await async_job_queue_latency("default")
+        10.172
+        >>> await async_job_queue_latency("default", "mailer")
+        22.918
+        >>> await async_job_queue_latency("default", redis_url="redis://localhost:6379/0")
+        15.234
     """
     loop = asyncio.get_event_loop()
     func = functools.partial(job_queue_latency, *queues, redis_url=redis_url)
@@ -104,9 +128,10 @@ def job_queue_size(*queues, redis_url=None):
 
     Args:
         queues: A variable number of queue names as strings.
-        redis_url (str, optional): The Redis server URL. Defaults to the environment variable
-                                   REDIS_URL, then REDIS_TLS_URL, and falls back to
-                                   "redis://localhost:6379" if neither is set.
+        redis_url (str, optional): The redis URL. Defaults in the following order:
+            - Passed argument `redis_url`.
+            - Environment variables `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
+            - "redis://localhost:6379/0".
 
     Returns:
         int: The cumulative job queue size across the specified queues.
@@ -115,10 +140,12 @@ def job_queue_size(*queues, redis_url=None):
         MissingQueueError: If no queue names are provided.
 
     Examples:
-        >>> job_queue_size('default')
+        >>> job_queue_size("default")
         42
-        >>> job_queue_size('default', 'mailer')
+        >>> job_queue_size("default", "mailer")
         85
+        >>> job_queue_size("default", redis_url="redis://localhost:6379/0")
+        57
     """
     if not queues:
         raise MissingQueueError()
@@ -127,6 +154,9 @@ def job_queue_size(*queues, redis_url=None):
         redis_url
         or os.getenv("REDIS_URL")
         or os.getenv("REDIS_TLS_URL")
+        or os.getenv("REDISTOGO_URL")
+        or os.getenv("REDISCLOUD_URL")
+        or os.getenv("OPENREDIS_URL")
         or "redis://localhost:6379/0"
     )
     r = redis.Redis.from_url(redis_url)
@@ -147,16 +177,34 @@ def job_queue_size(*queues, redis_url=None):
 
 async def async_job_queue_size(*queues, redis_url=None):
     """
-    Asynchronously calculates the total job queue size across the specified queues using RQ with
-    Redis as the broker.
+    Asynchronously calculates the total job queue size across the specified queues using RQ
+    with Redis as the broker.
 
     This function is an asynchronous wrapper around the synchronous `job_queue_size` function. It
     executes the synchronous function in a separate thread using asyncio's event loop and
     `run_in_executor` method. This ensures that the synchronous Redis I/O operations do not block
     the asyncio event loop.
 
-    For more details about the arguments, return value, and exceptions, refer to the docstring of
-    `job_queue_size`.
+    Args:
+        queues: A variable number of queue names as strings.
+        redis_url (str, optional): The redis URL. Defaults in the following order:
+            - Passed argument `redis_url`.
+            - Environment variables `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
+            - "redis://localhost:6379/0".
+
+    Returns:
+        int: The cumulative job queue size across the specified queues.
+
+    Raises:
+        MissingQueueError: If no queue names are provided.
+
+    Examples:
+        >>> await async_job_queue_size("default")
+        42
+        >>> await async_job_queue_size("default", "mailer")
+        85
+        >>> await async_job_queue_size("default", redis_url="redis://localhost:6379/0")
+        57
     """
     loop = asyncio.get_event_loop()
     func = functools.partial(job_queue_size, *queues, redis_url=redis_url)
@@ -165,6 +213,6 @@ async def async_job_queue_size(*queues, redis_url=None):
 
 def _iso_to_unix(iso_time):
     dt = datetime.fromisoformat(iso_time.replace("Z", "+00:00"))
-    unix_time = int(dt.timestamp())
+    unix_time = float(dt.timestamp())
 
     return unix_time

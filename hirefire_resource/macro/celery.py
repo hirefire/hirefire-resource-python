@@ -37,19 +37,26 @@ def job_queue_latency(*queues, broker_url=None):
 
     Args:
         queues (str): A variable number of queue names as strings.
-        broker_url (str, optional): The broker URL. Defaults in order:
-                                    - Passed argument broker_url.
-                                    - Environment variables AMQP_URL, RABBITMQ_URL, CLOUDAMQP_URL,
-                                      RABBITMQ_BIGWIG_URL, REDIS_URL, REDIS_TLS_URL, REDISTOGO_URL,
-                                      REDISCLOUD_URL, OPENREDIS_URL.
-                                    - "amqp://guest:guest@localhost:5672/" if AMQP is available,
-                                      otherwise "redis://localhost:6379/0".
+        broker_url (str, optional): The broker URL. Defaults in the following order:
+            - Passed argument `broker_url`.
+            - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `CLOUDAMQP_URL`, `RABBITMQ_BIGWIG_URL`, `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
+            - "amqp://guest:guest@localhost:5672/" if AMQP is available, otherwise "redis://localhost:6379/0".
 
     Returns:
-        int: The maximum latency across the specified queues.
+        float: The maximum latency across the specified queues.
 
     Raises:
         MissingQueueError: If no queue names are provided.
+
+    Examples:
+        >>> job_queue_latency("celery")
+        10.172
+        >>> job_queue_latency("celery", "mailer")
+        22.918
+        >>> job_queue_latency("celery", broker_url="amqp://guest:guest@localhost:5672/")
+        15.234
+        >>> job_queue_latency("celery", "mailer", broker_url="redis://localhost:6379/0")
+        18.765
     """
     if not queues:
         raise MissingQueueError()
@@ -99,8 +106,28 @@ async def async_job_queue_latency(*queues, broker_url=None):
     `run_in_executor` method. This ensures that the synchronous Celery I/O operations do not block
     the asyncio event loop.
 
-    For more details about the arguments and return value, refer to the docstring of
-    `job_queue_latency`.
+    Args:
+        queues (str): A variable number of queue names as strings.
+        broker_url (str, optional): The broker URL. Defaults in the following order:
+            - Passed argument `broker_url`.
+            - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `CLOUDAMQP_URL`, `RABBITMQ_BIGWIG_URL`, `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
+            - "amqp://guest:guest@localhost:5672/" if AMQP is available, otherwise "redis://localhost:6379/0".
+
+    Returns:
+        float: The maximum latency across the specified queues.
+
+    Raises:
+        MissingQueueError: If no queue names are provided.
+
+    Examples:
+        >>> await async_job_queue_latency("celery")
+        10.172
+        >>> await async_job_queue_latency("celery", "mailer")
+        22.918
+        >>> await async_job_queue_latency("celery", broker_url="amqp://guest:guest@localhost:5672/")
+        15.234
+        >>> await async_job_queue_latency("celery", "mailer", broker_url="redis://localhost:6379/0")
+        18.765
     """
     loop = asyncio.get_event_loop()
     func = functools.partial(job_queue_latency, *queues, broker_url=broker_url)
@@ -118,14 +145,10 @@ def job_queue_size(*queues, broker_url=None):
 
     Args:
         queues (str): A variable number of queue names as strings.
-        broker_url (str, optional): The broker URL. Defaults in order:
-                                    - Passed argument broker_url.
-                                    - Environment variables AMQP_URL, RABBITMQ_URL, CLOUDAMQP_URL,
-                                      RABBITMQ_BIGWIG_URL, REDIS_URL, REDIS_TLS_URL, REDISTOGO_URL,
-                                      REDISCLOUD_URL, OPENREDIS_URL.
-                                    - "amqp://guest:guest@localhost:5672/" if AMQP is available,
-                                      otherwise "redis://localhost:6379/0".
-
+        broker_url (str, optional): The broker URL. Defaults in the following order:
+            - Passed argument `broker_url`.
+            - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `CLOUDAMQP_URL`, `RABBITMQ_BIGWIG_URL`, `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
+            - "amqp://guest:guest@localhost:5672/" if AMQP is available, otherwise "redis://localhost:6379/0".
     Returns:
         int: The cumulative job queue size across the specified queues.
 
@@ -133,19 +156,14 @@ def job_queue_size(*queues, broker_url=None):
         MissingQueueError: If no queue names are provided.
 
     Examples:
-        >>> job_queue_size('celery')
+        >>> job_queue_size("celery")
         42
-        >>> job_queue_size('celery', 'mailer')
+        >>> job_queue_size("celery", "mailer")
         85
-        >>> job_queue_size('celery', broker_url='amqp://user:password@host:5672/vhost')
+        >>> job_queue_size("celery", broker_url="amqp://user:password@host:5672/")
         30
-
-    Note: @TODO
-        - Due to performance concerns, this function does not take into account tasks scheduled to
-          run in the future using eta or countdown. Autoscaling queues containing such tasks is not
-          recommended. A potential workaround is to create a separate 'scheduled' queue and assign a
-          dedicated worker whose sole responsibility is to move tasks from the 'scheduled' queue to
-          a regular queue (e.g., 'default') once they're ready to be executed.
+        >>> job_queue_size("celery", broker_url="redis://localhost:6379/0")
+        15
     """
     if not queues:
         raise MissingQueueError()
@@ -192,8 +210,28 @@ async def async_job_queue_size(*queues, broker_url=None):
     `run_in_executor` method. This ensures that the synchronous Celery I/O operations do not block
     the asyncio event loop.
 
-    For more details about the arguments, return value, and exceptions, refer to the docstring of
-    `job_queue_size`.
+    Args:
+        queues (str): A variable number of queue names as strings.
+        broker_url (str, optional): The broker URL. Defaults in the following order:
+            - Passed argument `broker_url`.
+            - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `CLOUDAMQP_URL`, `RABBITMQ_BIGWIG_URL`, `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
+            - "amqp://guest:guest@localhost:5672/" if AMQP is available, otherwise "redis://localhost:6379/0".
+
+    Returns:
+        int: The cumulative job queue size across the specified queues.
+
+    Raises:
+        MissingQueueError: If no queue names are provided.
+
+    Examples:
+        >>> await async_job_queue_size('celery')
+        42
+        >>> await async_job_queue_size('celery', 'mailer')
+        85
+        >>> await async_job_queue_size('celery', broker_url='amqp://user:password@host:5672/')
+        30
+        >>> await async_job_queue_size("celery", broker_url="redis://localhost:6379/0")
+        15
     """
     loop = asyncio.get_event_loop()
     func = functools.partial(job_queue_size, *queues, broker_url=broker_url)
