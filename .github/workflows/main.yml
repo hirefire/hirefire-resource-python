@@ -3,9 +3,9 @@ name: Main
 on:
   push:
     branches:
-      - '*'
+      - "*"
     tags:
-      - '*'
+      - "*"
   pull_request:
 
 concurrency:
