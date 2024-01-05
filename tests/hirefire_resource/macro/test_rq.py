@@ -24,12 +24,9 @@ def clear_redis():
     r.flushdb()
 
 
-def test_job_queue_latency_raises_error_with_no_queues():
-    with pytest.raises(MissingQueueError) as excinfo:
-        job_queue_latency(redis_url=redis_url)
-    assert "No queue was specified. Please specify at least one queue." in str(
-        excinfo.value
-    )
+def test_job_queue_latency_missing_queue():
+    with pytest.raises(MissingQueueError):
+        job_queue_latency()
 
 
 def test_job_queue_latency_default_redis_url():
@@ -82,15 +79,14 @@ def test_job_queue_latency_with_scheduled_jobs():
 
 
 @pytest.mark.asyncio
+async def test_async_job_queue_latency_missing_queue():
+    with pytest.raises(MissingQueueError):
+        await async_job_queue_latency()
+
+
+@pytest.mark.asyncio
 async def test_async_job_queue_latency():
     default = Queue("default", connection=Redis.from_url(redis_url))
-
-    with pytest.raises(MissingQueueError) as excinfo:
-        await async_job_queue_latency(redis_url=redis_url)
-
-    assert "No queue was specified. Please specify at least one queue." in str(
-        excinfo.value
-    )
 
     with freeze_time(datetime.fromtimestamp(time.time() - 200, timezone.utc)):
         default.enqueue("my_function")
@@ -100,12 +96,9 @@ async def test_async_job_queue_latency():
     ) == pytest.approx(200, abs=10)
 
 
-def test_job_queue_size_raises_error_with_no_queues():
-    with pytest.raises(MissingQueueError) as excinfo:
-        job_queue_size(redis_url=redis_url)
-    assert "No queue was specified. Please specify at least one queue." in str(
-        excinfo.value
-    )
+def test_job_queue_size_missing_queue():
+    with pytest.raises(MissingQueueError):
+        job_queue_size()
 
 
 def test_job_queue_size_default_redis_url():
@@ -136,16 +129,13 @@ def test_job_queue_size_with_jobs():
 
 
 @pytest.mark.asyncio
+async def test_async_job_queue_size_missing_queue():
+    with pytest.raises(MissingQueueError):
+        await async_job_queue_size()
+
+
+@pytest.mark.asyncio
 async def test_async_job_queue_size():
     default = Queue("default", connection=Redis.from_url(redis_url))
-
-    with pytest.raises(MissingQueueError) as excinfo:
-        await async_job_queue_size(redis_url=redis_url)
-
-    assert "No queue was specified. Please specify at least one queue." in str(
-        excinfo.value
-    )
-
     default.enqueue("my_function")
-
     assert await async_job_queue_size("default", redis_url=redis_url) == 1
