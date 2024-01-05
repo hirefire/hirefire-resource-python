@@ -37,9 +37,10 @@ def job_queue_size(*queues, broker_url=None):
         queues (str): A variable number of queue names as strings.
         broker_url (str, optional): The broker URL. Defaults in order:
                                     - Passed argument broker_url.
-                                    - Environment variables AMQP_URL, CLOUDAMQP_URL, REDIS_URL, REDIS_TLS_URL.
-                                    - "amqp://guest:guest@localhost:5672/" if AMQP is available, otherwise
-                                      "redis://localhost:6379/0".
+                                    - Environment variables AMQP_URL, CLOUDAMQP_URL,
+                                      RABBITMQ_BIGWIG_URL, REDIS_URL, REDIS_TLS_URL.
+                                    - "amqp://guest:guest@localhost:5672/" if AMQP is available,
+                                      otherwise "redis://localhost:6379/0".
 
     Returns:
         int: The cumulative job queue size across the specified queues.
@@ -69,6 +70,7 @@ def job_queue_size(*queues, broker_url=None):
         broker_url
         or os.environ.get("AMQP_URL")
         or os.environ.get("CLOUDAMQP_URL")
+        or os.environ.get("RABBITMQ_BIGWIG_URL")
         or os.environ.get("REDIS_URL")
         or os.environ.get("REDIS_TLS_URL")
     )
@@ -130,9 +132,10 @@ def job_queue_latency(*queues, broker_url=None):
         queues (str): A variable number of queue names as strings.
         broker_url (str, optional): The broker URL. Defaults in order:
                                     - Passed argument broker_url.
-                                    - Environment variables AMQP_URL, CLOUDAMQP_URL, REDIS_URL, REDIS_TLS_URL.
-                                    - "amqp://guest:guest@localhost:5672/" if AMQP is available, otherwise
-                                      "redis://localhost:6379/0".
+                                    - Environment variables AMQP_URL, CLOUDAMQP_URL,
+                                      RABBITMQ_BIGWIG_URL, REDIS_URL, REDIS_TLS_URL.
+                                    - "amqp://guest:guest@localhost:5672/" if AMQP is available,
+                                      otherwise "redis://localhost:6379/0".
 
     Returns:
         int: The maximum latency across the specified queues.
@@ -147,6 +150,7 @@ def job_queue_latency(*queues, broker_url=None):
         broker_url
         or os.environ.get("AMQP_URL")
         or os.environ.get("CLOUDAMQP_URL")
+        or os.environ.get("RABBITMQ_BIGWIG_URL")
         or os.environ.get("REDIS_URL")
         or os.environ.get("REDIS_TLS_URL")
     )
