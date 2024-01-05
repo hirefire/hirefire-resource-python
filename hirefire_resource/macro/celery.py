@@ -314,6 +314,7 @@ async def async_job_queue_size(*queues, broker_url=None):
     func = functools.partial(job_queue_size, *queues, broker_url=broker_url)
     return await loop.run_in_executor(None, func)
 
+
 @before_task_publish.connect
 def run_at_header_signal(
     sender=None, headers=None, body=None, properties=None, **kwargs
