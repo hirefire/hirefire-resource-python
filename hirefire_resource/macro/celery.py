@@ -1,3 +1,5 @@
+import asyncio
+import functools
 import json
 import os
 import time
@@ -22,6 +24,100 @@ except ImportError:
     AMQP_AVAILABLE = False
 
 from hirefire_resource.errors import MissingQueueError
+
+
+def job_queue_latency(*queues, broker_url=None):
+    """
+    Calculates the maximum latency across the specified queues using Celery with either
+    Redis or RabbitMQ (AMQP) as the broker.
+
+    This function dynamically selects the broker based on the provided broker_url, environment variables,
+    or falls back to a default local broker URL. If RabbitMQ (AMQP) is available, it is preferred;
+    otherwise, Redis is used.
+
+    Args:
+        queues (str): A variable number of queue names as strings.
+        broker_url (str, optional): The broker URL. Defaults in order:
+                                    - Passed argument broker_url.
+                                    - Environment variables AMQP_URL, RABBITMQ_URL, CLOUDAMQP_URL,
+                                      RABBITMQ_BIGWIG_URL, REDIS_URL, REDIS_TLS_URL, REDISTOGO_URL,
+                                      REDISCLOUD_URL, OPENREDIS_URL.
+                                    - "amqp://guest:guest@localhost:5672/" if AMQP is available,
+                                      otherwise "redis://localhost:6379/0".
+
+    Returns:
+        int: The maximum latency across the specified queues.
+
+    Raises:
+        MissingQueueError: If no queue names are provided.
+    """
+    if not queues:
+        raise MissingQueueError()
+
+    broker_url = (
+        broker_url
+        or os.environ.get("AMQP_URL")
+        or os.environ.get("RABBITMQ_URL")
+        or os.environ.get("CLOUDAMQP_URL")
+        or os.environ.get("RABBITMQ_BIGWIG_URL")
+        or os.environ.get("REDIS_URL")
+        or os.environ.get("REDIS_TLS_URL")
+        or os.environ.get("REDISTOGO_URL")
+        or os.environ.get("REDISCLOUD_URL")
+        or os.environ.get("OPENREDIS_URL")
+    )
+
+    if not broker_url:
+        if AMQP_AVAILABLE:
+            broker_url = "amqp://guest:guest@localhost:5672/"
+        else:
+            broker_url = "redis://localhost:6379/0"
+
+    app = Celery(broker=broker_url)
+
+    try:
+        with app.connection_or_acquire() as connection:
+            with connection.channel() as channel:
+                if hasattr(channel, "_size"):
+                    fn = _job_queue_latency_redis
+                else:
+                    fn = _job_queue_latency_rabbitmq
+
+                return max(fn(channel, queue) for queue in queues)
+
+    except OperationalError:
+        return 0
+
+
+async def async_job_queue_latency(*queues, broker_url=None):
+    """
+    Asynchronously calculates the maximum latency across the specified queues using Celery with either
+    Redis or RabbitMQ (AMQP) as the broker.
+
+    This function is an asynchronous wrapper around the synchronous `job_queue_latency` function. It
+    executes the synchronous function in a separate thread using asyncio's event loop and
+    `run_in_executor` method. This ensures that the synchronous Celery I/O operations do not block
+    the asyncio event loop.
+
+    Args:
+            queues (str): A variable number of queue names as strings.
+            broker_url (str, optional): The broker URL. Defaults in order:
+                                                                    - Passed argument broker_url.
+                                                                    - Environment variables AMQP_URL, RABBITMQ_URL, CLOUDAMQP_URL,
+                                                                        RABBITMQ_BIGWIG_URL, REDIS_URL, REDIS_TLS_URL, REDISTOGO_URL,
+                                                                        REDISCLOUD_URL, OPENREDIS_URL.
+                                                                    - "amqp://guest:guest@localhost:5672/" if AMQP is available,
+                                                                        otherwise "redis://localhost:6379/0".
+
+    Returns:
+            int: The maximum latency across the specified queues.
+
+    Raises:
+            MissingQueueError: If no queue names are provided.
+    """
+    loop = asyncio.get_event_loop()
+    func = functools.partial(job_queue_latency, *queues, broker_url=broker_url)
+    return await loop.run_in_executor(None, func)
 
 
 def job_queue_size(*queues, broker_url=None):
@@ -99,92 +195,48 @@ def job_queue_size(*queues, broker_url=None):
         return 0
 
 
-def _job_queue_size_worker(app, queues):
-    worker_data = _worker_data(app)
-    return sum(worker_data.get(queue, 0) for queue in queues)
-
-
-def _job_queue_size_broker(channel, queues):
-    if hasattr(channel, "_size"):
-        fn = _job_queue_size_redis
-    else:
-        fn = _job_queue_size_rabbitmq
-
-    return sum(fn(channel, queue) for queue in queues)
-
-
-def _job_queue_size_redis(channel, queue):
-    return channel.client.llen(queue)
-
-
-def _job_queue_size_rabbitmq(channel, queue):
-    try:
-        return channel.queue_declare(queue=queue, passive=True).message_count
-    except ChannelError:
-        return 0
-
-
-def job_queue_latency(*queues, broker_url=None):
+async def async_job_queue_size(*queues, broker_url=None):
     """
-    Calculates the maximum latency across the specified queues using Celery with either
+    Asynchronously calculates the total job queue size across the specified queues using Celery with either
     Redis or RabbitMQ (AMQP) as the broker.
 
-    This function dynamically selects the broker based on the provided broker_url, environment variables,
-    or falls back to a default local broker URL. If RabbitMQ (AMQP) is available, it is preferred;
-    otherwise, Redis is used.
+    This function is an asynchronous wrapper around the synchronous `job_queue_size` function. It
+    executes the synchronous function in a separate thread using asyncio's event loop and
+    `run_in_executor` method. This ensures that the synchronous Celery I/O operations do not block
+    the asyncio event loop.
 
     Args:
-        queues (str): A variable number of queue names as strings.
-        broker_url (str, optional): The broker URL. Defaults in order:
-                                    - Passed argument broker_url.
-                                    - Environment variables AMQP_URL, RABBITMQ_URL, CLOUDAMQP_URL,
-                                      RABBITMQ_BIGWIG_URL, REDIS_URL, REDIS_TLS_URL, REDISTOGO_URL,
-                                      REDISCLOUD_URL, OPENREDIS_URL.
-                                    - "amqp://guest:guest@localhost:5672/" if AMQP is available,
-                                      otherwise "redis://localhost:6379/0".
+            queues (str): A variable number of queue names as strings.
+            broker_url (str, optional): The broker URL. Defaults in order:
+                                                                    - Passed argument broker_url.
+                                                                    - Environment variables AMQP_URL, RABBITMQ_URL, CLOUDAMQP_URL,
+                                                                        RABBITMQ_BIGWIG_URL, REDIS_URL, REDIS_TLS_URL, REDISTOGO_URL,
+                                                                        REDISCLOUD_URL, OPENREDIS_URL.
+                                                                    - "amqp://guest:guest@localhost:5672/" if AMQP is available,
+                                                                        otherwise "redis://localhost:6379/0".
 
     Returns:
-        int: The maximum latency across the specified queues.
+            int: The cumulative job queue size across the specified queues.
 
     Raises:
-        MissingQueueError: If no queue names are provided.
+            MissingQueueError: If no queue names are provided.
     """
-    if not queues:
-        raise MissingQueueError()
+    loop = asyncio.get_event_loop()
+    func = functools.partial(job_queue_size, *queues, broker_url=broker_url)
+    return await loop.run_in_executor(None, func)
 
-    broker_url = (
-        broker_url
-        or os.environ.get("AMQP_URL")
-        or os.environ.get("RABBITMQ_URL")
-        or os.environ.get("CLOUDAMQP_URL")
-        or os.environ.get("RABBITMQ_BIGWIG_URL")
-        or os.environ.get("REDIS_URL")
-        or os.environ.get("REDIS_TLS_URL")
-        or os.environ.get("REDISTOGO_URL")
-        or os.environ.get("REDISCLOUD_URL")
-        or os.environ.get("OPENREDIS_URL")
-    )
 
-    if not broker_url:
-        if AMQP_AVAILABLE:
-            broker_url = "amqp://guest:guest@localhost:5672/"
-        else:
-            broker_url = "redis://localhost:6379/0"
+@before_task_publish.connect
+def run_at_header_signal(
+    sender=None, headers=None, body=None, properties=None, **kwargs
+):
+    headers = headers or {}
+    eta = headers.get("eta")
 
-    app = Celery(broker=broker_url)
-
-    try:
-        with app.connection_or_acquire() as connection:
-            with connection.channel() as channel:
-                if hasattr(channel, "_size"):
-                    fn = _job_queue_latency_redis
-                else:
-                    fn = _job_queue_latency_rabbitmq
-
-                return max(fn(channel, queue) for queue in queues)
-
-    except OperationalError:
-        return 0
+    if eta:
+        headers["run_at"] = eta
+    else:
+        headers["run_at"] = datetime.now(timezone.utc).isoformat()
 
 
 def _job_queue_latency_redis(channel, queue):
@@ -225,12 +277,38 @@ def _job_queue_latency_rabbitmq(channel, queue):
         return 0
 
 
+def _job_queue_size_worker(app, queues):
+    worker_data = _worker_data(app)
+    return sum(worker_data.get(queue, 0) for queue in queues)
+
+
+def _job_queue_size_broker(channel, queues):
+    if hasattr(channel, "_size"):
+        fn = _job_queue_size_redis
+    else:
+        fn = _job_queue_size_rabbitmq
+
+    return sum(fn(channel, queue) for queue in queues)
+
+
+def _job_queue_size_redis(channel, queue):
+    return channel.client.llen(queue)
+
+
+def _job_queue_size_rabbitmq(channel, queue):
+    try:
+        return channel.queue_declare(queue=queue, passive=True).message_count
+    except ChannelError:
+        return 0
+
+
 _worker_data_cache_enabled = True
 _worker_data_cache_value = None
 _worker_data_cache_time = time.time() - (5 + 1)
 
 
-def cache_worker_data(enabled):
+# Used to disable the worker data cache for testing
+def _cache_worker_data(enabled):
     global _worker_data_cache_enabled
     _worker_data_cache_enabled = enabled
 
@@ -270,16 +348,3 @@ def _worker_data(app):
         _worker_data_cache_time = time.time()
 
     return _worker_data_cache_value
-
-
-@before_task_publish.connect
-def run_at_header_signal(
-    sender=None, headers=None, body=None, properties=None, **kwargs
-):
-    headers = headers or {}
-    eta = headers.get("eta")
-
-    if eta:
-        headers["run_at"] = eta
-    else:
-        headers["run_at"] = datetime.now(timezone.utc).isoformat()

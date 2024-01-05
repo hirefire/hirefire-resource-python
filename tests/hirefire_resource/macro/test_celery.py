@@ -5,12 +5,14 @@ import pytest
 from celery import Celery
 
 from hirefire_resource.macro.celery import (
-    cache_worker_data,
+    _cache_worker_data,
+    async_job_queue_latency,
+    async_job_queue_size,
     job_queue_latency,
     job_queue_size,
 )
 
-cache_worker_data(False)
+_cache_worker_data(False)
 
 broker_urls = ["redis://localhost:6379/12", "amqp://guest:guest@localhost:5672/"]
 
@@ -31,28 +33,28 @@ def clear_broker(celery_app):
     elif broker_url.startswith("amqp://"):
         with celery_app.connection_or_acquire() as connection:
             channel = connection.default_channel
-            for queue in ["default", "mailer"]:
+            for queue in ["celery", "mailer"]:
                 channel.queue_delete(queue=queue)
                 channel.queue_declare(queue=queue, durable=True, auto_delete=False)
 
 
 def test_job_queue_size_without_jobs(celery_app):
-    assert job_queue_size("default", broker_url=celery_app.conf.broker_url) == 0
+    assert job_queue_size("celery", broker_url=celery_app.conf.broker_url) == 0
 
 
 def test_job_queue_size_with_jobs(celery_app):
     for _ in range(5):
-        celery_app.send_task("test_task", queue="default")
+        celery_app.send_task("test_task", queue="celery")
         celery_app.send_task("test_task", queue="mailer")
 
-    assert job_queue_size("default", broker_url=celery_app.conf.broker_url) == 5
+    assert job_queue_size("celery", broker_url=celery_app.conf.broker_url) == 5
     assert (
-        job_queue_size("default", "mailer", broker_url=celery_app.conf.broker_url) == 10
+        job_queue_size("celery", "mailer", broker_url=celery_app.conf.broker_url) == 10
     )
 
 
 def test_job_queue_latency_without_jobs(celery_app):
-    assert job_queue_latency("default", broker_url=celery_app.conf.broker_url) == 0
+    assert job_queue_latency("celery", broker_url=celery_app.conf.broker_url) == 0
 
 
 def enqueue_for_job_queue_latency_with_job(celery_app):
@@ -60,7 +62,7 @@ def enqueue_for_job_queue_latency_with_job(celery_app):
 
     for i in reversed(range(5)):
         celery_app.send_task(
-            "test_task", queue="default", eta=(now - timedelta(seconds=i))
+            "test_task", queue="celery", eta=(now - timedelta(seconds=i))
         )
         celery_app.send_task(
             "test_task", queue="mailer", eta=(now - timedelta(seconds=i * 2))
@@ -71,7 +73,7 @@ def test_job_queue_latency_with_jobs(celery_app):
     enqueue_for_job_queue_latency_with_job(celery_app)
 
     assert math.isclose(
-        job_queue_latency("default", broker_url=celery_app.conf.broker_url),
+        job_queue_latency("celery", broker_url=celery_app.conf.broker_url),
         4,
         abs_tol=1,
     )
@@ -80,7 +82,7 @@ def test_job_queue_latency_with_jobs(celery_app):
     )
     # Verify that peeking doesn't discard the message
     assert (
-        job_queue_size("default", "mailer", broker_url=celery_app.conf.broker_url) == 10
+        job_queue_size("celery", "mailer", broker_url=celery_app.conf.broker_url) == 10
     )
 
 
@@ -88,11 +90,86 @@ def test_job_queue_latency_with_jobs_multi(celery_app):
     enqueue_for_job_queue_latency_with_job(celery_app)
 
     assert math.isclose(
-        job_queue_latency("default", "mailer", broker_url=celery_app.conf.broker_url),
+        job_queue_latency("celery", "mailer", broker_url=celery_app.conf.broker_url),
         8,
         abs_tol=1,
     )
     # Verify that peeking doesn't discard the message
     assert (
-        job_queue_size("default", "mailer", broker_url=celery_app.conf.broker_url) == 10
+        job_queue_size("celery", "mailer", broker_url=celery_app.conf.broker_url) == 10
+    )
+
+
+@pytest.mark.asyncio
+async def test_job_queue_size_without_jobs_async(celery_app):
+    assert (
+        await async_job_queue_size("celery", broker_url=celery_app.conf.broker_url) == 0
+    )
+
+
+@pytest.mark.asyncio
+async def test_job_queue_size_with_jobs_async(celery_app):
+    for _ in range(5):
+        celery_app.send_task("test_task", queue="celery")
+        celery_app.send_task("test_task", queue="mailer")
+
+    assert (
+        await async_job_queue_size("celery", broker_url=celery_app.conf.broker_url) == 5
+    )
+    assert (
+        await async_job_queue_size(
+            "celery", "mailer", broker_url=celery_app.conf.broker_url
+        )
+        == 10
+    )
+
+
+@pytest.mark.asyncio
+async def test_job_queue_latency_without_jobs_async(celery_app):
+    assert (
+        await async_job_queue_latency("celery", broker_url=celery_app.conf.broker_url)
+        == 0
+    )
+
+
+@pytest.mark.asyncio
+async def test_job_queue_latency_with_jobs_async(celery_app):
+    enqueue_for_job_queue_latency_with_job(celery_app)
+
+    assert math.isclose(
+        await async_job_queue_latency("celery", broker_url=celery_app.conf.broker_url),
+        4,
+        abs_tol=1,
+    )
+    assert math.isclose(
+        await async_job_queue_latency("mailer", broker_url=celery_app.conf.broker_url),
+        8,
+        abs_tol=1,
+    )
+    # Verify that peeking doesn't discard the message
+    assert (
+        await async_job_queue_size(
+            "celery", "mailer", broker_url=celery_app.conf.broker_url
+        )
+        == 10
+    )
+
+
+@pytest.mark.asyncio
+async def test_job_queue_latency_with_jobs_multi_async(celery_app):
+    enqueue_for_job_queue_latency_with_job(celery_app)
+
+    assert math.isclose(
+        await async_job_queue_latency(
+            "celery", "mailer", broker_url=celery_app.conf.broker_url
+        ),
+        8,
+        abs_tol=1,
+    )
+    # Verify that peeking doesn't discard the message
+    assert (
+        await async_job_queue_size(
+            "celery", "mailer", broker_url=celery_app.conf.broker_url
+        )
+        == 10
     )
