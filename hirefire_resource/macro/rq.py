@@ -82,30 +82,16 @@ def job_queue_latency(*queues, redis_url=None):
 
 async def async_job_queue_latency(*queues, redis_url=None):
     """
-    Asynchronously calculates the maximum job queue latency across the specified queues.
+    Asynchronously calculates the maximum job queue latency across the specified queues using RQ
+    with Redis as the broker.
 
     This function is an asynchronous wrapper around the synchronous `job_queue_latency` function. It
     executes the synchronous function in a separate thread using asyncio's event loop and
     `run_in_executor` method. This ensures that the synchronous Redis I/O operations do not block
     the asyncio event loop.
 
-    Args:
-        queues (str): A variable number of queue names as strings.
-        redis_url (str, optional): The Redis server URL. Defaults to the environment variable
-                                   REDIS_URL, then REDIS_TLS_URL, and falls back to
-                                   "redis://localhost:6379" if neither is set.
-
-    Returns:
-        int: The maximum job queue latency in seconds across the specified queues.
-
-    Raises:
-        MissingQueueError: If no queue names are provided.
-
-    Examples:
-        >>> await async_job_queue_latency('default')
-        3600
-        >>> await async_job_queue_latency('default', 'mailer')
-        7200
+    For more details about the arguments, return value, and exceptions, refer to the docstring of
+    `job_queue_latency`.
     """
     loop = asyncio.get_event_loop()
     func = functools.partial(job_queue_latency, *queues, redis_url=redis_url)
@@ -161,30 +147,16 @@ def job_queue_size(*queues, redis_url=None):
 
 async def async_job_queue_size(*queues, redis_url=None):
     """
-    Asynchronously calculates the total job queue size across the specified queues.
+    Asynchronously calculates the total job queue size across the specified queues using RQ with
+    Redis as the broker.
 
     This function is an asynchronous wrapper around the synchronous `job_queue_size` function. It
     executes the synchronous function in a separate thread using asyncio's event loop and
-    `run_in_executor` method. This approach ensures that the synchronous Redis I/O operations do not
-    block the asyncio event loop.
+    `run_in_executor` method. This ensures that the synchronous Redis I/O operations do not block
+    the asyncio event loop.
 
-    Args:
-        queues (str): A variable number of queue names as strings.
-        redis_url (str, optional): The Redis server URL. Defaults to the environment variable
-                                   REDIS_URL, then REDIS_TLS_URL, and falls back to
-                                   "redis://localhost:6379" if neither is set.
-
-    Returns:
-        int: The cumulative job queue size across the specified queues.
-
-    Raises:
-        MissingQueueError: If no queue names are provided.
-
-    Examples:
-        >>> await async_job_queue_size('default')
-        42
-        >>> await async_job_queue_size('default', 'mailer')
-        85
+    For more details about the arguments, return value, and exceptions, refer to the docstring of
+    `job_queue_size`.
     """
     loop = asyncio.get_event_loop()
     func = functools.partial(job_queue_size, *queues, redis_url=redis_url)

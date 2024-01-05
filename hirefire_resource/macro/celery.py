@@ -28,12 +28,12 @@ from hirefire_resource.errors import MissingQueueError
 
 def job_queue_latency(*queues, broker_url=None):
     """
-    Calculates the maximum latency across the specified queues using Celery with either
-    Redis or RabbitMQ (AMQP) as the broker.
+    Calculates the maximum latency across the specified queues using Celery with either Redis or
+    RabbitMQ (AMQP) as the broker.
 
-    This function dynamically selects the broker based on the provided broker_url, environment variables,
-    or falls back to a default local broker URL. If RabbitMQ (AMQP) is available, it is preferred;
-    otherwise, Redis is used.
+    This function dynamically selects the broker based on the provided broker_url, environment
+    variables, or falls back to a default local broker URL. If RabbitMQ (AMQP) is available, it is
+    preferred; otherwise, Redis is used.
 
     Args:
         queues (str): A variable number of queue names as strings.
@@ -91,29 +91,16 @@ def job_queue_latency(*queues, broker_url=None):
 
 async def async_job_queue_latency(*queues, broker_url=None):
     """
-    Asynchronously calculates the maximum latency across the specified queues using Celery with either
-    Redis or RabbitMQ (AMQP) as the broker.
+    Asynchronously calculates the maximum latency across the specified queues using Celery with
+    either Redis or RabbitMQ (AMQP) as the broker.
 
     This function is an asynchronous wrapper around the synchronous `job_queue_latency` function. It
     executes the synchronous function in a separate thread using asyncio's event loop and
     `run_in_executor` method. This ensures that the synchronous Celery I/O operations do not block
     the asyncio event loop.
 
-    Args:
-            queues (str): A variable number of queue names as strings.
-            broker_url (str, optional): The broker URL. Defaults in order:
-                                                                    - Passed argument broker_url.
-                                                                    - Environment variables AMQP_URL, RABBITMQ_URL, CLOUDAMQP_URL,
-                                                                        RABBITMQ_BIGWIG_URL, REDIS_URL, REDIS_TLS_URL, REDISTOGO_URL,
-                                                                        REDISCLOUD_URL, OPENREDIS_URL.
-                                                                    - "amqp://guest:guest@localhost:5672/" if AMQP is available,
-                                                                        otherwise "redis://localhost:6379/0".
-
-    Returns:
-            int: The maximum latency across the specified queues.
-
-    Raises:
-            MissingQueueError: If no queue names are provided.
+    For more details about the arguments and return value, refer to the docstring of
+    `job_queue_latency`.
     """
     loop = asyncio.get_event_loop()
     func = functools.partial(job_queue_latency, *queues, broker_url=broker_url)
@@ -122,12 +109,12 @@ async def async_job_queue_latency(*queues, broker_url=None):
 
 def job_queue_size(*queues, broker_url=None):
     """
-    Calculates the total job queue size across the specified queues using Celery with either
-    Redis or RabbitMQ (AMQP) as the broker.
+    Calculates the total job queue size across the specified queues using Celery with either Redis
+    or RabbitMQ (AMQP) as the broker.
 
-    This function dynamically selects the broker based on the provided broker_url, environment variables,
-    or falls back to a default local broker URL. If RabbitMQ (AMQP) is available, it is preferred;
-    otherwise, Redis is used.
+    This function dynamically selects the broker based on the provided broker_url, environment
+    variables, or falls back to a default local broker URL. If RabbitMQ (AMQP) is available, it is
+    preferred; otherwise, Redis is used.
 
     Args:
         queues (str): A variable number of queue names as strings.
@@ -197,29 +184,16 @@ def job_queue_size(*queues, broker_url=None):
 
 async def async_job_queue_size(*queues, broker_url=None):
     """
-    Asynchronously calculates the total job queue size across the specified queues using Celery with either
-    Redis or RabbitMQ (AMQP) as the broker.
+    Asynchronously calculates the total job queue size across the specified queues using Celery with
+    either Redis or RabbitMQ (AMQP) as the broker.
 
     This function is an asynchronous wrapper around the synchronous `job_queue_size` function. It
     executes the synchronous function in a separate thread using asyncio's event loop and
     `run_in_executor` method. This ensures that the synchronous Celery I/O operations do not block
     the asyncio event loop.
 
-    Args:
-            queues (str): A variable number of queue names as strings.
-            broker_url (str, optional): The broker URL. Defaults in order:
-                                                                    - Passed argument broker_url.
-                                                                    - Environment variables AMQP_URL, RABBITMQ_URL, CLOUDAMQP_URL,
-                                                                        RABBITMQ_BIGWIG_URL, REDIS_URL, REDIS_TLS_URL, REDISTOGO_URL,
-                                                                        REDISCLOUD_URL, OPENREDIS_URL.
-                                                                    - "amqp://guest:guest@localhost:5672/" if AMQP is available,
-                                                                        otherwise "redis://localhost:6379/0".
-
-    Returns:
-            int: The cumulative job queue size across the specified queues.
-
-    Raises:
-            MissingQueueError: If no queue names are provided.
+    For more details about the arguments, return value, and exceptions, refer to the docstring of
+    `job_queue_size`.
     """
     loop = asyncio.get_event_loop()
     func = functools.partial(job_queue_size, *queues, broker_url=broker_url)
