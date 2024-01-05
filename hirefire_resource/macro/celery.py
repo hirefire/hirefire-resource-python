@@ -58,7 +58,7 @@ def job_queue_latency(*queues, broker_url=None):
           to run to the relevant regular queues.
 
     Args:
-        queues (str): A variable number of queue names as strings.
+        *queues (str): The names of the queues to be included in the measurement of job queue latency.
         broker_url (str, optional): The broker URL. Defaults in the following order:
             - Passed argument `broker_url`.
             - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `CLOUDAMQP_URL`,
@@ -154,7 +154,7 @@ async def async_job_queue_latency(*queues, broker_url=None):
           to run to the relevant regular queues.
 
     Args:
-        queues (str): A variable number of queue names as strings.
+        *queues (str): The names of the queues to be included in the measurement of job queue latency.
         broker_url (str, optional): The broker URL. Defaults in the following order:
             - Passed argument `broker_url`.
             - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `CLOUDAMQP_URL`,
@@ -204,7 +204,7 @@ def job_queue_size(*queues, broker_url=None):
           to run to the relevant regular queues.
 
     Args:
-        queues (str): A variable number of queue names as strings.
+        *queues (str): The names of the queues to be included in the measurement of job queue size.
         broker_url (str, optional): The broker URL. Defaults in the following order:
             - Passed argument `broker_url`.
             - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `CLOUDAMQP_URL`,
@@ -285,7 +285,7 @@ async def async_job_queue_size(*queues, broker_url=None):
           to run to the relevant regular queues.
 
     Args:
-        queues (str): A variable number of queue names as strings.
+        *queues (str): The names of the queues to be included in the measurement of job queue size.
         broker_url (str, optional): The broker URL. Defaults in the following order:
             - Passed argument `broker_url`.
             - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `CLOUDAMQP_URL`,
