@@ -28,8 +28,8 @@ from hirefire_resource.errors import MissingQueueError
 
 def job_queue_latency(*queues, broker_url=None):
     """
-    Calculates the maximum latency across the specified queues using Celery with either Redis or
-    RabbitMQ (AMQP) as the broker.
+    Calculates the maximum job queue latency across the specified queues using Celery with either
+    Redis or RabbitMQ (AMQP) as the broker.
 
     This function dynamically selects the broker based on the provided broker_url, environment
     variables, or falls back to a default local broker URL. If RabbitMQ (AMQP) is available, it is
@@ -123,8 +123,8 @@ def job_queue_latency(*queues, broker_url=None):
 
 async def async_job_queue_latency(*queues, broker_url=None):
     """
-    Asynchronously calculates the maximum latency across the specified queues using Celery with
-    either Redis or RabbitMQ (AMQP) as the broker.
+    Asynchronously calculates the maximum job queue latency across the specified queues using Celery
+    with either Redis or RabbitMQ (AMQP) as the broker.
 
     This function is an asynchronous wrapper around the synchronous `job_queue_latency` function. It
     executes the synchronous function in a separate thread using asyncio's event loop and
