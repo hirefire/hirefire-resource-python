@@ -20,7 +20,7 @@ def job_queue_latency(*queues, redis_url=None):
         *queues (str): The names of the queues to be included in the measurement of job queue latency.
         redis_url (str, optional): The Redis URL. Defaults in the following order:
             - Passed argument `redis_url`.
-            - Environment variables `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
+            - Environment variables `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
             - "redis://localhost:6379/0".
 
     Returns:
@@ -42,8 +42,8 @@ def job_queue_latency(*queues, redis_url=None):
 
     redis_url = (
         redis_url
-        or os.getenv("REDIS_URL")
         or os.getenv("REDIS_TLS_URL")
+        or os.getenv("REDIS_URL")
         or os.getenv("REDISTOGO_URL")
         or os.getenv("REDISCLOUD_URL")
         or os.getenv("OPENREDIS_URL")
@@ -102,7 +102,7 @@ async def async_job_queue_latency(*queues, redis_url=None):
         *queues (str): The names of the queues to be included in the measurement of job queue latency.
         redis_url (str, optional): The Redis URL. Defaults in the following order:
             - Passed argument `redis_url`.
-            - Environment variables `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
+            - Environment variables `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
             - "redis://localhost:6379/0".
 
     Returns:
@@ -135,7 +135,7 @@ def job_queue_size(*queues, redis_url=None):
         *queues (str): The names of the queues to be included in the measurement of job queue size.
         redis_url (str, optional): The Redis URL. Defaults in the following order:
             - Passed argument `redis_url`.
-            - Environment variables `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
+            - Environment variables `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
             - "redis://localhost:6379/0".
 
     Returns:
@@ -157,8 +157,8 @@ def job_queue_size(*queues, redis_url=None):
 
     redis_url = (
         redis_url
-        or os.getenv("REDIS_URL")
         or os.getenv("REDIS_TLS_URL")
+        or os.getenv("REDIS_URL")
         or os.getenv("REDISTOGO_URL")
         or os.getenv("REDISCLOUD_URL")
         or os.getenv("OPENREDIS_URL")
@@ -193,7 +193,7 @@ async def async_job_queue_size(*queues, redis_url=None):
         *queues (str): The names of the queues to be included in the measurement of job queue size.
         redis_url (str, optional): The Redis URL. Defaults in the following order:
             - Passed argument `redis_url`.
-            - Environment variables `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
+            - Environment variables `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
             - "redis://localhost:6379/0".
 
     Returns:

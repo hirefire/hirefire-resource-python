@@ -61,7 +61,7 @@ def job_queue_latency(*queues, broker_url=None):
         broker_url (str, optional): The broker URL. Defaults in the following order:
             - Passed argument `broker_url`.
             - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `CLOUDAMQP_URL`,
-              `RABBITMQ_BIGWIG_URL`, `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`,
+              `RABBITMQ_BIGWIG_URL`, `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`,
               `REDISCLOUD_URL`, `OPENREDIS_URL`.
             - "amqp://guest:guest@localhost:5672/" if AMQP is available, otherwise
               "redis://localhost:6379/0".
@@ -91,8 +91,8 @@ def job_queue_latency(*queues, broker_url=None):
         or os.environ.get("RABBITMQ_URL")
         or os.environ.get("CLOUDAMQP_URL")
         or os.environ.get("RABBITMQ_BIGWIG_URL")
-        or os.environ.get("REDIS_URL")
         or os.environ.get("REDIS_TLS_URL")
+        or os.environ.get("REDIS_URL")
         or os.environ.get("REDISTOGO_URL")
         or os.environ.get("REDISCLOUD_URL")
         or os.environ.get("OPENREDIS_URL")
@@ -157,7 +157,7 @@ async def async_job_queue_latency(*queues, broker_url=None):
         broker_url (str, optional): The broker URL. Defaults in the following order:
             - Passed argument `broker_url`.
             - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `CLOUDAMQP_URL`,
-              `RABBITMQ_BIGWIG_URL`, `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`,
+              `RABBITMQ_BIGWIG_URL`, `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`,
               `REDISCLOUD_URL`, `OPENREDIS_URL`.
             - "amqp://guest:guest@localhost:5672/" if AMQP is available, otherwise
               "redis://localhost:6379/0".
@@ -207,7 +207,7 @@ def job_queue_size(*queues, broker_url=None):
         broker_url (str, optional): The broker URL. Defaults in the following order:
             - Passed argument `broker_url`.
             - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `CLOUDAMQP_URL`,
-              `RABBITMQ_BIGWIG_URL`, `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`,
+              `RABBITMQ_BIGWIG_URL`, `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`,
               `REDISCLOUD_URL`, `OPENREDIS_URL`.
             - "amqp://guest:guest@localhost:5672/" if AMQP is available, otherwise
               "redis://localhost:6379/0".
@@ -237,8 +237,8 @@ def job_queue_size(*queues, broker_url=None):
         or os.environ.get("RABBITMQ_URL")
         or os.environ.get("CLOUDAMQP_URL")
         or os.environ.get("RABBITMQ_BIGWIG_URL")
-        or os.environ.get("REDIS_URL")
         or os.environ.get("REDIS_TLS_URL")
+        or os.environ.get("REDIS_URL")
         or os.environ.get("REDISTOGO_URL")
         or os.environ.get("REDISCLOUD_URL")
         or os.environ.get("OPENREDIS_URL")
@@ -288,7 +288,7 @@ async def async_job_queue_size(*queues, broker_url=None):
         broker_url (str, optional): The broker URL. Defaults in the following order:
             - Passed argument `broker_url`.
             - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `CLOUDAMQP_URL`,
-              `RABBITMQ_BIGWIG_URL`, `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`,
+              `RABBITMQ_BIGWIG_URL`, `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`,
               `REDISCLOUD_URL`, `OPENREDIS_URL`.
             - "amqp://guest:guest@localhost:5672/" if AMQP is available, otherwise
               "redis://localhost:6379/0".
