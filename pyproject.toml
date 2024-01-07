@@ -1,13 +1,13 @@
 [tool.poetry]
 name = "hirefire-resource"
 version = "1.0.0"
-description = "Advanced Heroku Dyno Autoscaling"
+description = "HireFire: Advanced Autoscalers for Heroku"
 authors = ["Michael van Rooijen <support@hirefire.io>"]
 license = "MIT"
 repository = "https://github.com/hirefire/hirefire-resource-python"
 readme = "README.md"
 homepage = "https://hirefire.io"
-keywords = ["hirefire", "heroku", "autoscale", "middleware", "web", "worker", "dyno", "job", "task"]
+keywords = ["hirefire", "heroku", "autoscale"]
 packages = [{include = "hirefire_resource"}]
 classifiers = [
     "Intended Audience :: Developers",

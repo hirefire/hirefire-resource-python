@@ -1,20 +1,20 @@
-## HireFire: Advanced Autoscaling for Heroku-hosted Applications
+## HireFire: Advanced Autoscalers for Heroku
 
-[HireFire] is the oldest autoscaling service for applications running on [Heroku]. Since 2011, we've assisted more than 1,000 companies in autoscaling upwards of 5,000 applications, with over 10,000 dynos.
+Since 2011, over 1,000 companies have trusted [HireFire] to autoscale more than 5,000 applications hosted on [Heroku], managing over 10,000 web and worker dynos.
 
-This package collects metrics from Python applications running on Heroku and provides them to HireFire in order to autoscale web and worker dynos.
+HireFire is distinguished by its support for both web and worker dynos, unlike Heroku, which focuses solely on web dynos. Additionally, HireFire extends autoscaling capabilities to Standard-tier dynos, whereas Heroku is limited to the more expensive Performance-tier and above. Our platform offers fine-grained control over scaling behavior and improved reliability through the utilization of superior metrics for making more effective scaling decisions.
 
-## Guides & Documentation
+For more information, visit our [home page][HireFire].
 
-Please refer to our [Python Guide] for instructions on setting up HireFire with your Python application.
+## Instructions
+
+You can find the integration instructions on [HireFire] when you are setting up your Dyno Manager (Autoscaler).
 
 ## Development
 
-Run `bin/setup` to prepare the environment.
-
-Run `poetry shell` to boot up the development environment.
-
-See `paver --help` for common tasks.
+- Run `bin/setup` to prepare the environment.
+- Run `poetry shell` to boot up the development environment.
+- See `paver --help` for common tasks.
 
 ## Release
 
@@ -26,8 +26,7 @@ See `paver --help` for common tasks.
 
 ## License
 
-This package is licensed under the MIT license. See LICENSE.
+This package is licensed under the terms of the MIT license.
 
 [HireFire]: https://www.hirefire.io/
 [Heroku]: https://www.heroku.com/
-[Python Guide]: https://help.hirefire.io/TODO
