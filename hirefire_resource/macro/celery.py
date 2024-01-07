@@ -5,7 +5,6 @@ import os
 import time
 from datetime import datetime, timezone
 
-from amqp.exceptions import ChannelError
 from celery import Celery
 from celery.signals import before_task_publish
 from dateutil import parser
