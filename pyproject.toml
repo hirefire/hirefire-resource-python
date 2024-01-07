@@ -9,6 +9,7 @@ readme = "README.md"
 homepage = "https://hirefire.io"
 keywords = ["hirefire", "heroku", "autoscale"]
 packages = [{include = "hirefire_resource"}]
+include = ["README.md", "CHANGELOG.md", "LICENSE"]
 classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
