@@ -49,13 +49,12 @@ def job_queue_latency(*queues, redis_url=None):
         or os.getenv("OPENREDIS_URL")
         or "redis://localhost:6379/0"
     )
-    r = redis.Redis.from_url(redis_url)
+    redis_pipeline = redis.Redis.from_url(redis_url).pipeline()
     current_time = time.time()
-    pipe = r.pipeline()
 
     for queue_name in queues:
-        pipe.lindex("rq:queue:" + queue_name, 0)
-        pipe.zrangebyscore(
+        redis_pipeline.lindex("rq:queue:" + queue_name, 0)
+        redis_pipeline.zrangebyscore(
             "rq:scheduled:" + queue_name,
             "-inf",
             current_time,
@@ -64,13 +63,13 @@ def job_queue_latency(*queues, redis_url=None):
             num=1,
         )
 
-    job_ids = pipe.execute()
+    job_ids = redis_pipeline.execute()
 
     for job_id in job_ids[::2]:
         if job_id:
-            pipe.hget("rq:job:" + job_id.decode("utf-8"), "enqueued_at")
+            redis_pipeline.hget("rq:job:" + job_id.decode("utf-8"), "enqueued_at")
 
-    enqueued_at_times = pipe.execute()
+    enqueued_at_times = redis_pipeline.execute()
 
     max_latency = 0
 
@@ -136,8 +135,7 @@ def job_queue_size(*queues, redis_url=None):
         *queues (str): The names of the queues to be included in the measurement of job queue size.
         redis_url (str, optional): The Redis URL. Defaults in the following order:
             - Passed argument `redis_url`.
-            - Environment variables `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`,
-              `REDISCLOUD_URL`, `OPENREDIS_URL`.
+            - Environment variables `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
             - "redis://localhost:6379/0".
 
     Returns:
@@ -166,17 +164,16 @@ def job_queue_size(*queues, redis_url=None):
         or os.getenv("OPENREDIS_URL")
         or "redis://localhost:6379/0"
     )
-    r = redis.Redis.from_url(redis_url)
+    redis_pipeline = redis.Redis.from_url(redis_url).pipeline()
     current_time = int(time.time())
-    pipe = r.pipeline()
 
     for queue_name in queues:
         ready_queue_key = f"rq:queue:{queue_name}"
         scheduled_queue_key = f"rq:scheduled:{queue_name}"
-        pipe.llen(ready_queue_key)
-        pipe.zcount(scheduled_queue_key, 0, current_time)
+        redis_pipeline.llen(ready_queue_key)
+        redis_pipeline.zcount(scheduled_queue_key, 0, current_time)
 
-    job_counts = pipe.execute()
+    job_counts = redis_pipeline.execute()
     total_jobs = sum(job_counts)
 
     return total_jobs
@@ -196,8 +193,7 @@ async def async_job_queue_size(*queues, redis_url=None):
         *queues (str): The names of the queues to be included in the measurement of job queue size.
         redis_url (str, optional): The Redis URL. Defaults in the following order:
             - Passed argument `redis_url`.
-            - Environment variables `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`,
-              `REDISCLOUD_URL`, `OPENREDIS_URL`.
+            - Environment variables `REDIS_URL`, `REDIS_TLS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
             - "redis://localhost:6379/0".
 
     Returns:
