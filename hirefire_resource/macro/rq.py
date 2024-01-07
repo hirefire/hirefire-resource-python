@@ -49,13 +49,13 @@ def job_queue_latency(*queues, redis_url=None):
         or os.getenv("OPENREDIS_URL")
         or "redis://localhost:6379/0"
     )
-    redis_pipeline = redis.Redis.from_url(redis_url).pipeline()
+    pipeline = redis.Redis.from_url(redis_url).pipeline()
     current_time = time.time()
 
-    for queue_name in queues:
-        redis_pipeline.lindex("rq:queue:" + queue_name, 0)
-        redis_pipeline.zrangebyscore(
-            "rq:scheduled:" + queue_name,
+    for queue in queues:
+        pipeline.lindex(f"rq:queue:{queue}", 0)
+        pipeline.zrangebyscore(
+            f"rq:scheduled:{queue}",
             "-inf",
             current_time,
             withscores=True,
@@ -63,13 +63,13 @@ def job_queue_latency(*queues, redis_url=None):
             num=1,
         )
 
-    job_ids = redis_pipeline.execute()
+    job_ids = pipeline.execute()
 
     for job_id in job_ids[::2]:
         if job_id:
-            redis_pipeline.hget("rq:job:" + job_id.decode("utf-8"), "enqueued_at")
+            pipeline.hget(f"rq:job:{job_id.decode('utf-8')}", "enqueued_at")
 
-    enqueued_at_times = redis_pipeline.execute()
+    enqueued_at_times = pipeline.execute()
 
     max_latency = 0
 
@@ -164,16 +164,14 @@ def job_queue_size(*queues, redis_url=None):
         or os.getenv("OPENREDIS_URL")
         or "redis://localhost:6379/0"
     )
-    redis_pipeline = redis.Redis.from_url(redis_url).pipeline()
+    pipeline = redis.Redis.from_url(redis_url).pipeline()
     current_time = int(time.time())
 
-    for queue_name in queues:
-        ready_queue_key = f"rq:queue:{queue_name}"
-        scheduled_queue_key = f"rq:scheduled:{queue_name}"
-        redis_pipeline.llen(ready_queue_key)
-        redis_pipeline.zcount(scheduled_queue_key, 0, current_time)
+    for queue in queues:
+        pipeline.llen(f"rq:queue:{queue}")
+        pipeline.zcount(f"rq:scheduled:{queue}", 0, current_time)
 
-    job_counts = redis_pipeline.execute()
+    job_counts = pipeline.execute()
     total_jobs = sum(job_counts)
 
     return total_jobs
