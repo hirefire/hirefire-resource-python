@@ -10,7 +10,7 @@ class MissingDynoProcError(Exception):
 
 
 class Worker:
-    PROCESS_NAME_PATTERN = r"^[a-zA-Z][a-zA-Z0-9_]{0,29}$"
+    PROCESS_NAME_PATTERN = r"^[a-zA-Z][a-zA-Z0-9_-]{0,29}$"
 
     def __init__(self, name, proc=None):
         self._validate(name, proc)
