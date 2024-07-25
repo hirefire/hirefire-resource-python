@@ -8,7 +8,7 @@ class HireFireMiddleware:
         self.get_response = get_response
 
     def __call__(self, req):
-        response = request(
+        response_data = request(
             RequestInfo(
                 path=req.path,
                 request_start_time=req.META.get("HTTP_X_REQUEST_START"),
@@ -16,9 +16,11 @@ class HireFireMiddleware:
             )
         )
 
-        if response:
-            status, headers, body = response
-            response = HttpResponse(content=body, status=status, headers=headers)
+        if response_data:
+            status, headers, body = response_data
+            response = HttpResponse(content=body, status=status)
+            for key, value in headers.items():
+                response[key] = value
             return response
 
         return self.get_response(req)
