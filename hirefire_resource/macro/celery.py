@@ -104,7 +104,7 @@ def job_queue_latency(*queues, broker_url=None):
         else:
             broker_url = "redis://localhost:6379/0"
 
-    app = Celery(broker=broker_url)
+    app = Celery(broker=broker_url, broker_connection_timeout=30, broker_heartbeat=30)
 
     try:
         with app.connection_or_acquire() as connection:
@@ -115,9 +115,10 @@ def job_queue_latency(*queues, broker_url=None):
                     fn = _job_queue_latency_rabbitmq
 
                 return max(fn(channel, queue) for queue in queues)
-
     except OperationalError:
         return 0
+    finally:
+        app.close()
 
 
 async def async_job_queue_latency(*queues, broker_url=None):
@@ -251,7 +252,7 @@ def job_queue_size(*queues, broker_url=None):
         else:
             broker_url = "redis://localhost:6379/0"
 
-    app = Celery(broker=broker_url)
+    app = Celery(broker=broker_url, broker_connection_timeout=30, broker_heartbeat=30)
 
     try:
         with app.connection_or_acquire() as connection:
@@ -259,9 +260,10 @@ def job_queue_size(*queues, broker_url=None):
                 worker_task_count = _job_queue_size_worker(app, queues)
                 broker_task_count = _job_queue_size_broker(channel, queues)
                 return worker_task_count + broker_task_count
-
     except OperationalError:
         return 0
+    finally:
+        app.close()
 
 
 async def async_job_queue_size(*queues, broker_url=None):
