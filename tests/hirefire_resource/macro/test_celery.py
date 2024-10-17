@@ -1,5 +1,6 @@
 import math
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import pytest
 from celery import Celery
@@ -75,6 +76,20 @@ def test_job_queue_latency_with_jobs(celery_app):
     assert (
         job_queue_size("celery", "mailer", broker_url=celery_app.conf.broker_url) == 10
     )
+
+
+def test_job_queue_latency_connection_reset(celery_app):
+    with patch(
+        "hirefire_resource.macro.celery._job_queue_latency_redis"
+    ) as mock_job_queue_latency_redis:
+        with patch(
+            "hirefire_resource.macro.celery._job_queue_latency_rabbitmq"
+        ) as mock_job_queue_latency_rabbitmq:
+            mock_job_queue_latency_redis.side_effect = [ConnectionResetError, 0]
+            mock_job_queue_latency_rabbitmq.side_effect = [ConnectionResetError, 0]
+            assert (
+                job_queue_latency("celery", broker_url=celery_app.conf.broker_url) == 0
+            )
 
 
 def test_job_queue_latency_with_jobs_multi(celery_app):
@@ -166,6 +181,14 @@ def test_job_queue_size_with_jobs(celery_app):
     assert (
         job_queue_size("celery", "mailer", broker_url=celery_app.conf.broker_url) == 10
     )
+
+
+def test_job_queue_size_connection_reset(celery_app):
+    with patch(
+        "hirefire_resource.macro.celery._job_queue_size_worker"
+    ) as mock_job_queue_size_worker:
+        mock_job_queue_size_worker.side_effect = [ConnectionResetError, 0]
+        assert job_queue_size("celery", broker_url=celery_app.conf.broker_url) == 0
 
 
 @pytest.mark.asyncio

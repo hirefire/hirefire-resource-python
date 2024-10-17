@@ -25,6 +25,32 @@ except ImportError:
 from hirefire_resource.errors import MissingQueueError
 
 
+def mitigate_connection_reset_error(retries=10, delay=1):
+    """
+    Decorator to retry a function when ConnectionResetError occurs.
+
+    Args:
+        retries (int): Number of retry attempts for connection errors.
+        delay (int): Fixed delay between retry attempts in seconds.
+    """
+
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            for attempt in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except ConnectionResetError:
+                    if attempt < retries - 1:
+                        time.sleep(delay)
+                    else:
+                        raise
+
+        return wrapper
+
+    return decorator
+
+
+@mitigate_connection_reset_error()
 def job_queue_latency(*queues, broker_url=None):
     """
     Calculates the maximum job queue latency across the specified queues using Celery with either
@@ -183,6 +209,7 @@ async def async_job_queue_latency(*queues, broker_url=None):
     return await loop.run_in_executor(None, func)
 
 
+@mitigate_connection_reset_error()
 def job_queue_size(*queues, broker_url=None):
     """
     Calculates the total job queue size across the specified queues using Celery with either Redis
