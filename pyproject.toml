@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "hirefire-resource"
-version = "1.0.2"
+version = "1.0.3"
 description = "HireFire integration library for Python applications"
 authors = ["Michael van Rooijen <support@hirefire.io>"]
 license = "MIT"
