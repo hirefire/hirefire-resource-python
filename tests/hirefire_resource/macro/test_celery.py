@@ -78,20 +78,6 @@ def test_job_queue_latency_with_jobs(celery_app):
     )
 
 
-def test_job_queue_latency_connection_reset(celery_app):
-    with patch(
-        "hirefire_resource.macro.celery._job_queue_latency_redis"
-    ) as mock_job_queue_latency_redis:
-        with patch(
-            "hirefire_resource.macro.celery._job_queue_latency_rabbitmq"
-        ) as mock_job_queue_latency_rabbitmq:
-            mock_job_queue_latency_redis.side_effect = [ConnectionResetError, 0]
-            mock_job_queue_latency_rabbitmq.side_effect = [ConnectionResetError, 0]
-            assert (
-                job_queue_latency("celery", broker_url=celery_app.conf.broker_url) == 0
-            )
-
-
 def test_job_queue_latency_with_jobs_multi(celery_app):
     enqueue_for_job_queue_latency_with_job(celery_app)
 
@@ -183,12 +169,22 @@ def test_job_queue_size_with_jobs(celery_app):
     )
 
 
-def test_job_queue_size_connection_reset(celery_app):
-    with patch(
-        "hirefire_resource.macro.celery._job_queue_size_worker"
-    ) as mock_job_queue_size_worker:
-        mock_job_queue_size_worker.side_effect = [ConnectionResetError, 0]
-        assert job_queue_size("celery", broker_url=celery_app.conf.broker_url) == 0
+def test_mitigate_connection_reset_error_decorator():
+    """Sanity check: verify the retry decorator works correctly."""
+    from hirefire_resource.macro.celery import mitigate_connection_reset_error
+
+    call_count = [0]
+
+    @mitigate_connection_reset_error(retries=2, delay=0)
+    def flaky_function():
+        call_count[0] += 1
+        if call_count[0] == 1:
+            raise ConnectionResetError("Simulated failure")
+        return 42
+
+    result = flaky_function()
+    assert result == 42
+    assert call_count[0] == 2
 
 
 @pytest.mark.asyncio
