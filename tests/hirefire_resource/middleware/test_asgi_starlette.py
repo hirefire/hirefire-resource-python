@@ -32,7 +32,9 @@ def setup():
 
 @pytest.fixture
 def client():
-    return httpx.AsyncClient(app=app, base_url="http://test")
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    )
 
 
 async def measure_queue_metric():
