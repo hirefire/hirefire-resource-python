@@ -10,5 +10,28 @@ brew services start rabbitmq
 pyenv install -s 3.9 3.10 3.11 3.12
 
 pip install poetry
+poetry self add poetry-plugin-shell
+
+export PATH="$HOME/.pyenv/shims:$PATH"
 
 poetry install
+poetry env use python3
+
+set +vx
+
+echo ""
+echo "============================================"
+echo "Setup complete!"
+echo "============================================"
+echo ""
+echo "Add this to your shell profile (~/.zshrc, ~/.bashrc, etc.):"
+echo ""
+echo "  export PATH=\"\$HOME/.pyenv/shims:\$PATH\""
+echo ""
+echo "Then restart your shell and run:"
+echo ""
+echo "  poetry shell           # Enter development environment"
+echo "  tox -e py312-core      # Quick test"
+echo "  tox                    # Full test suite"
+echo "  paver format           # Format code"
+echo ""
