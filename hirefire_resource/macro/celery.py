@@ -25,6 +25,26 @@ except ImportError:
 from hirefire_resource.errors import MissingQueueError
 
 
+def _get_queue_arguments_from_app(app, queues):
+    """
+    Extract queue arguments from Celery app configuration for specified queues.
+
+    Args:
+        app: Celery app instance with task_queues configuration
+        queues: List of queue names to extract arguments for
+
+    Returns:
+        dict: Mapping of queue name to queue_arguments dict
+    """
+    queue_args = {}
+    task_queues = getattr(app.conf, "task_queues", None) or []
+    for q in task_queues:
+        queue_name = getattr(q, "name", None)
+        if queue_name and queue_name in queues:
+            queue_args[queue_name] = getattr(q, "queue_arguments", None)
+    return queue_args
+
+
 def mitigate_connection_reset_error(retries=10, delay=1):
     """
     Decorator to retry a function when ConnectionResetError occurs.
@@ -210,7 +230,7 @@ async def async_job_queue_latency(*queues, broker_url=None):
 
 
 @mitigate_connection_reset_error()
-def job_queue_size(*queues, broker_url=None):
+def job_queue_size(*queues, broker_url=None, celery_app=None):
     """
     Calculates the total job queue size across the specified queues using Celery with either Redis
     or RabbitMQ (AMQP) as the broker.
@@ -229,22 +249,31 @@ def job_queue_size(*queues, broker_url=None):
           using a workaround, such as a separate queue for scheduled tasks that forwards tasks ready
           to run to the relevant regular queues. When using RabbitMQ (AMQP), consider using the
           Delayed Message Plugin.
+        - For RabbitMQ queues with custom arguments (e.g., x-max-priority for priority queues),
+          pass your configured Celery app via the `celery_app` parameter. This allows the function
+          to extract and use the correct queue arguments when querying RabbitMQ.
 
     Args:
         *queues (str): Names of the queues for size measurement.
-        broker_url (str, optional): The broker URL. Defaults in the following order:
+        broker_url (str, optional): The broker URL. Cannot be used together with `celery_app`.
+            Defaults in the following order:
             - Passed argument `broker_url`.
             - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `RABBITMQ_BIGWIG_URL`,
               `CLOUDAMQP_URL`, `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`,
               `OPENREDIS_URL`.
             - "amqp://guest:guest@localhost:5672" if AMQP is available, otherwise
               "redis://localhost:6379/0".
+        celery_app (Celery, optional): A configured Celery app instance. Cannot be used together
+            with `broker_url`. When provided, the function uses this app's connection and extracts
+            queue arguments from celery_app.conf.task_queues. This is required for RabbitMQ queues
+            with custom arguments like x-max-priority.
 
     Returns:
         int: The cumulative job queue size across the specified queues.
 
     Raises:
         MissingQueueError: If no queue names are provided.
+        ValueError: If both `broker_url` and `celery_app` are provided.
 
     Examples:
         >>> job_queue_size("celery")
@@ -255,43 +284,54 @@ def job_queue_size(*queues, broker_url=None):
         42
         >>> job_queue_size("celery", broker_url="redis://localhost:6379/0")
         42
+        >>> # For priority queues, pass your configured Celery app:
+        >>> job_queue_size("celery", celery_app=celery_app)
+        42
     """
     if not queues:
         raise MissingQueueError()
 
-    broker_url = (
-        broker_url
-        or os.environ.get("AMQP_URL")
-        or os.environ.get("RABBITMQ_URL")
-        or os.environ.get("RABBITMQ_BIGWIG_URL")
-        or os.environ.get("CLOUDAMQP_URL")
-        or os.environ.get("REDIS_TLS_URL")
-        or os.environ.get("REDIS_URL")
-        or os.environ.get("REDISTOGO_URL")
-        or os.environ.get("REDISCLOUD_URL")
-        or os.environ.get("OPENREDIS_URL")
-    )
+    if celery_app is not None and broker_url is not None:
+        raise ValueError(
+            "Cannot specify both 'celery_app' and 'broker_url'. "
+            "Use 'celery_app' to pass your configured Celery app (recommended for priority queues), "
+            "or 'broker_url' for simple setups."
+        )
 
-    if not broker_url:
-        if AMQP_AVAILABLE:
-            broker_url = "amqp://guest:guest@localhost:5672"
-        else:
-            broker_url = "redis://localhost:6379/0"
+    if celery_app is None:
+        broker_url = (
+            broker_url
+            or os.environ.get("AMQP_URL")
+            or os.environ.get("RABBITMQ_URL")
+            or os.environ.get("RABBITMQ_BIGWIG_URL")
+            or os.environ.get("CLOUDAMQP_URL")
+            or os.environ.get("REDIS_TLS_URL")
+            or os.environ.get("REDIS_URL")
+            or os.environ.get("REDISTOGO_URL")
+            or os.environ.get("REDISCLOUD_URL")
+            or os.environ.get("OPENREDIS_URL")
+        )
 
-    app = Celery(broker=broker_url)
+        if not broker_url:
+            if AMQP_AVAILABLE:
+                broker_url = "amqp://guest:guest@localhost:5672"
+            else:
+                broker_url = "redis://localhost:6379/0"
+
+        celery_app = Celery(broker=broker_url)
 
     try:
-        with app.connection_or_acquire() as connection:
+        with celery_app.connection_or_acquire() as connection:
             with connection.channel() as channel:
-                worker_task_count = _job_queue_size_worker(app, queues)
-                broker_task_count = _job_queue_size_broker(channel, queues)
+                worker_task_count = _job_queue_size_worker(celery_app, queues)
+                broker_task_count = _job_queue_size_broker(celery_app, channel, queues)
                 return worker_task_count + broker_task_count
 
     except OperationalError:
         return 0
 
 
-async def async_job_queue_size(*queues, broker_url=None):
+async def async_job_queue_size(*queues, broker_url=None, celery_app=None):
     """
     Asynchronously calculates the total job queue size across the specified queues using Celery with
     either Redis or RabbitMQ (AMQP) as the broker.
@@ -311,22 +351,29 @@ async def async_job_queue_size(*queues, broker_url=None):
           using a workaround, such as a separate queue for scheduled tasks that forwards tasks ready
           to run to the relevant regular queues. When using RabbitMQ (AMQP), consider using the
           Delayed Message Plugin.
+        - For RabbitMQ queues with custom arguments (e.g., x-max-priority for priority queues),
+          pass your configured Celery app via the `celery_app` parameter.
 
     Args:
         *queues (str): Names of the queues for size measurement.
-        broker_url (str, optional): The broker URL. Defaults in the following order:
+        broker_url (str, optional): The broker URL. Cannot be used together with `celery_app`.
+            Defaults in the following order:
             - Passed argument `broker_url`.
             - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `RABBITMQ_BIGWIG_URL`,
               `CLOUDAMQP_URL`, `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`,
               `OPENREDIS_URL`.
             - "amqp://guest:guest@localhost:5672" if AMQP is available, otherwise
               "redis://localhost:6379/0".
+        celery_app (Celery, optional): A configured Celery app instance. Cannot be used together
+            with `broker_url`. When provided, the function uses this app's connection and extracts
+            queue arguments from celery_app.conf.task_queues.
 
     Returns:
         int: The cumulative job queue size across the specified queues.
 
     Raises:
         MissingQueueError: If no queue names are provided.
+        ValueError: If both `broker_url` and `celery_app` are provided.
 
     Examples:
         >>> await async_job_queue_size("celery")
@@ -335,11 +382,13 @@ async def async_job_queue_size(*queues, broker_url=None):
         85
         >>> await async_job_queue_size("celery", broker_url="amqp://user:password@host:5672")
         42
-        >>> await async_job_queue_size("celery", broker_url="redis://localhost:6379/0")
+        >>> await async_job_queue_size("celery", celery_app=celery_app)
         42
     """
     loop = asyncio.get_event_loop()
-    func = functools.partial(job_queue_size, *queues, broker_url=broker_url)
+    func = functools.partial(
+        job_queue_size, *queues, broker_url=broker_url, celery_app=celery_app
+    )
     return await loop.run_in_executor(None, func)
 
 
@@ -399,22 +448,26 @@ def _job_queue_size_worker(app, queues):
     return sum(worker_data.get(queue, 0) for queue in queues)
 
 
-def _job_queue_size_broker(channel, queues):
+def _job_queue_size_broker(app, channel, queues):
     if hasattr(channel, "_size"):
-        fn = _job_queue_size_redis
+        return sum(_job_queue_size_redis(channel, queue) for queue in queues)
     else:
-        fn = _job_queue_size_rabbitmq
-
-    return sum(fn(channel, queue) for queue in queues)
+        queue_args = _get_queue_arguments_from_app(app, queues)
+        return sum(
+            _job_queue_size_rabbitmq(channel, queue, queue_args.get(queue))
+            for queue in queues
+        )
 
 
 def _job_queue_size_redis(channel, queue):
     return channel.client.llen(queue)
 
 
-def _job_queue_size_rabbitmq(channel, queue):
+def _job_queue_size_rabbitmq(channel, queue, arguments=None):
     try:
-        return channel.queue_declare(queue=queue, passive=True).message_count
+        return channel.queue_declare(
+            queue=queue, passive=True, arguments=arguments
+        ).message_count
     except ChannelError:
         return 0
 
