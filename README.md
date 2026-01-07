@@ -35,13 +35,16 @@ bin/setup
 export PATH="$HOME/.pyenv/shims:$PATH"
 
 # Run tests
-poetry shell
-tox -e py312-core   # Quick test on Python 3.12
-tox                 # Full test suite
-paver format        # Format code
-```
+poetry run tox -e py312-core   # Quick test on Python 3.12
+poetry run tox                 # Full test suite
 
-See `paver --help` for additional tasks.
+# Code formatting and linting
+poetry run paver format        # Format code (autoflake, isort, black)
+poetry run paver check         # Check formatting without applying
+poetry run paver test          # Run tests with coverage
+poetry run paver doc           # Build documentation
+poetry run paver               # Default: format + test
+```
 
 ## Release
 
