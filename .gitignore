@@ -4,3 +4,5 @@
 __pycache__/
 /dist
 /docs/_build
+CLAUDE.md
+AGENTS.md
