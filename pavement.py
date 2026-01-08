@@ -10,7 +10,7 @@ def default():
 
 @task
 def test():
-    sh("pytest --cov=hirefire_resource --cov-report=html tests/")
+    sh("tox")
 
 
 @task
