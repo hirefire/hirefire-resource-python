@@ -28,6 +28,12 @@ def test_default_logger(config):
     assert any(isinstance(h, logging.StreamHandler) for h in config.logger.handlers)
 
 
+def test_logger_does_not_propagate_to_root(config):
+    # Own stdout handler, but no propagation — otherwise a host app with root
+    # logging configured would see every HireFire line twice.
+    assert config.logger.propagate is False
+
+
 def test_can_set_logger(config):
     custom_logger = logging.getLogger("custom")
     config.logger = custom_logger
@@ -110,11 +116,6 @@ def test_dyno_cpu_rejects_a_sampler(config):
         config.dyno("web", lambda: 1, tracking="cpu")
 
 
-def test_dyno_accepts_a_string_tracking_value(config):
-    config.dyno("clock", tracking="cpu")
-    assert [collector.name for collector in config.cpu] == ["clock"]
-
-
 # service — universal / platform-neutral front door (full truth table)
 
 
@@ -160,11 +161,6 @@ def test_service_without_keyword_or_sampler_raises(config):
 def test_service_rejects_an_unknown_keyword(config):
     with pytest.raises(UnknownCollectorError):
         config.service("web", tracking="foo")
-
-
-def test_service_accepts_a_string_tracking_value(config):
-    config.service("web", tracking="http")
-    assert isinstance(config.web, Web)
 
 
 # Shared invariants across both front doors

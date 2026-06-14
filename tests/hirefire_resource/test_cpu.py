@@ -324,3 +324,21 @@ def test_proc_namespace_seconds_none_when_every_entry_is_unreadable():
     ), patch.object(Usage, "read", return_value=None):
         # Files vanished between glob and read: nothing counted => None (not 0.0).
         assert Usage.proc_namespace_seconds() is None
+
+
+def test_total_seconds_falls_through_on_malformed_cgroup_v2():
+    # A non-numeric usage value must not raise; fall through to the next source.
+    mapping = {
+        Usage.CGROUP_V2_USAGE: "usage_usec notanumber",
+        Usage.CGROUP_V1_USAGE: "3000000000",
+    }
+    with patch.object(Usage, "read", side_effect=reading(mapping)):
+        assert abs(Usage.total_seconds() - 3.0) < 0.0001
+
+
+def test_available_cpus_falls_through_on_malformed_quota():
+    # Garbage in cpu.max must not raise; fall through to the processor count.
+    with patch.object(
+        Usage, "read", side_effect=reading({Usage.CGROUP_V2_QUOTA: "garbage 100000"})
+    ):
+        assert Usage.available_cpus() == os.cpu_count()

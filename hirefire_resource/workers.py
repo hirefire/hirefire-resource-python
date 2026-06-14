@@ -20,8 +20,7 @@ class Workers:
     def __getitem__(self, index):
         return self._workers[index]
 
-    # Samplers are user code: isolate failures and validate values so one bad
-    # sampler never blocks the others or propagates into the dispatcher loop.
+    # Samplers are user code: isolate failures and validate values per worker.
     def sample(self):
         for worker in self._workers:
             try:
@@ -34,9 +33,7 @@ class Workers:
                     )
                     continue
 
-                from hirefire_resource.hirefire import HireFire
-
-                HireFire.configuration.buffer.sample_worker(worker.name, value)
+                self._buffer().sample_worker(worker.name, value)
             except Exception as error:
                 self._logger().error(
                     f"[HireFire] The sampler for dyno {worker.name!r} raised "
@@ -50,6 +47,11 @@ class Workers:
             and math.isfinite(value)
             and value >= 0
         )
+
+    def _buffer(self):
+        from hirefire_resource.hirefire import HireFire
+
+        return HireFire.configuration.buffer
 
     def _logger(self):
         from hirefire_resource.hirefire import HireFire

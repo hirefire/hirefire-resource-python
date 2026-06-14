@@ -140,6 +140,18 @@ def test_custom_data_url_over_plain_http(set_HIREFIRE_TOKEN, monkeypatch):
 
 
 @httpretty.activate
+def test_honors_a_path_prefix_in_the_data_url(set_HIREFIRE_TOKEN, monkeypatch):
+    monkeypatch.setenv("HIREFIRE_DATA_URL", "https://custom.hirefire.io/prefix")
+    httpretty.register_uri(
+        httpretty.POST, "https://custom.hirefire.io/prefix/metrics/ingest", status=200
+    )
+
+    Client().submit_samples(PAYLOAD)
+
+    assert httpretty.last_request().path == "/prefix/metrics/ingest"
+
+
+@httpretty.activate
 def test_request_lease_omits_the_agent_header(client, set_HIREFIRE_TOKEN):
     # Ingest sends HireFire-Agent; the lease deliberately does not.
     httpretty.register_uri(

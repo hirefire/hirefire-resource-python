@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 
@@ -51,3 +52,18 @@ def reset_hirefire(request, monkeypatch):
     HireFire.reset()
     yield
     HireFire.reset()
+
+
+# The library's logger does not propagate (so it never double-emits into a host
+# app's root logging), so caplog — which captures via the root — needs its handler
+# attached directly to capture HireFire's log output.
+@pytest.fixture(autouse=True)
+def capture_hirefire_logs(request, caplog):
+    if "macro" in request.module.__name__.split("."):
+        yield
+        return
+
+    logger = logging.getLogger("hirefire_resource")
+    logger.addHandler(caplog.handler)
+    yield
+    logger.removeHandler(caplog.handler)

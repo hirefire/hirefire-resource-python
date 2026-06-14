@@ -4,9 +4,7 @@ import time
 
 
 class Usage:
-    """Reads container-level CPU usage and the CPU normalization divisor, trying
-    progressively less precise sources. All reads are best-effort: a missing or
-    unreadable file returns None so the caller can fall through."""
+    """Best-effort reads of container CPU usage and the normalization divisor."""
 
     CGROUP_V2_USAGE = "/sys/fs/cgroup/cpu.stat"
     CGROUP_V1_USAGE = "/sys/fs/cgroup/cpuacct/cpuacct.usage"
@@ -16,21 +14,14 @@ class Usage:
     CEDAR_MEMORY_LIMIT = "/sys/fs/cgroup/memory/memory.limit_in_bytes"
     PROC_STAT_GLOB = "/proc/[0-9]*/stat"
 
-    # Cedar shared dynos have no CPU limit anywhere, but each size is bound to a
-    # fixed memory limit, so the memory limit identifies the size and the size
-    # implies the CPU entitlement. Dedicated dynos are deliberately absent: their
-    # cpu count is the real core count, so they fall through.
+    # Cedar shared dynos expose no CPU limit; the memory limit fingerprints the
+    # size, which implies the entitlement. Other sizes fall through.
     CEDAR_SHARED_ENTITLEMENTS = {
         536_870_912: 1.0,  # 512 MB: eco / basic / standard-1x
         1_073_741_824: 2.0,  # 1 GB: standard-2x
     }
 
-    # Cumulative CPU time in seconds for the whole dyno/container, from the first
-    # available source: cgroup v2, cgroup v1, the /proc PID namespace, or this
-    # process's own clock. Heroku exposes no cpu cgroup at all, so /proc carries
-    # it there: it is PID-namespaced to the dyno, so summing every visible process
-    # gives whole-dyno CPU. The stdlib clock is the dev/macOS last resort and only
-    # sees this process.
+    # Cumulative whole-container CPU seconds, first available source wins.
     @classmethod
     def total_seconds(cls):
         for source in (
@@ -52,16 +43,20 @@ class Usage:
 
         for line in content.splitlines():
             if line.startswith("usage_usec"):
-                return float(line.split()[-1]) / 1_000_000.0
+                parts = line.split()
+                usec = cls._number(parts[1]) if len(parts) > 1 else None
+                return usec / 1_000_000.0 if usec is not None else None
         return None
 
     @classmethod
     def cgroup_v1_seconds(cls):
-        usage = cls.read(cls.CGROUP_V1_USAGE)
+        usage = cls._number(cls.read(cls.CGROUP_V1_USAGE))
         if usage is None:
             return None
-        return float(usage) / 1_000_000_000.0
+        return usage / 1_000_000_000.0
 
+    # Heroku exposes no cpu cgroup; /proc is PID-namespaced to the dyno, so summing
+    # every visible process gives whole-dyno CPU.
     @classmethod
     def proc_namespace_seconds(cls):
         paths = glob.glob(cls.PROC_STAT_GLOB)
@@ -84,9 +79,8 @@ class Usage:
             return None
         return float(ticks) / cls.clock_ticks()
 
-    # utime + stime (clock ticks) from a /proc/[pid]/stat line. The comm field
-    # (2nd) can contain spaces and parens, so parse from after the last ")": the
-    # remaining fields put utime at index 11 and stime at index 12.
+    # utime + stime ticks; parse after the last ")" since comm may contain spaces
+    # and parens, which puts utime at index 11 and stime at index 12.
     @classmethod
     def stat_ticks(cls, content):
         close = content.rfind(")")
@@ -102,8 +96,7 @@ class Usage:
         except ValueError:
             return None
 
-    # os.sysconf raises ValueError on unknown names, and is absent on platforms
-    # without sysconf; 100 is the universal USER_HZ default.
+    # os.sysconf raises/absent without sysconf; 100 is the universal USER_HZ default.
     @classmethod
     def clock_ticks(cls):
         try:
@@ -115,12 +108,8 @@ class Usage:
     def process_seconds(cls):
         return time.process_time()
 
-    # Number of CPUs to normalize usage against — the CPU the platform guarantees
-    # this container, not the host's core count. Sources, first answer wins: a
-    # cgroup quota (platforms with a hard CPU limit), the Cedar shared-dyno
-    # entitlement (shared dynos burst on an 8-core host, so the core count would
-    # understate utilization and invert under contention), or the processor count
-    # (dedicated machines, where the host's core count is the container's).
+    # CPUs to normalize against: the platform's guarantee, not the host core count.
+    # First source wins.
     @classmethod
     def available_cpus(cls):
         for source in (
@@ -141,40 +130,30 @@ class Usage:
             return None
 
         parts = value.split()
-        if not parts:
+        if not parts or parts[0] == "max":
             return None
 
-        quota = parts[0]
-        if quota == "max":
-            return None
-
-        period = float(parts[1]) if len(parts) > 1 else 0.0
-        if period > 0:
-            return float(quota) / period
-        return None
-
-    @classmethod
-    def cgroup_v1_quota(cls):
-        quota = cls.read(cls.CGROUP_V1_QUOTA)
-        period = cls.read(cls.CGROUP_V1_PERIOD)
-        if quota is None or period is None:
-            return None
-
-        quota = int(quota)
-        period = float(period)
-        if quota <= 0 or period <= 0:
+        quota = cls._number(parts[0])
+        period = cls._number(parts[1]) if len(parts) > 1 else None
+        if quota is None or period is None or period <= 0:
             return None
         return quota / period
 
-    # Gated on DYNO because elsewhere a v1 memory limit says nothing about CPU.
-    # Unrecognized fingerprints (dedicated dynos, future sizes) fall through to
-    # the processor count.
+    @classmethod
+    def cgroup_v1_quota(cls):
+        quota = cls._number(cls.read(cls.CGROUP_V1_QUOTA))
+        period = cls._number(cls.read(cls.CGROUP_V1_PERIOD))
+        if quota is None or period is None or quota <= 0 or period <= 0:
+            return None
+        return quota / period
+
+    # Gated on DYNO: a v1 memory limit says nothing about CPU off Heroku.
     @classmethod
     def heroku_entitlement(cls):
         if not os.environ.get("DYNO"):
             return None
 
-        limit = cls.read(cls.CEDAR_MEMORY_LIMIT)
+        limit = cls._number(cls.read(cls.CEDAR_MEMORY_LIMIT))
         if limit is None:
             return None
         return cls.CEDAR_SHARED_ENTITLEMENTS.get(int(limit))
@@ -192,3 +171,13 @@ class Usage:
         except OSError:
             return None
         return None
+
+    # None on malformed content, so the caller falls through instead of raising.
+    @staticmethod
+    def _number(value):
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except ValueError:
+            return None

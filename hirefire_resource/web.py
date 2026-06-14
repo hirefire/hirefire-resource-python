@@ -1,8 +1,5 @@
 class Web:
-    """Thin wrapper representing the HTTP-serving process for request queue time
-    tracking. The whole HTTP family (RequestQueueTime, RequestsPerMinute) rides
-    this one feed; the server derives queue time from the sample values and
-    request rate from the sample counts."""
+    """The HTTP-serving process; buffers one request queue time sample per request."""
 
     def __init__(self, name):
         self.name = str(name)

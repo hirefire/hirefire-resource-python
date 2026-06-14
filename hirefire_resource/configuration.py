@@ -31,16 +31,8 @@ class DuplicateDynoError(Exception):
 
 
 class Configuration:
-    # The public `tracking` keyword selects one of three internal collectors. The
-    # only value that changes the collector is "cpu"; the http and job feeds are
-    # each shared by their family (the server derives rqt/rpm from one http feed,
-    # and the user's sampler picks the jql/jqs macro over one job feed), so a
-    # single "http" value covers the whole HTTP family.
-    #
-    # service is platform-neutral: the name implies nothing, so http must be named
-    # explicitly (tracking="http") alongside "cpu". dyno is the Heroku convenience:
-    # the only value it ever takes is "cpu", because the Procfile "web" name implies
-    # http on its own (handled in dyno(), not here).
+    # Public tracking= values mapped to internal collectors. dyno only adds "cpu";
+    # its "web" name implies http on its own (handled in dyno()).
     SERVICE_COLLECTORS = {"http": "http", "cpu": "cpu"}
     DYNO_COLLECTORS = {"cpu": "cpu"}
 
@@ -65,18 +57,8 @@ class Configuration:
     def token(self, value):
         self._token = value
 
-    # Legacy / Heroku front door, backwards-compatible with the 1.x implicit forms.
-    # The only thing it ever tracks explicitly is "cpu"; the Heroku Procfile
-    # convention (the "web" name implies http) is baked in. dyno is exactly
-    # service() plus that web => http convenience.
-    #
-    #   dyno("web")                  # http  (1.x form: name "web" implies it)
-    #   dyno("worker", sampler)      # job   (1.x form: the sampler implies it)
-    #   dyno("web", tracking="cpu")  # cpu on the web process
-    #   dyno("clock", tracking="cpu") # cpu on a non-web process
-    #
-    # The sampler is the second positional argument (a callable), so the 1.x
-    # dyno("worker", callable) form keeps working; tracking is keyword-only.
+    # Legacy / Heroku front door. tracking is keyword-only so the 1.x
+    # dyno("worker", callable) form keeps working (proc is the positional sampler).
     def dyno(self, name, proc=None, *, tracking=None):
         name = self._coerce_name(name)
 
@@ -102,12 +84,7 @@ class Configuration:
 
         self._register(name, collector, proc)
 
-    # Universal / platform-neutral front door. The name carries no meaning, so http
-    # must be tracked explicitly with tracking="http"; the sampler still implies job.
-    #
-    #   service("web", tracking="http")  # http  (any http process name)
-    #   service("worker", sampler)       # job   (the sampler implies it)
-    #   service("clock", tracking="cpu") # cpu
+    # Universal front door: the name implies nothing, so http needs tracking="http".
     def service(self, name, proc=None, *, tracking=None):
         name = self._coerce_name(name)
 
@@ -128,9 +105,8 @@ class Configuration:
 
         self._register(name, collector, proc)
 
-    # Both memoizations are synchronized: the middleware touches them from
-    # concurrent request threads, and an unsynchronized check could build (and
-    # start) two dispatchers, leaving one running but unreachable.
+    # Locked double-checked init: concurrent request threads must not build two
+    # buffers/dispatchers.
     @property
     def buffer(self):
         if self._buffer is None:
@@ -156,10 +132,8 @@ class Configuration:
         if self._dispatcher is not None:
             self._dispatcher.stop()
 
-    # CPU is intrinsic to a process's own dyno, so a collector only runs where the
-    # process identity matches its declared name. Hard gate: unresolved identity
-    # disables CPU with a loud log line rather than raising — a metrics library
-    # must not crash the host app.
+    # Hard gate: a CPU collector runs only on the process whose identity matches its
+    # name; an unresolved identity disables it (logged, never raised).
     def active_cpu_collectors(self):
         if not self.cpu:
             return []
@@ -180,12 +154,8 @@ class Configuration:
             if collector.name.lower() == resolved.lower()
         ]
 
-    # Whether this process may synthesize liveness claims (heartbeats/backfill)
-    # under the http collector's name. Real request samples self-gate — only the
-    # HTTP-serving process receives requests — but without this gate any process
-    # running the shared initializer would claim "web alive, zero traffic" seconds
-    # while the actual web dynos are down. Soft gate: an unresolved identity still
-    # allows the claims, since http must keep working without a resolver.
+    # Soft gate: may this process synthesize web liveness (heartbeats/backfill)? An
+    # unresolved identity still allows it.
     def web_liveness(self):
         if not self.web:
             return True
@@ -193,8 +163,8 @@ class Configuration:
         resolved = self.resolved_identity()
         return resolved is None or resolved.lower() == self.web.name.lower()
 
-    # Memoized so the dispatcher's gates share one resolution and the Heroku
-    # app-wide config var footgun is warned about once.
+    # Memoized: both gates share one resolution, and the Heroku app-wide config-var
+    # conflict is warned at most once.
     def resolved_identity(self):
         if self._resolved_identity is not _UNSET:
             return self._resolved_identity
@@ -210,8 +180,6 @@ class Configuration:
         self._resolved_identity = identity.resolve()
         return self._resolved_identity
 
-    # Coerce the name to a string (so non-string names are interchangeable) and
-    # reject an empty result. Shared by both front doors, so the message names both.
     def _coerce_name(self, name):
         name = "" if name is None else str(name)
 
@@ -223,15 +191,8 @@ class Configuration:
 
         return name
 
-    # Shared back end for both front doors: the duplicate-name guard (spanning dyno
-    # and service via the single _names registry) and collector registration. Each
-    # front door has already resolved the collector kind and validated its own
-    # keyword rules; the per-collector sampler rules (a job needs one, http/cpu
-    # reject one) and the one-http-per-process guard live here so they hold
-    # identically no matter which front door was used.
     def _register(self, name, collector, proc):
-        # Case-insensitive, matching the identity gates: two names differing only
-        # in case would both match one process identity and emit under two names.
+        # Case-insensitive: names differing only in case would gate as one identity.
         if any(existing.lower() == name.lower() for existing in self._names):
             raise DuplicateDynoError(
                 f"Duplicate declaration for {name!r}. "
@@ -274,5 +235,7 @@ class Configuration:
             handler = logging.StreamHandler(sys.stdout)
             handler.setFormatter(logging.Formatter("%(message)s"))
             logger.addHandler(handler)
+            # No propagation: would otherwise double-emit through the host's root logger.
+            logger.propagate = False
 
         return logger

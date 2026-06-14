@@ -22,8 +22,7 @@ class Client:
     def __init__(self, timeout=5):
         self._timeout = timeout
 
-    # Takes the JSON-encoded body; the dispatcher encodes it to enforce
-    # PAYLOAD_SIZE_LIMIT before submitting.
+    # Body is pre-encoded JSON (the dispatcher enforces the size cap before this).
     def submit_samples(self, body):
         self._require_token()
         response = self._execute(
@@ -56,9 +55,8 @@ class Client:
             },
         )
 
-    # Maps the whole transport failure family (DNS, refused/reset connections,
-    # broken pipes, TLS) to RequestError so callers handle one error type.
-    def _execute(self, path, body, headers):
+    # Map every transport failure to RequestError so callers handle one error type.
+    def _execute(self, endpoint, body, headers):
         uri = urlparse(self._base_url())
         if uri.scheme == "https":
             connection_class = http.client.HTTPSConnection
@@ -66,6 +64,8 @@ class Client:
             connection_class = http.client.HTTPConnection
 
         connection = connection_class(uri.hostname, uri.port, timeout=self._timeout)
+        # Honor a path prefix in HIREFIRE_DATA_URL; rstrip avoids a double slash.
+        path = uri.path.rstrip("/") + endpoint
         if isinstance(body, str):
             body = body.encode("utf-8")
 

@@ -1,8 +1,7 @@
 import os
 import re
 
-# Resolves the name of the process this code is running in, so collectors can
-# tell whether they should report under a given declared dyno name. First
+# Resolves this process's name (to match against a declared dyno name). First
 # non-empty source wins; None means unresolved.
 
 
@@ -14,10 +13,8 @@ def explicit():
     return presence(os.environ.get("HIREFIRE_SERVICE_NAME"))
 
 
-# Heroku sets DYNO per generation: Cedar uses "web.1" (process type before the
-# first "."); Fir uses Kubernetes pod names like "web-5fb9c979-lft2l". Stripping
-# the two trailing "-<alnum>" segments, rather than splitting on the first "-",
-# keeps any dash inside a process name intact.
+# DYNO is "web.1" on Cedar, a pod name like "web-5fb9c979-lft2l" on Fir. Strip the
+# two trailing "-<alnum>" segments, keeping any dash inside the process name.
 def heroku_dyno():
     dyno = presence(os.environ.get("DYNO"))
     if dyno is None:
@@ -33,10 +30,8 @@ def render_service():
     return presence(os.environ.get("RENDER_SERVICE_NAME"))
 
 
-# Heroku config vars are app-wide, so a dashboard-set HIREFIRE_SERVICE_NAME makes
-# every dyno identify as the same name. True when an explicit name disagrees with
-# the DYNO prefix. Case-insensitive, matching the identity gates: names differing
-# only in case gate identically.
+# True when an explicit name disagrees with the DYNO prefix: a dashboard-set
+# (app-wide) HIREFIRE_SERVICE_NAME would make every dyno identify the same.
 def heroku_conflict():
     explicit_name = explicit()
     dyno_name = heroku_dyno()

@@ -4,8 +4,7 @@ from hirefire_resource.cpu.usage import Usage
 
 
 class CPU:
-    """Samples this process's container-level CPU utilization on each dispatcher
-    tick and buffers it as a 0-100 percentage of the dyno's available CPU."""
+    """Samples this process's CPU utilization as a 0-100% of available CPU."""
 
     def __init__(self, name):
         self.name = str(name)
@@ -28,9 +27,8 @@ class CPU:
         wall_delta = now - previous_time
         usage_delta = usage - previous_usage
 
-        # A non-positive wall delta means the clock stepped backward; a negative
-        # usage delta means the usage source changed between reads (e.g. a cgroup
-        # file vanished). Either way, skip the second rather than fabricate a value.
+        # Skip rather than fabricate: the clock stepped back, or the usage source
+        # changed between reads.
         if wall_delta <= 0 or usage_delta < 0:
             return
 

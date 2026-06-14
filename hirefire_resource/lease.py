@@ -18,8 +18,7 @@ class Lease:
     def granted(self):
         return self._granted
 
-    # Advances before yielding so a raising sampler costs one sample window
-    # instead of being retried on every dispatcher tick.
+    # Advance before sampling so a raising sampler costs one window, not every tick.
     def sample_if_due(self, sampler):
         if not (self._granted and time.time() >= self._next_sample_at):
             return
@@ -27,8 +26,7 @@ class Lease:
         self._next_sample_at = time.time() + self.sample_frequency
         sampler()
 
-    # Advances before the request so a failed renewal waits a full TTL instead
-    # of blocking the dispatcher thread on every tick.
+    # Advance before the request so a failed renewal waits a full TTL, not every tick.
     def request_if_due(self):
         if not (self._enabled and time.time() >= self._expires_at):
             return
@@ -38,9 +36,8 @@ class Lease:
         try:
             response = self._client.request_lease(self.process_id)
         except Exception:
-            # Unconfirmed leases may be re-granted to another process meanwhile;
-            # stop sampling until a successful renewal rather than risk two
-            # processes sampling the same fleet.
+            # Demote on failure: an unconfirmed lease may be re-granted elsewhere,
+            # so stop sampling rather than risk two processes sampling one fleet.
             self._granted = False
             raise
 

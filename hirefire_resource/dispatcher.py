@@ -9,12 +9,10 @@ from hirefire_resource.workers import Workers
 
 
 class Dispatcher:
-    # How far back (seconds) a dispatch may claim unreported web seconds. Matches
-    # the server's ingest staleness acceptance and doubles as an honesty cap: a
-    # process suspended longer than this must not assert liveness for that time.
+    # Max seconds back a dispatch may claim web liveness.
     WEB_BACKFILL_LIMIT = 60
 
-    # Mirrors the server's request body cap; larger payloads are rejected with 413.
+    # Mirrors the server's request body cap.
     PAYLOAD_SIZE_LIMIT = 65_536
 
     def __init__(self, web=None, workers=None, cpu=None, web_liveness=True):
@@ -31,10 +29,8 @@ class Dispatcher:
         self._last_web_second = None
         self._web_watermark = None
 
-    # Fork-aware: a forked child inherits _running == True, but threads do not
-    # survive fork, so "running" only counts in the process that started the
-    # thread. In a child the pid check fails and start (called per request by the
-    # middleware) creates a fresh thread for this process.
+    # Fork-aware: a child inherits _running but not the thread, so the pid check
+    # forces the per-request start to spawn a fresh thread.
     def start(self):
         with self._mutex:
             if self._running and self._pid == os.getpid():
@@ -57,8 +53,7 @@ class Dispatcher:
                 return False
 
             self._running = False
-            # Only join a thread this process created; an inherited thread object
-            # in a forked child references a thread that no longer exists.
+            # Only join a thread this process created (a forked child's handle is dead).
             if self._pid == os.getpid():
                 thread = self._thread
             self._thread = None
@@ -82,9 +77,7 @@ class Dispatcher:
             self._tick()
             time.sleep(1)
 
-    # Each stage is isolated: a failure in one (a lease renewal timing out, a job
-    # sampler raising) must not starve the stages after it — most importantly
-    # dispatch, which drains the buffer.
+    # Stage-isolated so one failure can't starve dispatch, which drains the buffer.
     def _tick(self):
         self._guard(self._lease.request_if_due)
         self._guard(lambda: self._lease.sample_if_due(self._workers.sample))
@@ -98,23 +91,25 @@ class Dispatcher:
         except Exception as error:
             self._logger().error(f"[HireFire] {error}")
 
+    # Fully guarded: runs on the background thread (and once from stop), so any
+    # failure must be logged, not propagated, or it kills the loop. data defaults to
+    # None for the handler in case flush itself raised.
     def _dispatch(self):
-        data = self._buffer().flush()
-        payload = self._build_payload(data)
-        if not payload:
-            return
-
-        body = json.dumps(payload, separators=(",", ":"))
-        if len(body.encode("utf-8")) > self.PAYLOAD_SIZE_LIMIT:
-            return self._drop_oversized_payload(body)
-
+        data = None
         try:
+            data = self._buffer().flush()
+            payload = self._build_payload(data)
+            if not payload:
+                return
+
+            body = json.dumps(payload, separators=(",", ":"))
+            if len(body.encode("utf-8")) > self.PAYLOAD_SIZE_LIMIT:
+                return self._drop_oversized_payload(body)
+
             if os.environ.get("HIREFIRE_VERBOSE"):
                 self._logger().info(f"[HireFire] Dispatching metrics: {body}")
             self._client.submit_samples(body)
-            # Advance only after a successful submit so the next success re-claims
-            # the seconds whose delivery failed; duplicate empty claims are
-            # harmless server-side.
+            # Advance only after a successful submit; failed seconds re-claim next time.
             if self._web_watermark is not None:
                 self._last_web_second = self._web_watermark
         except Exception as error:
@@ -122,9 +117,8 @@ class Dispatcher:
                 self._buffer().repopulate_web(data["web"])
             self._logger().error(f"[HireFire] Dispatch error: {error}")
 
-    # Repopulating would retry the same oversized payload every tick, so it is
-    # dropped outright. Advancing the watermark leaves the dropped seconds
-    # unclaimed (missing data) rather than backfilled as empty (zero traffic).
+    # Drop rather than repopulate (a retry would re-send the same oversized payload);
+    # advancing the watermark leaves a gap instead of backfilling false zeros.
     def _drop_oversized_payload(self, body):
         if self._web_watermark is not None:
             self._last_web_second = self._web_watermark
@@ -144,9 +138,7 @@ class Dispatcher:
                 {"name": self._web.name, "samples": self._stringify_keys(samples)}
             )
         elif self._web and data["web"]:
-            # Identity says this is not the http-serving process: real samples are
-            # still delivered, but no liveness is synthesized — this process must
-            # not claim the web name's seconds.
+            # Not the http process: deliver real samples but synthesize no liveness.
             entries.append(
                 {"name": self._web.name, "samples": self._stringify_keys(data["web"])}
             )
@@ -158,12 +150,8 @@ class Dispatcher:
 
         return entries
 
-    # Claims every second since the last successfully dispatched one: seconds with
-    # buffered samples keep them, seconds without get an explicit empty claim,
-    # which the server reads as 0 traffic — so a delivery blip never leaves a gap
-    # that an additive metric would misread as missing data. With no watermark
-    # (first dispatch after boot) only the current second is claimed: a fresh
-    # process must not assert liveness for time before it existed.
+    # Claim every second since the last delivered one (no samples => empty => 0
+    # traffic), capped at WEB_BACKFILL_LIMIT. First dispatch claims only now.
     def _backfill_web_seconds(self, samples):
         now = int(time.time())
         from_second = (

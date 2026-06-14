@@ -552,6 +552,26 @@ def test_web_only_dispatch_never_requests_a_lease():
 
 
 @httpretty.activate
+def test_tick_survives_a_payload_build_error(caplog):
+    caplog.set_level(logging.ERROR)
+    stub_lease()
+    bodies = capture_ingest_bodies()
+
+    dispatcher = configure_web_only()
+    with freeze_time(at(1000)):
+        HireFire.configuration.buffer.sample_web(7)
+        with patch.object(
+            dispatcher, "_build_payload", side_effect=RuntimeError("boom")
+        ):
+            dispatcher._tick()  # an error here must not escape and kill the thread
+
+    assert bodies == []
+    assert "Dispatch error" in caplog.text
+    # The flushed web samples are preserved by the error handler, not lost.
+    assert HireFire.configuration.buffer.flush()["web"][1000] == [7]
+
+
+@httpretty.activate
 def test_dispatch_failure_without_web_data_does_not_repopulate(caplog):
     caplog.set_level(logging.ERROR)
     stub_lease(granted=True)

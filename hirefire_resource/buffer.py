@@ -18,9 +18,7 @@ class Buffer:
             self._prune(self._web, timestamp)
             self._web.setdefault(timestamp, []).append(sample)
 
-    # Latest-wins per name: worker samples are point-in-time gauges, so when
-    # dispatch is starved only the most recent value is worth delivering. This
-    # also bounds the buffer at one entry per declared worker.
+    # Latest-wins per name: worker samples are gauges, so only the most recent matters.
     def sample_worker(self, name, sample):
         with self._mutex:
             self._workers[name] = sample
@@ -53,10 +51,8 @@ class Buffer:
                     continue
                 self._web.setdefault(timestamp, []).extend(samples)
 
-    # Insert-side TTL: when dispatch is starved the timestamped buffers must not
-    # grow without bound. Seconds older than the TTL would be rejected by the
-    # server's staleness window anyway. The size guard keeps the common case a
-    # single integer comparison.
+    # Insert-side TTL bound: drop seconds past the staleness window (which the
+    # server rejects anyway); the size check keeps the common case a single compare.
     def _prune(self, buckets, now):
         if len(buckets) <= self._ttl + 5:
             return
