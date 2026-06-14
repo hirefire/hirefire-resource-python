@@ -1,6 +1,4 @@
-from flask import Response
-
-from hirefire_resource.middleware.wsgi import RequestInfo, request
+from hirefire_resource.middleware import process_request_queue_time
 
 
 class HireFireMiddleware:
@@ -9,18 +7,5 @@ class HireFireMiddleware:
         self.original_wsgi_app = app.wsgi_app
 
     def __call__(self, environ, start_response):
-        with self.app.request_context(environ):
-            response = request(
-                RequestInfo(
-                    path=environ.get("PATH_INFO"),
-                    request_start_time=environ.get("HTTP_X_REQUEST_START"),
-                    token=environ.get("HTTP_HIREFIRE_TOKEN"),
-                )
-            )
-
-            if response:
-                status, headers, body = response
-                response = Response(body, status=status, headers=headers)
-                return response(environ, start_response)
-
+        process_request_queue_time(environ.get("HTTP_X_REQUEST_START"))
         return self.original_wsgi_app(environ, start_response)

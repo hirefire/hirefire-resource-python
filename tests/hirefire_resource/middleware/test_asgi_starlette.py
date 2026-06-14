@@ -9,25 +9,17 @@ from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 
 from hirefire_resource import HireFire
-from hirefire_resource.configuration import Configuration
+from hirefire_resource.dispatcher import Dispatcher
 from hirefire_resource.middleware.asgi.starlette import HireFireMiddleware
-from hirefire_resource.version import VERSION
-from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
+from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa: F401
 
 
 async def catch_all(request):
     return PlainTextResponse("DEFAULT")
 
 
-routes = [Route("/{path:path}", catch_all)]
-app = Starlette(routes=routes)
+app = Starlette(routes=[Route("/{path:path}", catch_all)])
 app = HireFireMiddleware(app)
-
-
-@pytest.fixture(autouse=True)
-def setup():
-    HireFire.configuration = Configuration()
-    yield
 
 
 @pytest.fixture
@@ -37,76 +29,50 @@ def client():
     )
 
 
-async def measure_queue_metric():
-    return 1.23
-
-
 @pytest.mark.asyncio
-async def test_pass_through_without_HIREFIRE_TOKEN(client):
-    with HireFire.configure() as config:
-        config.dyno("web")
-        config.dyno("worker", measure_queue_metric)
-    with patch.object(HireFire.configuration.web, "start_dispatcher") as mock_start:
-        response = await client.get("/", headers={"x-request-start": "1"})
+async def test_pass_through_without_token(client):
+    with patch.object(Dispatcher, "start") as mock_start:
+        with HireFire.configure() as config:
+            config.dyno("web")
+            config.dyno("worker", lambda: 1.23)
+        response = await client.get(
+            "/any", headers={"x-request-start": str(int(time.time() * 1000 - 5))}
+        )
         assert response.status_code == 200
         assert response.text == "DEFAULT"
-        assert response.headers["Content-Type"] == "text/plain; charset=utf-8"
         mock_start.assert_not_called()
 
 
 @pytest.mark.asyncio
 @freeze_time("2000-01-01 00:00:00")
-async def test_pass_through_without_configuration(client, set_HIREFIRE_TOKEN):
-    HireFire.configuration = Configuration()
-    response = await client.get("/", headers={"X-Request-Start": "1"})
+async def test_pass_through_without_web(client, set_HIREFIRE_TOKEN):
+    response = await client.get("/any", headers={"X-Request-Start": "1700000000000"})
     assert response.status_code == 200
-    assert response.headers["Content-Type"] == "text/plain; charset=utf-8"
     assert response.text == "DEFAULT"
+    assert HireFire.configuration.buffer.flush()["web"] == {}
 
 
 @pytest.mark.asyncio
 @freeze_time("2000-01-01 00:00:00")
-async def test_pass_through_and_process_web_configuration(client, set_HIREFIRE_TOKEN):
-    with HireFire.configure() as config:
-        config.dyno("web")
-    with patch.object(HireFire.configuration.web, "start_dispatcher") as mock_start:
+async def test_samples_web_and_starts_dispatcher(client, set_HIREFIRE_TOKEN):
+    with patch.object(Dispatcher, "start") as mock_start:
+        with HireFire.configure() as config:
+            config.dyno("web")
         response = await client.get(
-            "/", headers={"X-Request-Start": str(int(time.time() * 1000 - 5))}
+            "/any", headers={"X-Request-Start": str(int(time.time() * 1000 - 5))}
         )
         assert response.status_code == 200
-        assert response.headers["Content-Type"] == "text/plain; charset=utf-8"
         assert response.text == "DEFAULT"
-        assert HireFire.configuration.web._buffer == {946684800: [5]}
+        assert HireFire.configuration.buffer.flush()["web"] == {int(time.time()): [5]}
         mock_start.assert_called()
 
 
 @pytest.mark.asyncio
 @freeze_time("2000-01-01 00:00:00")
-async def test_intercept_and_process_worker_configuration(client, set_HIREFIRE_TOKEN):
-    with HireFire.configure() as config:
-        config.dyno("worker", measure_queue_metric)
-    response = await client.get(
-        f"/hirefire/{HIREFIRE_TOKEN}/info", headers={"X-Request-Start": "1"}
-    )
-    assert response.status_code == 200
-    assert response.json() == [{"name": "worker", "value": 1.23}]
-    assert response.headers["Content-Type"] == "application/json"
-    assert response.headers["cache-control"] == "must-revalidate, private, max-age=0"
-    assert response.headers["hirefire-resource"] == f"Python-{VERSION}"
-
-
-@pytest.mark.asyncio
-@freeze_time("2000-01-01 00:00:00")
-async def test_intercept_and_process_worker_configuration_with_token(
-    client, set_HIREFIRE_TOKEN
-):
-    with HireFire.configure() as config:
-        config.dyno("worker", measure_queue_metric)
-    response = await client.get(
-        f"/hirefire", headers={"X-Request-Start": "1", "HireFire-Token": HIREFIRE_TOKEN}
-    )
-    assert response.status_code == 200
-    assert response.json() == [{"name": "worker", "value": 1.23}]
-    assert response.headers["Content-Type"] == "application/json"
-    assert response.headers["cache-control"] == "must-revalidate, private, max-age=0"
-    assert response.headers["hirefire-resource"] == f"Python-{VERSION}"
+async def test_info_path_passes_through(client, set_HIREFIRE_TOKEN):
+    with patch.object(Dispatcher, "start"):
+        with HireFire.configure() as config:
+            config.dyno("worker", lambda: 1.23)
+        response = await client.get(f"/hirefire/{HIREFIRE_TOKEN}/info")
+        assert response.status_code == 200
+        assert response.text == "DEFAULT"

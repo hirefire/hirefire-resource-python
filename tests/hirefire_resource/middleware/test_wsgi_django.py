@@ -1,4 +1,3 @@
-import json
 import time
 from unittest.mock import patch
 
@@ -8,10 +7,9 @@ from django.test import RequestFactory
 from freezegun import freeze_time
 
 from hirefire_resource import HireFire
-from hirefire_resource.configuration import Configuration
+from hirefire_resource.dispatcher import Dispatcher
 from hirefire_resource.middleware.wsgi.django import HireFireMiddleware
-from hirefire_resource.version import VERSION
-from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa
+from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa: F401
 
 
 class Client:
@@ -27,89 +25,51 @@ class Client:
         return HttpResponse("DEFAULT")
 
 
-@pytest.fixture(autouse=True)
-def setup():
-    HireFire.configuration = Configuration()
-    yield
-
-
 @pytest.fixture
 def client():
     return Client(RequestFactory())
 
 
-def measure_queue_metric():
-    return 1.23
-
-
-def test_pass_through_without_HIREFIRE_TOKEN(client):
-    with HireFire.configure() as config:
-        config.dyno("web")
-        config.dyno("worker", measure_queue_metric)
-    with patch.object(HireFire.configuration.web, "start_dispatcher") as mock_start:
-        response = client.request("/", **{"HTTP_X_REQUEST_START": "1"})
-        assert response.status_code == 200
-        assert response.content.decode("utf-8") == "DEFAULT"
-        assert response["content-type"] == "text/html; charset=utf-8"
-        mock_start.assert_not_called()
-
-
-@freeze_time("2000-01-01 00:00:00")
-def test_pass_through_without_configuration(client, set_HIREFIRE_TOKEN):
-    HireFire.configuration = Configuration()
-    response = client.request("/", **{"HTTP_X_REQUEST_START": "1"})
-    assert response.status_code == 200
-    assert response["content-type"] == "text/html; charset=utf-8"
-    assert response.content.decode("utf-8") == "DEFAULT"
-
-
-@freeze_time("2000-01-01 00:00:00")
-def test_pass_through_and_process_web_configuration(client, set_HIREFIRE_TOKEN):
-    with HireFire.configure() as config:
-        config.dyno("web")
-    with patch.object(HireFire.configuration.web, "start_dispatcher") as mock_start:
+def test_pass_through_without_token(client):
+    with patch.object(Dispatcher, "start") as mock_start:
+        with HireFire.configure() as config:
+            config.dyno("web")
+            config.dyno("worker", lambda: 1.23)
         response = client.request(
             "/", **{"HTTP_X_REQUEST_START": str(int(time.time() * 1000 - 5))}
         )
         assert response.status_code == 200
-        assert response["content-type"] == "text/html; charset=utf-8"
         assert response.content.decode("utf-8") == "DEFAULT"
-        assert HireFire.configuration.web._buffer == {946684800: [5]}
+        mock_start.assert_not_called()
+
+
+@freeze_time("2000-01-01 00:00:00")
+def test_pass_through_without_web(client, set_HIREFIRE_TOKEN):
+    response = client.request("/", **{"HTTP_X_REQUEST_START": "1700000000000"})
+    assert response.status_code == 200
+    assert response.content.decode("utf-8") == "DEFAULT"
+    assert HireFire.configuration.buffer.flush()["web"] == {}
+
+
+@freeze_time("2000-01-01 00:00:00")
+def test_samples_web_and_starts_dispatcher(client, set_HIREFIRE_TOKEN):
+    with patch.object(Dispatcher, "start") as mock_start:
+        with HireFire.configure() as config:
+            config.dyno("web")
+        response = client.request(
+            "/", **{"HTTP_X_REQUEST_START": str(int(time.time() * 1000 - 5))}
+        )
+        assert response.status_code == 200
+        assert response.content.decode("utf-8") == "DEFAULT"
+        assert HireFire.configuration.buffer.flush()["web"] == {int(time.time()): [5]}
         mock_start.assert_called()
 
 
 @freeze_time("2000-01-01 00:00:00")
-def test_intercept_and_process_worker_configuration(client, set_HIREFIRE_TOKEN):
-    with HireFire.configure() as config:
-        config.dyno("worker", measure_queue_metric)
-    response = client.request(
-        f"/hirefire/{HIREFIRE_TOKEN}/info", **{"HTTP_X_REQUEST_START": "1"}
-    )
-    expected_headers = {
-        "content-type": "application/json",
-        "cache-control": "must-revalidate, private, max-age=0",
-        "hirefire-resource": f"Python-{VERSION}",
-    }
-    assert response.headers == expected_headers
-    assert response.status_code == 200
-    assert json.loads(response.content) == [{"name": "worker", "value": 1.23}]
-
-
-@freeze_time("2000-01-01 00:00:00")
-def test_intercept_and_process_worker_configuration_with_token(
-    client, set_HIREFIRE_TOKEN
-):
-    with HireFire.configure() as config:
-        config.dyno("worker", measure_queue_metric)
-    response = client.request(
-        f"/hirefire",
-        **{"HTTP_X_REQUEST_START": "1", "HTTP_HIREFIRE_TOKEN": HIREFIRE_TOKEN},
-    )
-    expected_headers = {
-        "content-type": "application/json",
-        "cache-control": "must-revalidate, private, max-age=0",
-        "hirefire-resource": f"Python-{VERSION}",
-    }
-    assert response.headers == expected_headers
-    assert response.status_code == 200
-    assert json.loads(response.content) == [{"name": "worker", "value": 1.23}]
+def test_info_path_passes_through(client, set_HIREFIRE_TOKEN):
+    with patch.object(Dispatcher, "start"):
+        with HireFire.configure() as config:
+            config.dyno("worker", lambda: 1.23)
+        response = client.request(f"/hirefire/{HIREFIRE_TOKEN}/info")
+        assert response.status_code == 200
+        assert response.content.decode("utf-8") == "DEFAULT"

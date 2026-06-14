@@ -1,42 +1,11 @@
-import asyncio
-import json
-
-from hirefire_resource import HireFire
-from hirefire_resource.middleware import (  # noqa
-    RequestInfo,
-    matches_hirefire_path,
-    matches_info_path,
-    process_request_queue_time,
-)
-from hirefire_resource.version import VERSION
+# ASGI middleware adapters (Starlette/FastAPI, Django ASGI, Quart). Each adapter
+# reads the X-Request-Start header from the ASGI scope and delegates to the shared
+# hirefire_resource.middleware.process_request_queue_time, then passes the request
+# through unchanged. The push model serves no inline endpoints.
 
 
-async def request(request_info):
-    process_request_queue_time(request_info)
-
-    if matches_hirefire_path(request_info) or matches_info_path(request_info):
-        return await construct_info_response()
-
-
-async def construct_info_response():
-    headers = {
-        "Content-Type": "application/json",
-        "Cache-Control": "must-revalidate, private, max-age=0",
-        "HireFire-Resource": f"Python-{VERSION}",
-    }
-    workers_info = await collect_workers_data()
-    body = json.dumps(workers_info)
-
-    return 200, headers, body
-
-
-async def collect_workers_data():
-    data = []
-
-    for worker in HireFire.configuration.workers:
-        value = worker.value()
-        if asyncio.iscoroutine(value):
-            value = await value
-        data.append({"name": worker.name, "value": value})
-
-    return data
+def request_start_from_scope(scope):
+    for header_name, header_value in scope.get("headers", []):
+        if header_name.lower() == b"x-request-start":
+            return header_value.decode("utf-8")
+    return None
