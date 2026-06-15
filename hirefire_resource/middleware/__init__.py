@@ -2,6 +2,8 @@ import time
 
 from hirefire_resource import HireFire
 
+REQUEST_QUEUE_TIME_LIMIT = 60_000
+
 
 # Runs in the host's request path, so it must never raise into the request:
 # failures are logged and swallowed.
@@ -46,7 +48,10 @@ def calculate_request_queue_time(request_start):
     else:
         milliseconds = value / 1000  # epoch microseconds
 
-    return max(int(time.time() * 1000) - int(milliseconds), 0)
+    request_queue_time = max(int(time.time() * 1000) - int(milliseconds), 0)
+    if request_queue_time <= REQUEST_QUEUE_TIME_LIMIT:
+        return request_queue_time
+    return None
 
 
 def _parse_timestamp(request_start):

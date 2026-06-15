@@ -43,3 +43,15 @@ def test_request_start_from_scope_handles_non_utf8_bytes():
 
     assert value is not None
     assert calculate_request_queue_time(value) is None  # unparseable => no sample
+
+
+def test_calculate_request_queue_time_keeps_a_high_but_plausible_value():
+    with patch("time.time", return_value=1_700_000_000):
+        # 50s: severe overload but under the limit, so still reported.
+        assert calculate_request_queue_time("1699999950000") == 50_000
+
+
+def test_calculate_request_queue_time_drops_an_over_the_limit_value():
+    with patch("time.time", return_value=1_700_000_000):
+        # ~16 min of queue time, over the 60-second cap.
+        assert calculate_request_queue_time("1699999000000") is None
