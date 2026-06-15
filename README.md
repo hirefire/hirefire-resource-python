@@ -27,12 +27,18 @@ For more information, visit our [home page][HireFire].
 
 ## Development
 
+Requires [Docker](https://www.docker.com/) (Redis and RabbitMQ run in containers for the macro test suites) and [mise](https://mise.jdx.dev/) (installs the pinned Python versions from `.tool-versions`).
+
+Redis and RabbitMQ for the macro test suites run in Docker. `bin/services up` starts them, lets Docker assign a free host port to each, and records those ports in a git-ignored `.env` (read by both Docker Compose and the test suite); `bin/services down` stops them and removes `.env`. Because the ports are assigned fresh at startup, multiple worktrees — and any system-wide Redis/RabbitMQ — run side by side without conflicts.
+
 ```bash
-# Initial setup (installs pyenv, Python 3.11-3.14, poetry, redis, rabbitmq)
+# Initial setup: installs Python 3.11-3.14 via mise + poetry, and starts
+# Redis and RabbitMQ via Docker Compose
 bin/setup
 
-# Add to your shell profile (~/.zshrc, ~/.bashrc, etc.), then restart shell
-export PATH="$HOME/.pyenv/shims:$PATH"
+# Start / stop the Redis + RabbitMQ containers (ports recorded in .env)
+bin/services up
+bin/services down
 
 # Run tests
 poetry run tox -e py312-core   # Quick test on Python 3.12

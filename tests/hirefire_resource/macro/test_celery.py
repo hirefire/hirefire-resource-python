@@ -1,4 +1,5 @@
 import math
+import os
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -16,7 +17,9 @@ from hirefire_resource.macro.celery import (
 
 _cache_worker_data(False)
 
-broker_urls = ["redis://localhost:6379/15", "amqp://guest:guest@localhost:5672"]
+redis_url = f"redis://localhost:{os.environ.get('REDIS_PORT', '6379')}/15"
+amqp_url = f"amqp://guest:guest@localhost:{os.environ.get('RABBITMQ_PORT', '5672')}"
+broker_urls = [redis_url, amqp_url]
 
 
 @pytest.fixture(scope="session", params=broker_urls)
@@ -223,7 +226,7 @@ async def test_job_queue_size_with_jobs_async(celery_app):
 @pytest.fixture
 def priority_celery_app():
     """Create a Celery app with priority queue configuration."""
-    broker_url = "amqp://guest:guest@localhost:5672"
+    broker_url = amqp_url
     app = Celery(broker=broker_url)
 
     # Configure queues with x-max-priority
@@ -320,7 +323,7 @@ def test_job_queue_size_raises_error_when_both_broker_url_and_celery_app_provide
     with pytest.raises(ValueError) as exc_info:
         job_queue_size(
             "priority_queue",
-            broker_url="amqp://guest:guest@localhost:5672",
+            broker_url=amqp_url,
             celery_app=priority_celery_app,
         )
 
@@ -340,7 +343,7 @@ async def test_async_job_queue_size_raises_error_when_both_broker_url_and_celery
     with pytest.raises(ValueError) as exc_info:
         await async_job_queue_size(
             "priority_queue",
-            broker_url="amqp://guest:guest@localhost:5672",
+            broker_url=amqp_url,
             celery_app=priority_celery_app,
         )
 

@@ -1,3 +1,4 @@
+import os
 import time
 from datetime import datetime, timezone
 
@@ -13,7 +14,7 @@ from hirefire_resource.macro.rq import (
     job_queue_size,
 )
 
-redis_url = "redis://localhost:6379/15"
+redis_url = f"redis://localhost:{os.environ.get('REDIS_PORT', '6379')}/15"
 queue_name = "default"
 
 

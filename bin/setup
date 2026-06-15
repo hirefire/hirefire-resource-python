@@ -1,36 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
-IFS=$'\n\t'
-set -vx
+cd "$(dirname "$0")/.."
 
-brew bundle
-brew services start redis
-brew services start rabbitmq
+bin/services up
 
-pyenv install -s 3.11 3.12 3.13 3.14
-
-pip install poetry
-poetry self add poetry-plugin-shell
-
-export PATH="$HOME/.pyenv/shims:$PATH"
-
-poetry install
-poetry env use python3
-
-set +vx
-
-echo ""
-echo "============================================"
-echo "Setup complete!"
-echo "============================================"
-echo ""
-echo "Add this to your shell profile (~/.zshrc, ~/.bashrc, etc.):"
-echo ""
-echo "  export PATH=\"\$HOME/.pyenv/shims:\$PATH\""
-echo ""
-echo "Then restart your shell and run:"
-echo ""
-echo "  poetry run tox -e py312-core      # Quick test"
-echo "  poetry run tox                    # Full test suite"
-echo "  poetry run paver format           # Format code"
-echo ""
+mise install
+mise exec -- pip install poetry
+mise exec -- poetry self add poetry-plugin-shell
+mise exec -- poetry install
+mise exec -- poetry env use python3

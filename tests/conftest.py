@@ -24,6 +24,24 @@ try:
 except ImportError:
     pass
 
+
+# Load .env (written by bin/services up) so the macro suites reach this checkout's services.
+def _load_worktree_env():
+    path = os.path.join(os.path.dirname(__file__), os.pardir, ".env")
+    if not os.path.exists(path):
+        return
+    with open(path) as env_file:
+        for line in env_file:
+            entry = line.strip()
+            if not entry or entry.startswith("#") or "=" not in entry:
+                continue
+            key, value = entry.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip())
+
+
+_load_worktree_env()
+
+
 _HIREFIRE_ENV = [
     "HIREFIRE_TOKEN",
     "HIREFIRE_DATA_URL",
