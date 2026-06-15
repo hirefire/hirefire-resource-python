@@ -28,7 +28,7 @@ For more information, visit our [home page][HireFire].
 ## Development
 
 ```bash
-# Initial setup (installs pyenv, Python 3.9-3.12, poetry, redis, rabbitmq)
+# Initial setup (installs pyenv, Python 3.11-3.14, poetry, redis, rabbitmq)
 bin/setup
 
 # Add to your shell profile (~/.zshrc, ~/.bashrc, etc.), then restart shell

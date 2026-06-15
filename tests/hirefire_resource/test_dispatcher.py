@@ -1,12 +1,13 @@
 import json
 import logging
 import os
-import threading
+import time
 from unittest.mock import patch
 
-import httpretty
 import pytest
 from freezegun import freeze_time
+from mocket import Mocket, mocketize
+from mocket.mockhttp import Entry, Response
 
 from hirefire_resource import HireFire
 from hirefire_resource.client import RequestError
@@ -24,26 +25,43 @@ def with_token(set_HIREFIRE_TOKEN):
 
 
 def stub_lease(granted=False):
-    httpretty.register_uri(
-        httpretty.POST,
+    Entry.single_register(
+        Entry.POST,
         LEASE_URL,
         status=200,
-        adding_headers={
+        headers={
             "HireFire-Lease-Granted": str(granted).lower(),
             "HireFire-Sample-Frequency": "15",
         },
     )
 
 
+class IngestBodies:
+    # JSON payloads POSTed to /metrics/ingest, read from mocket's request log on
+    # demand: responses are registered up front, so the sent bodies are read after.
+    def _items(self):
+        return [
+            json.loads(request.body)
+            for request in Mocket.request_list()
+            if request.path == "/metrics/ingest"
+        ]
+
+    def __len__(self):
+        return len(self._items())
+
+    def __getitem__(self, index):
+        return self._items()[index]
+
+    def __iter__(self):
+        return iter(self._items())
+
+    def __eq__(self, other):
+        return self._items() == other
+
+
 def capture_ingest_bodies(status=200):
-    bodies = []
-
-    def callback(request, uri, response_headers):
-        bodies.append(json.loads(request.body))
-        return [status, response_headers, ""]
-
-    httpretty.register_uri(httpretty.POST, INGEST_URL, body=callback)
-    return bodies
+    Entry.single_register(Entry.POST, INGEST_URL, status=status)
+    return IngestBodies()
 
 
 def configure_web_and_workers():
@@ -75,13 +93,13 @@ def configure_cpu_only(monkeypatch, name="clock"):
 
 
 def request_paths():
-    return [request.path for request in httpretty.latest_requests()]
+    return [request.path for request in Mocket.request_list()]
 
 
-@httpretty.activate
+@mocketize
 def test_starts_and_stops():
     stub_lease()
-    httpretty.register_uri(httpretty.POST, INGEST_URL, status=200)
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
 
     dispatcher = configure_web_and_workers()
 
@@ -94,7 +112,7 @@ def test_starts_and_stops():
     assert not dispatcher.stop()  # idempotent
 
 
-@httpretty.activate
+@mocketize
 def test_dispatches_web_metrics():
     stub_lease()
     bodies = capture_ingest_bodies()
@@ -111,7 +129,7 @@ def test_dispatches_web_metrics():
     assert list(bodies[0][0]["samples"].values())[0] == [12, 8]
 
 
-@httpretty.activate
+@mocketize
 def test_no_dispatch_when_nothing_configured():
     stub_lease()
     bodies = capture_ingest_bodies()
@@ -121,7 +139,7 @@ def test_no_dispatch_when_nothing_configured():
     assert bodies == []
 
 
-@httpretty.activate
+@mocketize
 def test_first_dispatch_claims_only_the_current_second():
     stub_lease()
     bodies = capture_ingest_bodies()
@@ -133,7 +151,7 @@ def test_first_dispatch_claims_only_the_current_second():
     assert bodies[0][0]["samples"] == {"1000": []}
 
 
-@httpretty.activate
+@mocketize
 def test_backfills_seconds_skipped_between_dispatches():
     stub_lease()
     bodies = capture_ingest_bodies()
@@ -147,7 +165,7 @@ def test_backfills_seconds_skipped_between_dispatches():
     assert bodies[1][0]["samples"] == {"1001": [], "1002": [], "1003": []}
 
 
-@httpretty.activate
+@mocketize
 def test_backfill_preserves_buffered_samples():
     stub_lease()
     bodies = capture_ingest_bodies()
@@ -162,18 +180,17 @@ def test_backfill_preserves_buffered_samples():
     assert bodies[1][0]["samples"] == {"1001": [], "1002": [], "1003": [5]}
 
 
-@httpretty.activate
+@mocketize
 def test_seconds_from_a_failed_dispatch_are_reclaimed_by_the_next_success():
     stub_lease()
-    bodies = []
-    calls = [0]
-
-    def callback(request, uri, response_headers):
-        calls[0] += 1
-        bodies.append(json.loads(request.body))
-        return [500 if calls[0] == 2 else 200, response_headers, ""]
-
-    httpretty.register_uri(httpretty.POST, INGEST_URL, body=callback)
+    Entry.register(
+        Entry.POST,
+        INGEST_URL,
+        Response(status=200),
+        Response(status=500),
+        Response(status=200),
+    )
+    bodies = IngestBodies()
 
     dispatcher = configure_web_only()
     with freeze_time(at(1000)):
@@ -192,7 +209,7 @@ def test_seconds_from_a_failed_dispatch_are_reclaimed_by_the_next_success():
     ]
 
 
-@httpretty.activate
+@mocketize
 def test_backfill_is_capped_at_the_limit():
     stub_lease()
     bodies = capture_ingest_bodies()
@@ -209,10 +226,10 @@ def test_backfill_is_capped_at_the_limit():
     assert len(keys) == Dispatcher.WEB_BACKFILL_LIMIT + 1
 
 
-@httpretty.activate
+@mocketize
 def test_lease_unauthorized_does_not_log_error(caplog):
     caplog.set_level(logging.ERROR)
-    httpretty.register_uri(httpretty.POST, LEASE_URL, status=401)
+    Entry.single_register(Entry.POST, LEASE_URL, status=401)
     bodies = capture_ingest_bodies()
 
     dispatcher = configure_workers_only()
@@ -222,11 +239,11 @@ def test_lease_unauthorized_does_not_log_error(caplog):
     assert "401" not in caplog.text
 
 
-@httpretty.activate
+@mocketize
 def test_web_buffer_discarded_on_unauthorized(caplog):
     caplog.set_level(logging.ERROR)
     stub_lease()
-    httpretty.register_uri(httpretty.POST, INGEST_URL, status=401)
+    Entry.single_register(Entry.POST, INGEST_URL, status=401)
 
     dispatcher = configure_web_only()
     with freeze_time(at(1000)):
@@ -237,10 +254,10 @@ def test_web_buffer_discarded_on_unauthorized(caplog):
     assert "Dispatch error" not in caplog.text
 
 
-@httpretty.activate
+@mocketize
 def test_web_buffer_repopulated_on_dispatch_failure():
     stub_lease()
-    httpretty.register_uri(httpretty.POST, INGEST_URL, status=500)
+    Entry.single_register(Entry.POST, INGEST_URL, status=500)
 
     dispatcher = configure_web_only()
     with freeze_time(at(1000)):
@@ -250,7 +267,7 @@ def test_web_buffer_repopulated_on_dispatch_failure():
     assert HireFire.configuration.buffer.flush()["web"][1000] == [7]
 
 
-@httpretty.activate
+@mocketize
 def test_oversized_payload_is_dropped_without_a_request(caplog):
     caplog.set_level(logging.ERROR)
     stub_lease()
@@ -267,7 +284,7 @@ def test_oversized_payload_is_dropped_without_a_request(caplog):
     assert "Dropped metrics payload" in caplog.text
 
 
-@httpretty.activate
+@mocketize
 def test_oversized_drop_advances_the_watermark_past_the_hole():
     stub_lease()
     bodies = capture_ingest_bodies()
@@ -286,7 +303,7 @@ def test_oversized_drop_advances_the_watermark_past_the_hole():
     assert sorted(bodies[1][0]["samples"].keys()) == ["1011", "1012"]
 
 
-@httpretty.activate
+@mocketize
 def test_combined_web_and_worker_dispatch():
     stub_lease(granted=True)
     bodies = capture_ingest_bodies()
@@ -303,7 +320,7 @@ def test_combined_web_and_worker_dispatch():
     )
 
 
-@httpretty.activate
+@mocketize
 def test_lease_granted_dispatches_workers():
     stub_lease(granted=True)
     bodies = capture_ingest_bodies()
@@ -316,7 +333,7 @@ def test_lease_granted_dispatches_workers():
     )
 
 
-@httpretty.activate
+@mocketize
 def test_lease_denied_skips_worker_collection():
     stub_lease()
     bodies = capture_ingest_bodies()
@@ -327,7 +344,7 @@ def test_lease_denied_skips_worker_collection():
     assert bodies == []
 
 
-@httpretty.activate
+@mocketize
 def test_dispatches_cpu_samples_in_the_samples_format(monkeypatch):
     bodies = capture_ingest_bodies()
     with patch.object(Usage, "available_cpus", return_value=1.0), patch.object(
@@ -345,7 +362,7 @@ def test_dispatches_cpu_samples_in_the_samples_format(monkeypatch):
     assert entry["samples"] == {"1001": [50.0]}
 
 
-@httpretty.activate
+@mocketize
 def test_cpu_first_tick_seeds_baseline_without_dispatching(monkeypatch):
     bodies = capture_ingest_bodies()
     with patch.object(Usage, "available_cpus", return_value=1.0), patch.object(
@@ -358,9 +375,9 @@ def test_cpu_first_tick_seeds_baseline_without_dispatching(monkeypatch):
     assert bodies == []
 
 
-@httpretty.activate
+@mocketize
 def test_cpu_samples_are_not_repopulated_on_dispatch_failure(monkeypatch):
-    httpretty.register_uri(httpretty.POST, INGEST_URL, status=500)
+    Entry.single_register(Entry.POST, INGEST_URL, status=500)
     with patch.object(Usage, "available_cpus", return_value=1.0), patch.object(
         Usage, "total_seconds", side_effect=[0.0, 0.5]
     ):
@@ -373,7 +390,7 @@ def test_cpu_samples_are_not_repopulated_on_dispatch_failure(monkeypatch):
     assert HireFire.configuration.buffer.flush()["cpu"] == {}
 
 
-@httpretty.activate
+@mocketize
 def test_non_web_process_does_not_heartbeat_the_web_name(monkeypatch):
     stub_lease()
     bodies = capture_ingest_bodies()
@@ -386,7 +403,7 @@ def test_non_web_process_does_not_heartbeat_the_web_name(monkeypatch):
     assert bodies == []
 
 
-@httpretty.activate
+@mocketize
 def test_non_web_process_still_delivers_real_web_samples(monkeypatch):
     stub_lease()
     bodies = capture_ingest_bodies()
@@ -401,7 +418,7 @@ def test_non_web_process_still_delivers_real_web_samples(monkeypatch):
     assert bodies[0][0]["samples"] == {"1000": [12]}
 
 
-@httpretty.activate
+@mocketize
 def test_matching_identity_keeps_heartbeat_and_backfill(monkeypatch):
     stub_lease()
     bodies = capture_ingest_bodies()
@@ -418,7 +435,7 @@ def test_matching_identity_keeps_heartbeat_and_backfill(monkeypatch):
     assert bodies[1][0]["samples"] == {"1001": [], "1002": []}
 
 
-@httpretty.activate
+@mocketize
 def test_unresolved_identity_keeps_heartbeat():
     stub_lease()
     bodies = capture_ingest_bodies()
@@ -430,7 +447,7 @@ def test_unresolved_identity_keeps_heartbeat():
     assert bodies[0][0]["samples"] == {"1000": []}
 
 
-@httpretty.activate
+@mocketize
 def test_mismatched_cpu_collector_stays_dormant_through_the_tick(monkeypatch):
     stub_lease()
     bodies = capture_ingest_bodies()
@@ -447,10 +464,10 @@ def test_mismatched_cpu_collector_stays_dormant_through_the_tick(monkeypatch):
     assert [entry["name"] for entry in bodies[0]] == ["web"]
 
 
-@httpretty.activate
+@mocketize
 def test_forked_child_restarts_the_dispatcher():
     stub_lease()
-    httpretty.register_uri(httpretty.POST, INGEST_URL, status=200)
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
 
     dispatcher = configure_web_only()
     assert dispatcher.start()
@@ -464,7 +481,7 @@ def test_forked_child_restarts_the_dispatcher():
         dispatcher.stop()
 
 
-@httpretty.activate
+@mocketize
 def test_tick_dispatches_when_the_lease_request_fails(caplog):
     caplog.set_level(logging.ERROR)
     bodies = capture_ingest_bodies()
@@ -485,7 +502,7 @@ def test_tick_dispatches_when_the_lease_request_fails(caplog):
     assert "Network error" in caplog.text
 
 
-@httpretty.activate
+@mocketize
 def test_tick_dispatches_when_a_sampler_raises(caplog):
     caplog.set_level(logging.ERROR)
     stub_lease(granted=True)
@@ -504,26 +521,24 @@ def test_tick_dispatches_when_a_sampler_raises(caplog):
     assert "Redis down" in caplog.text
 
 
-@httpretty.activate
+@mocketize
 def test_started_thread_dispatches_until_stopped():
-    dispatched = threading.Event()
-
-    def callback(request, uri, response_headers):
-        dispatched.set()
-        return [200, response_headers, ""]
-
-    httpretty.register_uri(httpretty.POST, INGEST_URL, body=callback)
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
 
     dispatcher = configure_web_only()
     dispatcher.start()
-    assert dispatched.wait(timeout=5)
+
+    deadline = time.time() + 5
+    while not any(path == "/metrics/ingest" for path in request_paths()):
+        assert time.time() < deadline, "dispatcher never POSTed to /metrics/ingest"
+        time.sleep(0.05)
     assert dispatcher.running()
 
     dispatcher.stop()
     assert not dispatcher.running()
 
 
-@httpretty.activate
+@mocketize
 def test_stop_flushes_the_buffer():
     bodies = capture_ingest_bodies()
 
@@ -540,9 +555,9 @@ def test_stop_flushes_the_buffer():
     assert bodies[0][0]["samples"] == {"1000": [7]}
 
 
-@httpretty.activate
+@mocketize
 def test_web_only_dispatch_never_requests_a_lease():
-    httpretty.register_uri(httpretty.POST, INGEST_URL, status=200)
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
 
     dispatcher = configure_web_only()
     with freeze_time(at(1000)):
@@ -551,7 +566,7 @@ def test_web_only_dispatch_never_requests_a_lease():
     assert "/metrics/lease" not in request_paths()
 
 
-@httpretty.activate
+@mocketize
 def test_tick_survives_a_payload_build_error(caplog):
     caplog.set_level(logging.ERROR)
     stub_lease()
@@ -571,11 +586,11 @@ def test_tick_survives_a_payload_build_error(caplog):
     assert HireFire.configuration.buffer.flush()["web"][1000] == [7]
 
 
-@httpretty.activate
+@mocketize
 def test_dispatch_failure_without_web_data_does_not_repopulate(caplog):
     caplog.set_level(logging.ERROR)
     stub_lease(granted=True)
-    httpretty.register_uri(httpretty.POST, INGEST_URL, status=500)
+    Entry.single_register(Entry.POST, INGEST_URL, status=500)
 
     dispatcher = configure_workers_only()
     dispatcher._tick()  # 500 — workers-only, so web data is empty

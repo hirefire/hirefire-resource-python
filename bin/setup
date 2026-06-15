@@ -7,7 +7,7 @@ brew bundle
 brew services start redis
 brew services start rabbitmq
 
-pyenv install -s 3.9 3.10 3.11 3.12
+pyenv install -s 3.11 3.12 3.13 3.14
 
 pip install poetry
 poetry self add poetry-plugin-shell

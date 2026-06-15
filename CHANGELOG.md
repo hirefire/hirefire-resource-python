@@ -28,6 +28,7 @@ Push-based metrics. The library now collects worker, web request-queue-time, and
 * The library is **push-only**. The `/hirefire/<token>/info` (and `/hirefire`) pull endpoint is removed from the WSGI and ASGI middleware — it served the retired pull model. The middleware's sole job is now to read `X-Request-Start` and sample web request queue time; all other requests pass straight through.
 * The push destination is `data.hirefire.io` (override with `HIREFIRE_DATA_URL`). The `HIREFIRE_DISPATCH_URL` environment variable (1.x web → logdrain override) is removed.
 * The dispatcher now starts automatically when `HireFire.configure()` exits with a token present, so worker-only apps push without needing any web traffic. `HireFire.reset()` stops the dispatcher and replaces the configuration.
+* Supported Python versions are now 3.11–3.14. Python 3.9 and 3.10 are no longer supported.
 
 ## v1.0.4
 

@@ -3,8 +3,9 @@ import socket
 import ssl
 from unittest.mock import patch
 
-import httpretty
 import pytest
+from mocket import Mocket, mocketize
+from mocket.mockhttp import Entry
 
 from hirefire_resource.client import Client, RequestError
 from hirefire_resource.version import VERSION
@@ -20,29 +21,29 @@ def client():
     return Client()
 
 
-@httpretty.activate
+@mocketize
 def test_submit_samples_sends_payload(client, set_HIREFIRE_TOKEN):
-    httpretty.register_uri(httpretty.POST, INGEST_URL, status=200)
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
 
     client.submit_samples(PAYLOAD)
 
-    request = httpretty.last_request()
+    request = Mocket.last_request()
     assert request.method == "POST"
-    assert request.body.decode("utf-8") == PAYLOAD
-    assert request.headers.get("Content-Type") == "application/json"
-    assert request.headers.get("HireFire-Token") == HIREFIRE_TOKEN
-    assert request.headers.get("HireFire-Agent") == f"Python-{VERSION}"
+    assert request.body == PAYLOAD
+    assert request.headers.get("content-type") == "application/json"
+    assert request.headers.get("hirefire-token") == HIREFIRE_TOKEN
+    assert request.headers.get("hirefire-agent") == f"Python-{VERSION}"
 
 
-@httpretty.activate
+@mocketize
 def test_submit_samples_returns_none_on_unauthorized(client, set_HIREFIRE_TOKEN):
-    httpretty.register_uri(httpretty.POST, INGEST_URL, status=401)
+    Entry.single_register(Entry.POST, INGEST_URL, status=401)
     assert client.submit_samples(PAYLOAD) is None
 
 
-@httpretty.activate
+@mocketize
 def test_submit_samples_raises_on_server_error(client, set_HIREFIRE_TOKEN):
-    httpretty.register_uri(httpretty.POST, INGEST_URL, status=500)
+    Entry.single_register(Entry.POST, INGEST_URL, status=500)
 
     with pytest.raises(RequestError) as exc_info:
         client.submit_samples(PAYLOAD)
@@ -50,9 +51,9 @@ def test_submit_samples_raises_on_server_error(client, set_HIREFIRE_TOKEN):
     assert "500" in str(exc_info.value)
 
 
-@httpretty.activate
+@mocketize
 def test_submit_samples_raises_on_unexpected_status(client, set_HIREFIRE_TOKEN):
-    httpretty.register_uri(httpretty.POST, INGEST_URL, status=422)
+    Entry.single_register(Entry.POST, INGEST_URL, status=422)
 
     with pytest.raises(RequestError):
         client.submit_samples(PAYLOAD)
@@ -83,13 +84,13 @@ def test_submit_samples_raises_on_transport_errors(client, set_HIREFIRE_TOKEN):
         assert "Network error" in str(exc_info.value)
 
 
-@httpretty.activate
+@mocketize
 def test_request_lease_sends_process_id(client, set_HIREFIRE_TOKEN):
-    httpretty.register_uri(
-        httpretty.POST,
+    Entry.single_register(
+        Entry.POST,
         LEASE_URL,
         status=200,
-        adding_headers={
+        headers={
             "HireFire-Lease-Granted": "false",
             "HireFire-Sample-Frequency": "15",
         },
@@ -97,9 +98,9 @@ def test_request_lease_sends_process_id(client, set_HIREFIRE_TOKEN):
 
     client.request_lease("abc123")
 
-    request = httpretty.last_request()
-    assert request.headers.get("HireFire-Token") == HIREFIRE_TOKEN
-    assert request.headers.get("HireFire-Process-ID") == "abc123"
+    request = Mocket.last_request()
+    assert request.headers.get("hirefire-token") == HIREFIRE_TOKEN
+    assert request.headers.get("hirefire-process-id") == "abc123"
 
 
 def test_request_lease_raises_on_timeout(client, set_HIREFIRE_TOKEN):
@@ -115,53 +116,53 @@ def test_raises_without_token(client):
     assert "HIREFIRE_TOKEN" in str(exc_info.value)
 
 
-@httpretty.activate
+@mocketize
 def test_custom_data_url(set_HIREFIRE_TOKEN, monkeypatch):
     monkeypatch.setenv("HIREFIRE_DATA_URL", "https://custom.hirefire.io")
-    httpretty.register_uri(
-        httpretty.POST, "https://custom.hirefire.io/metrics/ingest", status=200
+    Entry.single_register(
+        Entry.POST, "https://custom.hirefire.io/metrics/ingest", status=200
     )
 
     Client().submit_samples(PAYLOAD)
 
-    assert httpretty.last_request().headers.get("Host") == "custom.hirefire.io"
+    assert Mocket.last_request().headers.get("host") == "custom.hirefire.io"
 
 
-@httpretty.activate
+@mocketize
 def test_custom_data_url_over_plain_http(set_HIREFIRE_TOKEN, monkeypatch):
     monkeypatch.setenv("HIREFIRE_DATA_URL", "http://localhost:9999")
-    httpretty.register_uri(
-        httpretty.POST, "http://localhost:9999/metrics/ingest", status=200
+    Entry.single_register(
+        Entry.POST, "http://localhost:9999/metrics/ingest", status=200
     )
 
     Client().submit_samples(PAYLOAD)
 
-    assert httpretty.last_request().method == "POST"
+    assert Mocket.last_request().method == "POST"
 
 
-@httpretty.activate
+@mocketize
 def test_honors_a_path_prefix_in_the_data_url(set_HIREFIRE_TOKEN, monkeypatch):
     monkeypatch.setenv("HIREFIRE_DATA_URL", "https://custom.hirefire.io/prefix")
-    httpretty.register_uri(
-        httpretty.POST, "https://custom.hirefire.io/prefix/metrics/ingest", status=200
+    Entry.single_register(
+        Entry.POST, "https://custom.hirefire.io/prefix/metrics/ingest", status=200
     )
 
     Client().submit_samples(PAYLOAD)
 
-    assert httpretty.last_request().path == "/prefix/metrics/ingest"
+    assert Mocket.last_request().path == "/prefix/metrics/ingest"
 
 
-@httpretty.activate
+@mocketize
 def test_request_lease_omits_the_agent_header(client, set_HIREFIRE_TOKEN):
     # Ingest sends HireFire-Agent; the lease deliberately does not.
-    httpretty.register_uri(
-        httpretty.POST,
+    Entry.single_register(
+        Entry.POST,
         LEASE_URL,
         status=200,
-        adding_headers={"HireFire-Lease-Granted": "false"},
+        headers={"HireFire-Lease-Granted": "false"},
     )
 
     client.request_lease("abc123")
 
-    header_names = [name.lower() for name in httpretty.last_request().headers.keys()]
+    header_names = [name.lower() for name in Mocket.last_request().headers.keys()]
     assert "hirefire-agent" not in header_names
