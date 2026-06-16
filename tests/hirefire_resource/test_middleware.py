@@ -55,3 +55,51 @@ def test_calculate_request_queue_time_drops_an_over_the_limit_value():
     with patch("time.time", return_value=1_700_000_000):
         # ~16 min of queue time, over the 60-second cap.
         assert calculate_request_queue_time("1699999000000") is None
+
+
+def test_calculate_request_queue_time_parses_each_router_unit():
+    # The same instant in seconds, milliseconds, microseconds, and nanoseconds.
+    with patch("time.time", return_value=1_700_000_001):
+        assert calculate_request_queue_time("t=1700000000.000") == 1000
+        assert calculate_request_queue_time("1700000000000") == 1000
+        assert calculate_request_queue_time("1700000000000000") == 1000
+        assert calculate_request_queue_time("1700000000000000000") == 1000
+
+
+def test_calculate_request_queue_time_normalizes_every_precision_variant():
+    # The same instant (epoch 1700000000.250) in each unit a router may emit; all
+    # must normalize to the identical 750ms. The 250ms fraction exercises the
+    # sub-millisecond path in every unit, including nanoseconds (whose value
+    # exceeds a float's exact-integer range, so truncation would lose a ms).
+    with patch("time.time", return_value=1_700_000_001):
+        assert calculate_request_queue_time("t=1700000000.250") == 750  # seconds
+        assert calculate_request_queue_time("1700000000250") == 750  # milliseconds
+        assert calculate_request_queue_time("1700000000250000") == 750  # microseconds
+        assert calculate_request_queue_time("1700000000250000000") == 750  # nanoseconds
+
+
+def test_calculate_request_queue_time_clamps_a_future_microsecond_start_to_zero():
+    with patch("time.time", return_value=1_700_000_001):
+        # Clamp-to-zero is applied after unit inference, regardless of unit.
+        assert calculate_request_queue_time("1700000005000000") == 0
+
+
+def test_calculate_request_queue_time_drops_an_over_the_limit_nanosecond_start():
+    with patch("time.time", return_value=1_700_000_000):
+        # ~1000s in the past in nanoseconds: the 60s cap drops it regardless of unit.
+        assert calculate_request_queue_time("1699999000000000000") is None
+
+
+def test_calculate_request_queue_time_lower_guard_boundary():
+    with patch("time.time", return_value=1_000_000_001):
+        # Exactly 1e9 is a valid epoch-seconds timestamp (2001-09-09), not rejected.
+        assert calculate_request_queue_time("1000000000") == 1000
+        # One below the 1e9 guard is implausible and dropped.
+        assert calculate_request_queue_time("999999999") is None
+
+
+def test_calculate_request_queue_time_cap_boundary():
+    with patch("time.time", return_value=1_700_000_000):
+        # Exactly 60_000ms is at the inclusive limit, so kept; one over is dropped.
+        assert calculate_request_queue_time("1699999940000") == 60_000
+        assert calculate_request_queue_time("1699999939999") is None

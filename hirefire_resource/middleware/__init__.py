@@ -34,8 +34,8 @@ def log_request_queue_time(request_queue_time):
     print(f"[hirefire:router] queue={request_queue_time}ms")
 
 
-# X-Request-Start's unit varies by router (epoch s / ms / µs), so infer it from
-# magnitude. Implausible or unparseable values yield None.
+# X-Request-Start's unit varies by router (epoch s / ms / µs / ns), so infer it
+# from magnitude. Implausible or unparseable values yield None.
 def calculate_request_queue_time(request_start):
     value = _parse_timestamp(request_start)
     if value is None or value < 1e9:
@@ -45,10 +45,12 @@ def calculate_request_queue_time(request_start):
         milliseconds = value * 1000  # epoch seconds
     elif value < 1e14:
         milliseconds = value  # epoch milliseconds
-    else:
+    elif value < 1e17:
         milliseconds = value / 1000  # epoch microseconds
+    else:
+        milliseconds = value / 1_000_000  # epoch nanoseconds
 
-    request_queue_time = max(int(time.time() * 1000) - int(milliseconds), 0)
+    request_queue_time = max(int(time.time() * 1000) - round(milliseconds), 0)
     if request_queue_time <= REQUEST_QUEUE_TIME_LIMIT:
         return request_queue_time
     return None
