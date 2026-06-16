@@ -20,7 +20,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: "3.12"
+        python-version: "3.14"
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -41,7 +41,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: "3.12"
+        python-version: "3.14"
     - name: List tox environments
       id: list
       run: echo "envs=$(pip install tox >/dev/null && tox -l | jq -R -c -s 'split("\n") | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
@@ -90,7 +90,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: 3.12
+          python-version: 3.14
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip

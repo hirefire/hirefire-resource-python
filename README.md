@@ -41,7 +41,7 @@ bin/services up
 bin/services down
 
 # Run tests
-poetry run tox -e py312-core   # Quick test on Python 3.12
+poetry run tox -e py314-core   # Quick test on Python 3.14
 poetry run tox                 # Full test suite
 
 # Code formatting and linting
