@@ -1,4 +1,5 @@
 from hirefire_resource.middleware import process_request_queue_time
+from hirefire_resource.middleware.wsgi import request_start_from_environ
 
 
 class HireFireMiddleware:
@@ -6,5 +7,5 @@ class HireFireMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        process_request_queue_time(request.META.get("HTTP_X_REQUEST_START"))
+        process_request_queue_time(request_start_from_environ(request.META))
         return self.get_response(request)

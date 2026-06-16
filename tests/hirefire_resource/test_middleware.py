@@ -9,6 +9,7 @@ from hirefire_resource.middleware import (
     process_request_queue_time,
 )
 from hirefire_resource.middleware.asgi import request_start_from_scope
+from hirefire_resource.middleware.wsgi import request_start_from_environ
 from tests.helpers import set_HIREFIRE_TOKEN  # noqa: F401
 
 
@@ -43,6 +44,35 @@ def test_request_start_from_scope_handles_non_utf8_bytes():
 
     assert value is not None
     assert calculate_request_queue_time(value) is None  # unparseable => no sample
+
+
+# X-Queue-Start is an exact synonym for X-Request-Start (e.g. Render emits it).
+def test_request_start_from_scope_falls_back_to_x_queue_start():
+    scope = {"headers": [(b"x-queue-start", b"1700000000000")]}
+    assert request_start_from_scope(scope) == "1700000000000"
+
+
+def test_request_start_from_scope_prefers_x_request_start():
+    scope = {
+        "headers": [
+            (b"x-queue-start", b"1699999996000"),
+            (b"x-request-start", b"1700000000000"),
+        ]
+    }
+    assert request_start_from_scope(scope) == "1700000000000"
+
+
+def test_request_start_from_environ_falls_back_to_x_queue_start():
+    environ = {"HTTP_X_QUEUE_START": "1700000000000"}
+    assert request_start_from_environ(environ) == "1700000000000"
+
+
+def test_request_start_from_environ_prefers_x_request_start():
+    environ = {
+        "HTTP_X_REQUEST_START": "1700000000000",
+        "HTTP_X_QUEUE_START": "1699999996000",
+    }
+    assert request_start_from_environ(environ) == "1700000000000"
 
 
 def test_calculate_request_queue_time_keeps_a_high_but_plausible_value():
