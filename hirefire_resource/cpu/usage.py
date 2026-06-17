@@ -116,6 +116,7 @@ class Usage:
             cls.cgroup_v2_quota,
             cls.cgroup_v1_quota,
             cls.heroku_entitlement,
+            cls.render_entitlement,
             cls.processor_count,
         ):
             value = source()
@@ -157,6 +158,15 @@ class Usage:
         if limit is None:
             return None
         return cls.CEDAR_SHARED_ENTITLEMENTS.get(int(limit))
+
+    # Render's explicit core count, gated on RENDER so it never fires elsewhere.
+    @classmethod
+    def render_entitlement(cls):
+        if not os.environ.get("RENDER"):
+            return None
+
+        count = cls._number(os.environ.get("RENDER_CPU_COUNT"))
+        return count if count is not None and count > 0 else None
 
     @classmethod
     def processor_count(cls):

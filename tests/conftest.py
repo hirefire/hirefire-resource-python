@@ -49,6 +49,8 @@ _HIREFIRE_ENV = [
     "HIREFIRE_SERVICE_NAME",
     "DYNO",
     "RENDER_SERVICE_NAME",
+    "RENDER",
+    "RENDER_CPU_COUNT",
 ]
 
 

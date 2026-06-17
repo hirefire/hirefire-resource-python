@@ -265,6 +265,34 @@ def test_cgroup_quota_wins_over_entitlement(monkeypatch):
         assert abs(Usage.available_cpus() - 0.9) < 0.0001
 
 
+def test_render_entitlement_from_render_cpu_count(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("RENDER_CPU_COUNT", "0.5")  # Render's fractional core count
+    with patch.object(Usage, "read", side_effect=reading({})):
+        assert abs(Usage.available_cpus() - 0.5) < 0.0001
+
+
+def test_render_entitlement_ignored_off_render(monkeypatch):
+    monkeypatch.setenv("RENDER_CPU_COUNT", "8")  # set, but RENDER unset
+    with patch.object(Usage, "read", side_effect=reading({})):
+        assert Usage.available_cpus() == os.cpu_count()
+
+
+def test_render_without_a_cpu_count_falls_through_to_processor_count(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")  # RENDER set, but no RENDER_CPU_COUNT
+    with patch.object(Usage, "read", side_effect=reading({})):
+        assert Usage.available_cpus() == os.cpu_count()
+
+
+def test_cgroup_quota_wins_over_render_entitlement(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("RENDER_CPU_COUNT", "8")  # would be wrong if it won
+    with patch.object(
+        Usage, "read", side_effect=reading({Usage.CGROUP_V2_QUOTA: "50000 100000"})
+    ):
+        assert abs(Usage.available_cpus() - 0.5) < 0.0001
+
+
 def test_read_returns_stripped_file_contents(tmp_path):
     file = tmp_path / "usage"
     file.write_text(" 42\n")
