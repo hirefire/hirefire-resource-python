@@ -22,7 +22,6 @@ class Client:
     def __init__(self, timeout=5):
         self._timeout = timeout
 
-    # Body is pre-encoded JSON (the dispatcher enforces the size cap before this).
     def submit_samples(self, body):
         self._require_token()
         response = self._execute(
@@ -55,7 +54,6 @@ class Client:
             },
         )
 
-    # Map every transport failure to RequestError so callers handle one error type.
     def _execute(self, endpoint, body, headers):
         uri = urlparse(self._base_url())
         if uri.scheme == "https":

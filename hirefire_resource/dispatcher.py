@@ -9,7 +9,6 @@ from hirefire_resource.workers import Workers
 
 
 class Dispatcher:
-    # Max seconds back a dispatch may claim web liveness.
     WEB_BACKFILL_LIMIT = 60
 
     # Mirrors the server's request body cap.
@@ -138,7 +137,6 @@ class Dispatcher:
                 {"name": self._web.name, "samples": self._stringify_keys(samples)}
             )
         elif self._web and data["web"]:
-            # Not the http process: deliver real samples but synthesize no liveness.
             entries.append(
                 {"name": self._web.name, "samples": self._stringify_keys(data["web"])}
             )
@@ -150,8 +148,6 @@ class Dispatcher:
 
         return entries
 
-    # Claim every second since the last delivered one (no samples => empty => 0
-    # traffic), capped at WEB_BACKFILL_LIMIT. First dispatch claims only now.
     def _backfill_web_seconds(self, samples):
         now = int(time.time())
         from_second = (

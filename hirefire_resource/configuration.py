@@ -31,8 +31,6 @@ class DuplicateDynoError(Exception):
 
 
 class Configuration:
-    # Public tracking= values mapped to internal collectors. dyno only adds "cpu";
-    # its "web" name implies http on its own (handled in dyno()).
     SERVICE_COLLECTORS = {"http": "http", "cpu": "cpu"}
     DYNO_COLLECTORS = {"cpu": "cpu"}
 
@@ -57,8 +55,6 @@ class Configuration:
     def token(self, value):
         self._token = value
 
-    # Legacy / Heroku front door. tracking is keyword-only so the 1.x
-    # dyno("worker", callable) form keeps working (proc is the positional sampler).
     def dyno(self, name, proc=None, *, tracking=None):
         name = self._coerce_name(name)
 
@@ -84,7 +80,6 @@ class Configuration:
 
         self._register(name, collector, proc)
 
-    # Universal front door: the name implies nothing, so http needs tracking="http".
     def service(self, name, proc=None, *, tracking=None):
         name = self._coerce_name(name)
 
@@ -132,8 +127,6 @@ class Configuration:
         if self._dispatcher is not None:
             self._dispatcher.stop()
 
-    # Hard gate: a CPU collector runs only on the process whose identity matches its
-    # name; an unresolved identity disables it (logged, never raised).
     def active_cpu_collectors(self):
         if not self.cpu:
             return []
@@ -154,8 +147,6 @@ class Configuration:
             if collector.name.lower() == resolved.lower()
         ]
 
-    # Soft gate: may this process synthesize web liveness (heartbeats/backfill)? An
-    # unresolved identity still allows it.
     def web_liveness(self):
         if not self.web:
             return True
@@ -163,8 +154,6 @@ class Configuration:
         resolved = self.resolved_identity()
         return resolved is None or resolved.lower() == self.web.name.lower()
 
-    # Memoized: both gates share one resolution, and the Heroku app-wide config-var
-    # conflict is warned at most once.
     def resolved_identity(self):
         if self._resolved_identity is not _UNSET:
             return self._resolved_identity

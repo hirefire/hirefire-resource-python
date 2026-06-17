@@ -477,7 +477,6 @@ _worker_data_cache_value = None
 _worker_data_cache_time = time.time() - (5 + 1)
 
 
-# Used to disable the worker data cache for testing
 def _cache_worker_data(enabled):
     global _worker_data_cache_enabled
     _worker_data_cache_enabled = enabled

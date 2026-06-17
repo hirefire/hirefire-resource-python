@@ -1,9 +1,6 @@
 import os
 import re
 
-# Resolves this process's name (to match against a declared dyno name). First
-# non-empty source wins; None means unresolved.
-
 
 def resolve():
     return explicit() or heroku_dyno() or render_service()
@@ -30,8 +27,6 @@ def render_service():
     return presence(os.environ.get("RENDER_SERVICE_NAME"))
 
 
-# True when an explicit name disagrees with the DYNO prefix: a dashboard-set
-# (app-wide) HIREFIRE_SERVICE_NAME would make every dyno identify the same.
 def heroku_conflict():
     explicit_name = explicit()
     dyno_name = heroku_dyno()

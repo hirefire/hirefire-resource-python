@@ -20,7 +20,6 @@ class Workers:
     def __getitem__(self, index):
         return self._workers[index]
 
-    # Samplers are user code: isolate failures and validate values per worker.
     def sample(self):
         for worker in self._workers:
             try:

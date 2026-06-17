@@ -21,7 +21,6 @@ class Usage:
         1_073_741_824: 2.0,  # 1 GB: standard-2x
     }
 
-    # Cumulative whole-container CPU seconds, first available source wins.
     @classmethod
     def total_seconds(cls):
         for source in (
@@ -108,8 +107,6 @@ class Usage:
     def process_seconds(cls):
         return time.process_time()
 
-    # CPUs to normalize against: the platform's guarantee, not the host core count.
-    # First source wins.
     @classmethod
     def available_cpus(cls):
         for source in (
@@ -159,7 +156,6 @@ class Usage:
             return None
         return cls.CEDAR_SHARED_ENTITLEMENTS.get(int(limit))
 
-    # Render's explicit core count, gated on RENDER so it never fires elsewhere.
     @classmethod
     def render_entitlement(cls):
         if not os.environ.get("RENDER"):

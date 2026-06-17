@@ -20,7 +20,6 @@ class CPU:
         self._last_usage = usage
         self._last_time = now
 
-        # The first reading only seeds the baseline.
         if usage is None or previous_usage is None:
             return
 

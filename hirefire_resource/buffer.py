@@ -51,8 +51,6 @@ class Buffer:
                     continue
                 self._web.setdefault(timestamp, []).extend(samples)
 
-    # Insert-side TTL bound: drop seconds past the staleness window (which the
-    # server rejects anyway); the size check keeps the common case a single compare.
     def _prune(self, buckets, now):
         if len(buckets) <= self._ttl + 5:
             return
