@@ -14,6 +14,11 @@ class Dispatcher:
     # Mirrors the server's request body cap.
     PAYLOAD_SIZE_LIMIT = 65_536
 
+    # Seconds between buffer dispatches; server-adjustable via the
+    # HireFire-Dispatch-Frequency response header. Clamped to [1, 30].
+    DEFAULT_DISPATCH_FREQUENCY = 1
+    MAX_DISPATCH_FREQUENCY = 30
+
     def __init__(self, web=None, workers=None, cpu=None, web_liveness=True):
         self._web = web
         self._workers = workers if workers is not None else Workers()
@@ -27,6 +32,8 @@ class Dispatcher:
         self._thread = None
         self._last_web_second = None
         self._web_watermark = None
+        self._dispatch_frequency = self.DEFAULT_DISPATCH_FREQUENCY
+        self._next_dispatch_at = None
 
     # Fork-aware: a child inherits _running but not the thread, so the pid check
     # forces the per-request start to spawn a fresh thread.
@@ -77,12 +84,23 @@ class Dispatcher:
             time.sleep(1)
 
     # Stage-isolated so one failure can't starve dispatch, which drains the buffer.
+    # Sampling runs every tick; only dispatch is throttled.
     def _tick(self):
         self._guard(self._lease.request_if_due)
         self._guard(lambda: self._lease.sample_if_due(self._workers.sample))
         for collector in self._cpu:
             self._guard(collector.sample)
+        self._dispatch_if_due()
+
+    # First run dispatches immediately; the next time is set after dispatch so a
+    # just-learned frequency applies next tick. A guarded dispatch never raises, so
+    # a failure still waits a full window.
+    def _dispatch_if_due(self):
+        if self._next_dispatch_at is not None and time.time() < self._next_dispatch_at:
+            return
+
         self._dispatch()
+        self._next_dispatch_at = time.time() + self._dispatch_frequency
 
     def _guard(self, func):
         try:
@@ -107,7 +125,8 @@ class Dispatcher:
 
             if os.environ.get("HIREFIRE_VERBOSE"):
                 self._logger().info(f"[HireFire] Dispatching metrics: {body}")
-            self._client.submit_samples(body)
+            response = self._client.submit_samples(body)
+            self._apply_dispatch_frequency(response)
             # Advance only after a successful submit; failed seconds re-claim next time.
             if self._web_watermark is not None:
                 self._last_web_second = self._web_watermark
@@ -115,6 +134,27 @@ class Dispatcher:
             if data and data["web"]:
                 self._buffer().repopulate_web(data["web"])
             self._logger().error(f"[HireFire] Dispatch error: {error}")
+
+    # A non-positive or unparseable value keeps the prior frequency, so a bad
+    # response can't collapse the interval and storm ingest. Clamp the rest; the
+    # response is None on 401.
+    def _apply_dispatch_frequency(self, response):
+        if response is None:
+            return
+
+        raw = response.headers.get("HireFire-Dispatch-Frequency")
+        if raw is None:
+            return
+
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return
+
+        if value <= 0:
+            return
+
+        self._dispatch_frequency = min(value, self.MAX_DISPATCH_FREQUENCY)
 
     # Drop rather than repopulate (a retry would re-send the same oversized payload);
     # advancing the watermark leaves a gap instead of backfilling false zeros.

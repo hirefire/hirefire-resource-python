@@ -586,6 +586,84 @@ def test_tick_survives_a_payload_build_error(caplog):
     assert HireFire.configuration.buffer.flush()["web"][1000] == [7]
 
 
+def stub_ingest_with_dispatch_frequency(value):
+    Entry.single_register(
+        Entry.POST,
+        INGEST_URL,
+        status=200,
+        headers={"HireFire-Dispatch-Frequency": str(value)},
+    )
+
+
+@mocketize
+def test_dispatch_frequency_defaults_to_one_without_the_header():
+    stub_lease()
+    bodies = capture_ingest_bodies()
+
+    dispatcher = configure_web_only()
+    with freeze_time(at(1000)):
+        dispatcher._tick()
+    with freeze_time(at(1001)):
+        dispatcher._tick()
+
+    assert len(bodies) == 2  # every tick dispatches
+
+
+@mocketize
+def test_honors_a_server_supplied_dispatch_frequency():
+    stub_lease()
+    stub_ingest_with_dispatch_frequency(5)
+    bodies = IngestBodies()
+
+    dispatcher = configure_web_only()
+    with freeze_time(at(1000)):
+        dispatcher._tick()  # dispatches, learns 5
+    with freeze_time(at(1002)):
+        dispatcher._tick()  # within window — skipped
+    with freeze_time(at(1004)):
+        dispatcher._tick()  # still within window — skipped
+    with freeze_time(at(1005)):
+        dispatcher._tick()  # window elapsed — dispatches
+
+    assert len(bodies) == 2
+
+
+@mocketize
+def test_clamps_an_over_large_dispatch_frequency_to_the_maximum():
+    stub_lease()
+    stub_ingest_with_dispatch_frequency(Dispatcher.MAX_DISPATCH_FREQUENCY + 100)
+
+    dispatcher = configure_web_only()
+    with freeze_time(at(1000)):
+        dispatcher._tick()
+
+    assert dispatcher._dispatch_frequency == Dispatcher.MAX_DISPATCH_FREQUENCY
+
+
+@mocketize
+def test_ignores_a_non_positive_dispatch_frequency():
+    stub_lease()
+    stub_ingest_with_dispatch_frequency(0)
+
+    dispatcher = configure_web_only()
+    with freeze_time(at(1000)):
+        dispatcher._tick()
+
+    assert dispatcher._dispatch_frequency == Dispatcher.DEFAULT_DISPATCH_FREQUENCY
+
+
+@mocketize
+def test_ignores_an_unparseable_dispatch_frequency():
+    stub_lease()
+    stub_ingest_with_dispatch_frequency("nonsense")
+
+    dispatcher = configure_web_only()
+    with freeze_time(at(1000)):
+        dispatcher._tick()
+
+    assert dispatcher._dispatch_frequency == Dispatcher.DEFAULT_DISPATCH_FREQUENCY
+
+
 @mocketize
 def test_dispatch_failure_without_web_data_does_not_repopulate(caplog):
     caplog.set_level(logging.ERROR)
