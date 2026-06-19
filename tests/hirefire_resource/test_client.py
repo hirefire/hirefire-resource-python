@@ -100,6 +100,7 @@ def test_request_lease_sends_process_id(client, set_HIREFIRE_TOKEN):
 
     request = Mocket.last_request()
     assert request.headers.get("hirefire-token") == HIREFIRE_TOKEN
+    assert request.headers.get("hirefire-agent") == f"Python-{VERSION}"
     assert request.headers.get("hirefire-process-id") == "abc123"
 
 
@@ -153,8 +154,7 @@ def test_honors_a_path_prefix_in_the_data_url(set_HIREFIRE_TOKEN, monkeypatch):
 
 
 @mocketize
-def test_request_lease_omits_the_agent_header(client, set_HIREFIRE_TOKEN):
-    # Ingest sends HireFire-Agent; the lease deliberately does not.
+def test_request_lease_sends_the_agent_header(client, set_HIREFIRE_TOKEN):
     Entry.single_register(
         Entry.POST,
         LEASE_URL,
@@ -164,5 +164,4 @@ def test_request_lease_omits_the_agent_header(client, set_HIREFIRE_TOKEN):
 
     client.request_lease("abc123")
 
-    header_names = [name.lower() for name in Mocket.last_request().headers.keys()]
-    assert "hirefire-agent" not in header_names
+    assert Mocket.last_request().headers.get("hirefire-agent") == f"Python-{VERSION}"

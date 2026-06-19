@@ -50,6 +50,7 @@ class Client:
             "",
             {
                 "HireFire-Token": self._token(),
+                "HireFire-Agent": f"Python-{VERSION}",
                 "HireFire-Process-ID": process_id,
             },
         )
