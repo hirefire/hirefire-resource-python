@@ -63,7 +63,6 @@ class Client:
             connection_class = http.client.HTTPConnection
 
         connection = connection_class(uri.hostname, uri.port, timeout=self._timeout)
-        # Honor a path prefix in HIREFIRE_DATA_URL; rstrip avoids a double slash.
         path = uri.path.rstrip("/") + endpoint
         if isinstance(body, str):
             body = body.encode("utf-8")

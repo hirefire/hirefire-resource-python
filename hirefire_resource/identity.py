@@ -10,8 +10,6 @@ def explicit():
     return presence(os.environ.get("HIREFIRE_SERVICE_NAME"))
 
 
-# DYNO is "web.1" on Cedar, a pod name like "web-5fb9c979-lft2l" on Fir. Strip the
-# two trailing "-<alnum>" segments, keeping any dash inside the process name.
 def heroku_dyno():
     dyno = presence(os.environ.get("DYNO"))
     if dyno is None:

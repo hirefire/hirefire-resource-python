@@ -100,8 +100,6 @@ class Configuration:
 
         self._register(name, collector, proc)
 
-    # Locked double-checked init: concurrent request threads must not build two
-    # buffers/dispatchers.
     @property
     def buffer(self):
         if self._buffer is None:
@@ -181,7 +179,6 @@ class Configuration:
         return name
 
     def _register(self, name, collector, proc):
-        # Case-insensitive: names differing only in case would gate as one identity.
         if any(existing.lower() == name.lower() for existing in self._names):
             raise DuplicateDynoError(
                 f"Duplicate declaration for {name!r}. "
@@ -224,7 +221,6 @@ class Configuration:
             handler = logging.StreamHandler(sys.stdout)
             handler.setFormatter(logging.Formatter("%(message)s"))
             logger.addHandler(handler)
-            # No propagation: would otherwise double-emit through the host's root logger.
             logger.propagate = False
 
         return logger

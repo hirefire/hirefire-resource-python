@@ -4,8 +4,6 @@ import time
 
 
 class Usage:
-    """Best-effort reads of container CPU usage and the normalization divisor."""
-
     CGROUP_V2_USAGE = "/sys/fs/cgroup/cpu.stat"
     CGROUP_V1_USAGE = "/sys/fs/cgroup/cpuacct/cpuacct.usage"
     CGROUP_V2_QUOTA = "/sys/fs/cgroup/cpu.max"
@@ -14,11 +12,9 @@ class Usage:
     CEDAR_MEMORY_LIMIT = "/sys/fs/cgroup/memory/memory.limit_in_bytes"
     PROC_STAT_GLOB = "/proc/[0-9]*/stat"
 
-    # Cedar shared dynos expose no CPU limit; the memory limit fingerprints the
-    # size, which implies the entitlement. Other sizes fall through.
     CEDAR_SHARED_ENTITLEMENTS = {
-        536_870_912: 1.0,  # 512 MB: eco / basic / standard-1x
-        1_073_741_824: 2.0,  # 1 GB: standard-2x
+        536_870_912: 1.0,
+        1_073_741_824: 2.0,
     }
 
     @classmethod
@@ -54,8 +50,6 @@ class Usage:
             return None
         return usage / 1_000_000_000.0
 
-    # Heroku exposes no cpu cgroup; /proc is PID-namespaced to the dyno, so summing
-    # every visible process gives whole-dyno CPU.
     @classmethod
     def proc_namespace_seconds(cls):
         paths = glob.glob(cls.PROC_STAT_GLOB)
@@ -78,8 +72,6 @@ class Usage:
             return None
         return float(ticks) / cls.clock_ticks()
 
-    # utime + stime ticks; parse after the last ")" since comm may contain spaces
-    # and parens, which puts utime at index 11 and stime at index 12.
     @classmethod
     def stat_ticks(cls, content):
         close = content.rfind(")")
@@ -95,7 +87,6 @@ class Usage:
         except ValueError:
             return None
 
-    # os.sysconf raises/absent without sysconf; 100 is the universal USER_HZ default.
     @classmethod
     def clock_ticks(cls):
         try:
@@ -145,7 +136,6 @@ class Usage:
             return None
         return quota / period
 
-    # Gated on DYNO: a v1 memory limit says nothing about CPU off Heroku.
     @classmethod
     def heroku_entitlement(cls):
         if not os.environ.get("DYNO"):
@@ -178,7 +168,6 @@ class Usage:
             return None
         return None
 
-    # None on malformed content, so the caller falls through instead of raising.
     @staticmethod
     def _number(value):
         if value is None:

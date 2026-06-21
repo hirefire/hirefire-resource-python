@@ -5,8 +5,6 @@ from hirefire_resource import HireFire
 REQUEST_QUEUE_TIME_LIMIT = 60_000
 
 
-# Runs in the host's request path, so it must never raise into the request:
-# failures are logged and swallowed.
 def process_request_queue_time(request_start):
     if not request_start:
         return
@@ -34,21 +32,19 @@ def log_request_queue_time(request_queue_time):
     print(f"[hirefire:router] queue={request_queue_time}ms")
 
 
-# X-Request-Start's unit varies by router (epoch s / ms / µs / ns), so infer it
-# from magnitude. Implausible or unparseable values yield None.
 def calculate_request_queue_time(request_start):
     value = _parse_timestamp(request_start)
     if value is None or value < 1e9:
         return None
 
     if value < 1e11:
-        milliseconds = value * 1000  # epoch seconds
+        milliseconds = value * 1000
     elif value < 1e14:
-        milliseconds = value  # epoch milliseconds
+        milliseconds = value
     elif value < 1e17:
-        milliseconds = value / 1000  # epoch microseconds
+        milliseconds = value / 1000
     else:
-        milliseconds = value / 1_000_000  # epoch nanoseconds
+        milliseconds = value / 1_000_000
 
     request_queue_time = max(int(time.time() * 1000) - round(milliseconds), 0)
     if request_queue_time <= REQUEST_QUEUE_TIME_LIMIT:

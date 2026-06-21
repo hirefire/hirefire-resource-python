@@ -3,8 +3,6 @@ import time
 
 
 class Buffer:
-    """Thread-safe storage for web, worker, and CPU metric samples."""
-
     def __init__(self, ttl=60):
         self._web = {}
         self._workers = {}
@@ -18,7 +16,6 @@ class Buffer:
             self._prune(self._web, timestamp)
             self._web.setdefault(timestamp, []).append(sample)
 
-    # Latest-wins per name: worker samples are gauges, so only the most recent matters.
     def sample_worker(self, name, sample):
         with self._mutex:
             self._workers[name] = sample

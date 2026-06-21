@@ -4,8 +4,6 @@ from hirefire_resource.cpu.usage import Usage
 
 
 class CPU:
-    """Samples this process's CPU utilization as a 0-100% of available CPU."""
-
     def __init__(self, name):
         self.name = str(name)
         self._last_usage = None
@@ -26,8 +24,6 @@ class CPU:
         wall_delta = now - previous_time
         usage_delta = usage - previous_usage
 
-        # Skip rather than fabricate: the clock stepped back, or the usage source
-        # changed between reads.
         if wall_delta <= 0 or usage_delta < 0:
             return
 

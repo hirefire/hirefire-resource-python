@@ -1,8 +1,4 @@
 def request_start_from_scope(scope):
-    # X-Queue-Start is an exact synonym for X-Request-Start (e.g. Render emits
-    # it); prefer X-Request-Start when both are present, regardless of order.
-    # Client-controlled bytes are decoded leniently so malformed input can't
-    # raise here.
     queue_start = None
     for header_name, header_value in scope.get("headers", []):
         name = header_name.lower()

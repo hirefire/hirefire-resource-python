@@ -1,6 +1,4 @@
 class Web:
-    """The HTTP-serving process; buffers one request queue time sample per request."""
-
     def __init__(self, name):
         self.name = str(name)
 
