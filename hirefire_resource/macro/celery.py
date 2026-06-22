@@ -491,6 +491,8 @@ def _worker_data(app):
     global _worker_data_cache_value, _worker_data_cache_time
 
     if not _worker_data_cache_enabled or (_worker_data_cache_time + 5) < time.time():
+        app.conf.control_queue_exclusive = True
+        app.conf.event_queue_exclusive = True
         i = app.control.inspect()
         now = time.time()
         queue_info = {}
