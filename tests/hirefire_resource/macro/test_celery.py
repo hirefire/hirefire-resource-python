@@ -267,7 +267,7 @@ def test_job_queue_size_priority_queue_with_broker_url(setup_priority_queue):
     """
     Test job_queue_size with broker_url on a priority queue.
 
-    Note: In the test environment (RabbitMQ 4.2.2, py-amqp 5.3.1), this works fine
+    Note: In the test environment, this works fine
     because passive=True declarations don't validate arguments. However, some
     RabbitMQ versions or configurations may return PRECONDITION_FAILED.
 
@@ -358,7 +358,7 @@ def test_job_queue_size_with_mismatched_priority_arguments(celery_app):
     1. Querying with wrong arguments (x-max-priority: 10) - may fail in strict RabbitMQ
     2. Querying with correct arguments (x-max-priority: 20) - should always work
 
-    In the test environment (RabbitMQ 4.2.2), passive=True declarations are lenient
+    In the test environment, passive=True declarations are lenient
     and don't validate x-max-priority mismatches. However, some RabbitMQ versions/
     configurations ARE strict and return PRECONDITION_FAILED for mismatches.
 
