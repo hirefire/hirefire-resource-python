@@ -21,7 +21,7 @@ The test suite runs against these minimum versions and the current latest releas
 
 ---
 
-Since 2011, over 1,000 companies have trusted [HireFire] to autoscale more than 5,000 applications hosted on [Heroku], managing over 10,000 web and worker dynos.
+Since 2011, over 1,500 companies have trusted [HireFire] to autoscale more than 5,000 applications hosted on [Heroku], managing over 10,000 web and worker dynos.
 
 HireFire is distinguished by its support for both web and worker dynos, extending autoscaling capabilities to Standard-tier dynos. It provides fine-grained control over scaling behavior and improves scaling accuracy by monitoring more reliable metrics at the application level. These metrics include request queue time (web), job queue latency (worker), and job queue size (worker), which contribute to making more effective scaling decisions.
 
@@ -33,7 +33,7 @@ For more information, visit the [home page][HireFire].
 
 Requires [Docker](https://www.docker.com/) (Redis and RabbitMQ run in containers for the macro test suites) and [mise](https://mise.jdx.dev/) (installs the pinned Python versions from `.tool-versions`).
 
-Redis and RabbitMQ for the macro test suites run in Docker. `bin/services up` starts them, lets Docker assign a free host port to each, and records those ports in a git-ignored `.env` (read by both Docker Compose and the test suite); `bin/services down` stops them and removes `.env`. Because the ports are assigned fresh at startup, multiple worktrees — and any system-wide Redis/RabbitMQ — run side by side without conflicts.
+Redis and RabbitMQ for the macro test suites run in Docker. `bin/services up` starts them, lets Docker assign a free host port to each, and records those ports in a git-ignored `.env` (read by the test suite); `bin/services down` stops them and removes `.env`. Because the ports are assigned fresh at startup, multiple worktrees — and any system-wide Redis/RabbitMQ — run side by side without conflicts.
 
 ```bash
 # Initial setup: installs Python 3.11-3.14 via mise + poetry, and starts
@@ -66,7 +66,7 @@ poetry run paver               # Default: format + test
 
 ## License
 
-This library is licensed under the terms of the MIT license.
+This package is licensed under the terms of the MIT license.
 
 [HireFire]: https://hirefire.io/
 [Heroku]: https://heroku.com/
