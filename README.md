@@ -17,7 +17,7 @@ This library integrates Python applications with HireFire's Dyno Managers (Herok
 - Celery 5+
 - RQ 1+
 
-We run our test suites against these minimum versions and the current latest release of each runtime and library. Older versions may still work, but are not officially supported.
+The test suite runs against these minimum versions and the current latest release of each runtime and library. Older versions may still work, but are not officially supported.
 
 ---
 
