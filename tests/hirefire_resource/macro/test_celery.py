@@ -267,7 +267,7 @@ def test_job_queue_size_priority_queue_with_broker_url(setup_priority_queue):
     """
     Test job_queue_size with broker_url on a priority queue.
 
-    Note: In our test environment (RabbitMQ 4.2.2, py-amqp 5.3.1), this works fine
+    Note: In the test environment (RabbitMQ 4.2.2, py-amqp 5.3.1), this works fine
     because passive=True declarations don't validate arguments. However, some
     RabbitMQ versions or configurations may return PRECONDITION_FAILED.
 
@@ -283,7 +283,7 @@ def test_job_queue_size_priority_queue_with_broker_url(setup_priority_queue):
     # Using broker_url (no queue arguments passed)
     result = job_queue_size("priority_queue", broker_url=broker_url)
 
-    # In our test environment this works, but may fail in other environments
+    # In the test environment this works, but may fail in other environments
     assert result == 2
 
 
@@ -294,8 +294,8 @@ def test_job_queue_size_priority_queue_with_celery_app_returns_correct_count(
     Test that job_queue_size returns the correct count when passed the Celery app
     that has the queue configuration with x-max-priority.
 
-    This is the recommended approach for priority queues - by passing the celery_app,
-    we extract the queue arguments and pass them to queue_declare.
+    This is the recommended approach for priority queues - passing the celery_app
+    extracts the queue arguments and passes them to queue_declare.
     """
     priority_celery_app = setup_priority_queue
 
@@ -352,13 +352,13 @@ async def test_async_job_queue_size_raises_error_when_both_broker_url_and_celery
 
 def test_job_queue_size_with_mismatched_priority_arguments(celery_app):
     """
-    Test that verifies our fix for priority queue argument mismatches.
+    Test that verifies the fix for priority queue argument mismatches.
 
     Creates a queue in RabbitMQ with x-max-priority: 20, then tests:
     1. Querying with wrong arguments (x-max-priority: 10) - may fail in strict RabbitMQ
     2. Querying with correct arguments (x-max-priority: 20) - should always work
 
-    In our test environment (RabbitMQ 4.2.2), passive=True declarations are lenient
+    In the test environment (RabbitMQ 4.2.2), passive=True declarations are lenient
     and don't validate x-max-priority mismatches. However, some RabbitMQ versions/
     configurations ARE strict and return PRECONDITION_FAILED for mismatches.
 
@@ -406,9 +406,9 @@ def test_job_queue_size_with_mismatched_priority_arguments(celery_app):
 
         # Try to query with wrong arguments
         # In strict RabbitMQ versions, this triggers PRECONDITION_FAILED (returns 0)
-        # In lenient versions (like our test environment), it still works (returns 2)
+        # In lenient versions (like the test environment), it still works (returns 2)
         result_wrong = job_queue_size(queue_name, celery_app=wrong_app)
-        # Both outcomes are acceptable - we just verify it doesn't crash
+        # Both outcomes are acceptable - the test just verifies it doesn't crash
         assert result_wrong in [0, 2]
 
         # Create a Celery app with CORRECT priority (20)
