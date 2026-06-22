@@ -173,9 +173,7 @@ def test_sends_process_id_header():
     stub_lease(granted="false", **{"HireFire-Sample-Frequency": "15"})
     lease = Lease()
     lease.request_if_due()
-    assert (
-        Mocket.last_request().headers.get("hirefire-process-id") == lease.process_id
-    )
+    assert Mocket.last_request().headers.get("hirefire-process-id") == lease.process_id
 
 
 @mocketize
