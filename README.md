@@ -2,7 +2,9 @@
 
 This library integrates Python applications with HireFire's Dyno Managers (Heroku Dyno Autoscalers). Instructions specific to supported web frameworks and worker libraries are provided during the setup process.
 
-**Supported runtimes:** Python 3.11+
+**Supported runtimes:**
+
+- Python 3.11+
 
 **Supported web frameworks:**
 
