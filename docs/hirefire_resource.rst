@@ -1,3 +1,11 @@
+HireFire
+========
+
+.. automodule:: hirefire_resource.hirefire
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Configuration
 =============
 

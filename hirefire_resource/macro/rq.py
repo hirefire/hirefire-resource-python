@@ -127,7 +127,7 @@ async def async_job_queue_latency(*queues, redis_url=None):
 
 def job_queue_size(*queues, redis_url=None):
     """
-    Calculates the maximum job queue size using RQ. If no queues are specified, it measures latency
+    Calculates the total job queue size using RQ. If no queues are specified, it measures size
     across all available queues.
 
     This function dynamically selects the Redis broker based on the provided redis_url, environment
@@ -184,8 +184,8 @@ def job_queue_size(*queues, redis_url=None):
 
 async def async_job_queue_size(*queues, redis_url=None):
     """
-    Asynchronously calculates the maximum job queue size using RQ. If no queues are specified, it
-    measures latency across all available queues.
+    Asynchronously calculates the total job queue size using RQ. If no queues are specified, it
+    measures size across all available queues.
 
     This function is an asynchronous wrapper around the synchronous `job_queue_size` function. It
     executes the synchronous function in a separate thread using asyncio's event loop and

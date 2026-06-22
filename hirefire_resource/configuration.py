@@ -56,6 +56,33 @@ class Configuration:
         self._token = value
 
     def dyno(self, name, proc=None, *, tracking=None):
+        """Declares a service.
+
+        Exactly like :meth:`service`, plus the convention that a process named
+        "web" implies ``tracking="http"``.
+
+        Resolution: ``tracking="cpu"`` tracks CPU; a sampler tracks job metrics; the
+        name "web" (case-insensitive) tracks http on its own. ``"cpu"`` is the only
+        ``tracking`` value ``dyno`` accepts — for an http process under a non-"web"
+        name, use ``service(name, tracking="http")``.
+
+        Args:
+            name (str): The process name; must be non-empty.
+            proc (callable, optional): A sampler returning the current job-queue
+                metric (a non-negative, finite number).
+            tracking (str, optional): ``"cpu"``, or omit.
+
+        Raises:
+            MissingSamplerError: A non-"web" name given with neither ``tracking="cpu"`` nor a sampler.
+            UnexpectedSamplerError: A sampler given alongside ``tracking="cpu"``.
+            UnknownCollectorError: ``tracking`` given anything other than ``"cpu"``.
+            DuplicateDynoError: The name was already declared, or a second http process was declared.
+
+        Examples:
+            >>> config.dyno("web")  # "web" implies http
+            >>> config.dyno("worker", lambda: job_queue_size("default"))
+            >>> config.dyno("encoder", tracking="cpu")
+        """
         name = self._coerce_name(name)
 
         if tracking is not None:
@@ -81,6 +108,38 @@ class Configuration:
         self._register(name, collector, proc)
 
     def service(self, name, proc=None, *, tracking=None):
+        """Declares what a process tracks.
+
+        The name is a label with no implicit meaning, so what to track is always
+        explicit. Pass exactly one of ``tracking`` or a sampler callable:
+
+        - ``tracking="http"`` — web request queue-time metrics, sampled from this
+          process's own HTTP traffic by the framework middleware (at most one http
+          process per app process).
+        - a sampler callable returning the current value — job queue metrics,
+          typically via a queue macro (e.g. ``job_queue_latency``).
+        - ``tracking="cpu"`` — this process's CPU utilization.
+
+        :meth:`dyno` is this method plus the convention that the name "web"
+        implies ``"http"``.
+
+        Args:
+            name (str): The process name; must be non-empty.
+            proc (callable, optional): A sampler returning the current job-queue
+                metric (a non-negative, finite number). Omit when passing ``tracking``.
+            tracking (str, optional): ``"http"`` or ``"cpu"``. Omit when passing a sampler.
+
+        Raises:
+            MissingSamplerError: Neither ``tracking`` nor a sampler was given.
+            UnexpectedSamplerError: A sampler given alongside ``tracking="http"`` or ``"cpu"``.
+            UnknownCollectorError: ``tracking`` given an unsupported value.
+            DuplicateDynoError: The name was already declared, or a second http process was declared.
+
+        Examples:
+            >>> config.service("web", tracking="http")
+            >>> config.service("worker", lambda: job_queue_size("default"))
+            >>> config.service("encoder", tracking="cpu")
+        """
         name = self._coerce_name(name)
 
         if tracking is not None:
