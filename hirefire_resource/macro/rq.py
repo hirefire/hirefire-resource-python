@@ -209,7 +209,7 @@ async def async_job_queue_size(*queues, redis_url=None):
         42
         >>> await async_job_queue_size("default", "mailer")
         127
-        >>> await async_job_queue_size("default", redis_url ="redis://localhost:6379/0")
+        >>> await async_job_queue_size("default", redis_url="redis://localhost:6379/0")
         42
     """
     loop = asyncio.get_event_loop()

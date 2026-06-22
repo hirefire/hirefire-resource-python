@@ -113,7 +113,8 @@ def job_queue_latency(*queues, broker_url=None):
               "redis://localhost:6379/0".
 
     Returns:
-        float: The maximum latency in seconds across the specified queues.
+        float: The maximum latency in seconds across the specified queues. Returns 0 if the
+            broker connection cannot be established.
 
     Raises:
         MissingQueueError: If no queue names are provided.
@@ -209,7 +210,8 @@ async def async_job_queue_latency(*queues, broker_url=None):
               "redis://localhost:6379/0".
 
     Returns:
-        float: The maximum latency in seconds across the specified queues.
+        float: The maximum latency in seconds across the specified queues. Returns 0 if the
+            broker connection cannot be established.
 
     Raises:
         MissingQueueError: If no queue names are provided.
@@ -269,7 +271,8 @@ def job_queue_size(*queues, broker_url=None, celery_app=None):
             with custom arguments like x-max-priority.
 
     Returns:
-        int: The cumulative job queue size across the specified queues.
+        int: The cumulative job queue size across the specified queues. Returns 0 if the
+            broker connection cannot be established.
 
     Raises:
         MissingQueueError: If no queue names are provided.
@@ -366,10 +369,12 @@ async def async_job_queue_size(*queues, broker_url=None, celery_app=None):
               "redis://localhost:6379/0".
         celery_app (Celery, optional): A configured Celery app instance. Cannot be used together
             with `broker_url`. When provided, the function uses this app's connection and extracts
-            queue arguments from celery_app.conf.task_queues.
+            queue arguments from celery_app.conf.task_queues. This is required for RabbitMQ
+            queues with custom arguments like x-max-priority.
 
     Returns:
-        int: The cumulative job queue size across the specified queues.
+        int: The cumulative job queue size across the specified queues. Returns 0 if the
+            broker connection cannot be established.
 
     Raises:
         MissingQueueError: If no queue names are provided.
