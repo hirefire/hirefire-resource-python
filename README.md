@@ -2,18 +2,22 @@
 
 This library integrates Python applications with HireFire's Dyno Managers (Heroku Dyno Autoscalers). Instructions specific to supported web frameworks and worker libraries are provided during the setup process.
 
+**Supported runtimes:** Python 3.11+
+
 **Supported web frameworks:**
 
-- Django
-- Flask
+- Django 4+
+- Flask 2+
 - Quart
 - FastAPI
 - Starlette
 
 **Supported worker libraries:**
 
-- Celery
-- RQ
+- Celery 5+
+- RQ 1+
+
+We run our test suites against these minimum versions and the current latest release of each runtime and library. Older versions may still work, but are not officially supported.
 
 ---
 
