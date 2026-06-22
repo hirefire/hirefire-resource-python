@@ -8,7 +8,7 @@ from quart import Quart
 from hirefire_resource import HireFire
 from hirefire_resource.dispatcher import Dispatcher
 from hirefire_resource.middleware.asgi.quart import HireFireMiddleware
-from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa: F401
+from tests.helpers import set_HIREFIRE_TOKEN  # noqa: F401
 
 app = Quart(__name__)
 app.asgi_app = HireFireMiddleware(app)
@@ -67,10 +67,13 @@ async def test_samples_web_and_starts_dispatcher(set_HIREFIRE_TOKEN, client):
 
 @freeze_time("2000-01-01 00:00:00")
 @pytest.mark.asyncio
-async def test_info_path_passes_through(set_HIREFIRE_TOKEN, client):
+async def test_falls_back_to_x_queue_start(set_HIREFIRE_TOKEN, client):
     with patch.object(Dispatcher, "start"):
         with HireFire.configure() as config:
-            config.dyno("worker", lambda: 1.23)
-        response = await client.get(f"/hirefire/{HIREFIRE_TOKEN}/info")
+            config.dyno("web")
+        response = await client.get(
+            "/any", headers={"x-queue-start": str(int(time.time() * 1000 - 5))}
+        )
         assert response.status_code == 200
         assert (await response.get_data(as_text=True)) == "DEFAULT"
+        assert HireFire.configuration.buffer.flush()["web"] == {int(time.time()): [5]}

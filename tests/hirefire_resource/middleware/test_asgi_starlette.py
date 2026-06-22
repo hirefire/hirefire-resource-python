@@ -11,7 +11,7 @@ from starlette.routing import Route
 from hirefire_resource import HireFire
 from hirefire_resource.dispatcher import Dispatcher
 from hirefire_resource.middleware.asgi.starlette import HireFireMiddleware
-from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa: F401
+from tests.helpers import set_HIREFIRE_TOKEN  # noqa: F401
 
 
 async def catch_all(request):
@@ -69,10 +69,13 @@ async def test_samples_web_and_starts_dispatcher(client, set_HIREFIRE_TOKEN):
 
 @pytest.mark.asyncio
 @freeze_time("2000-01-01 00:00:00")
-async def test_info_path_passes_through(client, set_HIREFIRE_TOKEN):
+async def test_falls_back_to_x_queue_start(client, set_HIREFIRE_TOKEN):
     with patch.object(Dispatcher, "start"):
         with HireFire.configure() as config:
-            config.dyno("worker", lambda: 1.23)
-        response = await client.get(f"/hirefire/{HIREFIRE_TOKEN}/info")
+            config.dyno("web")
+        response = await client.get(
+            "/any", headers={"x-queue-start": str(int(time.time() * 1000 - 5))}
+        )
         assert response.status_code == 200
         assert response.text == "DEFAULT"
+        assert HireFire.configuration.buffer.flush()["web"] == {int(time.time()): [5]}

@@ -10,7 +10,7 @@ from freezegun import freeze_time
 from hirefire_resource import HireFire
 from hirefire_resource.dispatcher import Dispatcher
 from hirefire_resource.middleware.asgi.starlette import HireFireMiddleware
-from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa: F401
+from tests.helpers import set_HIREFIRE_TOKEN  # noqa: F401
 
 app = FastAPI()
 app.add_middleware(HireFireMiddleware)
@@ -67,10 +67,13 @@ def test_samples_web_and_starts_dispatcher(client, set_HIREFIRE_TOKEN):
 
 
 @freeze_time("2000-01-01 00:00:00")
-def test_info_path_passes_through(client, set_HIREFIRE_TOKEN):
+def test_falls_back_to_x_queue_start(client, set_HIREFIRE_TOKEN):
     with patch.object(Dispatcher, "start"):
         with HireFire.configure() as config:
-            config.dyno("worker", lambda: 1.23)
-        response = client.get(f"/hirefire/{HIREFIRE_TOKEN}/info")
+            config.dyno("web")
+        response = client.get(
+            "/any", headers={"x-queue-start": str(int(time.time() * 1000 - 5))}
+        )
         assert response.status_code == 200
         assert response.content == b"DEFAULT"
+        assert HireFire.configuration.buffer.flush()["web"] == {int(time.time()): [5]}
