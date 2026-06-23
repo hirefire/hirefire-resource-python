@@ -355,7 +355,7 @@ def test_proc_namespace_seconds_none_when_every_entry_is_unreadable():
 
 
 def test_total_seconds_falls_through_on_malformed_cgroup_v2():
-    # A non-numeric usage value must not raise; fall through to the next source.
+    # A non-numeric usage value must not raise. Fall through to the next source.
     mapping = {
         Usage.CGROUP_V2_USAGE: "usage_usec notanumber",
         Usage.CGROUP_V1_USAGE: "3000000000",
@@ -365,7 +365,7 @@ def test_total_seconds_falls_through_on_malformed_cgroup_v2():
 
 
 def test_available_cpus_falls_through_on_malformed_quota():
-    # Garbage in cpu.max must not raise; fall through to the processor count.
+    # Garbage in cpu.max must not raise. Fall through to the processor count.
     with patch.object(
         Usage, "read", side_effect=reading({Usage.CGROUP_V2_QUOTA: "garbage 100000"})
     ):

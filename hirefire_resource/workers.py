@@ -28,7 +28,7 @@ class Workers:
                 if not self._valid_sample(value):
                     self._logger().error(
                         f"[HireFire] The sampler for dyno {worker.name!r} returned "
-                        f"{value!r}; expected a non-negative number. Sample dropped."
+                        f"{value!r}, expected a non-negative number. Sample dropped."
                     )
                     continue
 

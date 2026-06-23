@@ -29,7 +29,7 @@ def test_default_logger(config):
 
 
 def test_logger_does_not_propagate_to_root(config):
-    # Own stdout handler, but no propagation — otherwise a host app with root
+    # Own stdout handler, but no propagation, otherwise a host app with root
     # logging configured would see every HireFire line twice.
     assert config.logger.propagate is False
 
@@ -52,7 +52,7 @@ def test_cpu_defaults_to_empty(config):
     assert config.cpu == []
 
 
-# dyno — legacy / Heroku front door (full truth table)
+# dyno: legacy / Heroku front door (full truth table)
 
 
 def test_dyno_web_configures_http(config):
@@ -116,7 +116,7 @@ def test_dyno_cpu_rejects_a_sampler(config):
         config.dyno("web", lambda: 1, tracking="cpu")
 
 
-# service — universal / platform-neutral front door (full truth table)
+# service: universal / platform-neutral front door (full truth table)
 
 
 def test_service_http_configures_http(config):
@@ -375,7 +375,7 @@ def test_token_defaults_to_none_without_env(config):
     assert config.token is None
 
 
-# tracking is keyword-only; the second positional argument is the sampler, which
+# tracking is keyword-only. The second positional argument is the sampler, which
 # keeps the 1.x dyno("worker", callable) form working.
 
 

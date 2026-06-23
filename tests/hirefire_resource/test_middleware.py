@@ -17,7 +17,7 @@ def recent_request_start():
     return str(int(time.time() * 1000) - 5)
 
 
-# The request hot path must fail open — a failure collecting the sample is logged
+# The request hot path must fail open: a failure collecting the sample is logged
 # and swallowed, never raised into the host application's request.
 def test_process_request_queue_time_swallows_metric_path_failures(
     set_HIREFIRE_TOKEN, caplog
@@ -35,7 +35,7 @@ def test_process_request_queue_time_swallows_metric_path_failures(
     assert HireFire.configuration.buffer.flush()["web"]
 
 
-# The X-Request-Start header is client-controlled bytes; a non-UTF-8 value must
+# The X-Request-Start header is client-controlled bytes. A non-UTF-8 value must
 # decode leniently rather than raise UnicodeDecodeError in the request path.
 def test_request_start_from_scope_handles_non_utf8_bytes():
     scope = {"headers": [(b"x-request-start", b"t=\xff\xfe")]}
@@ -97,7 +97,7 @@ def test_calculate_request_queue_time_parses_each_router_unit():
 
 
 def test_calculate_request_queue_time_normalizes_every_precision_variant():
-    # The same instant (epoch 1700000000.250) in each unit a router may emit; all
+    # The same instant (epoch 1700000000.250) in each unit a router may emit. All
     # must normalize to the identical 750ms. The 250ms fraction exercises the
     # sub-millisecond path in every unit, including nanoseconds (whose value
     # exceeds a float's exact-integer range, so truncation would lose a ms).
@@ -130,6 +130,6 @@ def test_calculate_request_queue_time_lower_guard_boundary():
 
 def test_calculate_request_queue_time_cap_boundary():
     with patch("time.time", return_value=1_700_000_000):
-        # Exactly 60_000ms is at the inclusive limit, so kept; one over is dropped.
+        # Exactly 60_000ms is at the inclusive limit, so kept. One over is dropped.
         assert calculate_request_queue_time("1699999940000") == 60_000
         assert calculate_request_queue_time("1699999939999") is None

@@ -78,7 +78,7 @@ def job_queue_latency(*queues, broker_url=None):
 
     This function dynamically selects the broker based on the provided broker_url, environment
     variables, or falls back to a default local broker URL. If RabbitMQ (AMQP) is available, it is
-    preferred; otherwise, Redis is used.
+    preferred. Otherwise, Redis is used.
 
     Note:
         - Due to Celery's architecture, it is not possible to measure job queue latency with 100%
@@ -239,7 +239,7 @@ def job_queue_size(*queues, broker_url=None, celery_app=None):
 
     This function dynamically selects the broker based on the provided broker_url, environment
     variables, or falls back to a default local broker URL. If RabbitMQ (AMQP) is available, it is
-    preferred; otherwise, Redis is used.
+    preferred. Otherwise, Redis is used.
 
     Note:
         - It is recommended to avoid using the eta and countdown options for tasks in queues that

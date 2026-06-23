@@ -13,7 +13,7 @@ from tests.helpers import at, set_HIREFIRE_TOKEN  # noqa: F401
 LEASE_URL = "https://data.hirefire.io/metrics/lease"
 
 
-# Every lease test needs a token (the client requires one to poll); the explicit
+# Every lease test needs a token (the client requires one to poll). The explicit
 # dependency on set_HIREFIRE_TOKEN guarantees the reset/env fixtures run first.
 @pytest.fixture(autouse=True)
 def with_token(set_HIREFIRE_TOKEN):
@@ -212,10 +212,10 @@ def test_sample_if_due_skips_when_not_yet_due():
     stub_lease(granted="true", **{"HireFire-Sample-Frequency": "15"})
     lease = Lease()
     lease.request_if_due()
-    lease.sample_if_due(lambda: None)  # first sample — due immediately
+    lease.sample_if_due(lambda: None)  # first sample: due immediately
 
     sampled = []
-    lease.sample_if_due(lambda: sampled.append(True))  # second — not yet due
+    lease.sample_if_due(lambda: sampled.append(True))  # second: not yet due
     assert sampled == []
 
 
@@ -233,7 +233,7 @@ def test_failed_sample_consumes_its_window():
 
     sampled = []
     lease.sample_if_due(lambda: sampled.append(True))
-    assert sampled == []  # the raising sample consumed this window; no retry-per-tick
+    assert sampled == []  # the raising sample consumed this window, no retry-per-tick
 
 
 @mocketize

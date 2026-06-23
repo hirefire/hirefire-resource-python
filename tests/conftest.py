@@ -57,7 +57,7 @@ _HIREFIRE_ENV = [
 # Every test starts from a clean configuration and a clean identity/token
 # environment, and any dispatcher thread is stopped afterwards. The macro tests
 # don't use the HireFire singleton (they call the queue-metric functions
-# directly), so they are left untouched — their own fixtures own their broker
+# directly), so they are left untouched. Their own fixtures own their broker
 # state, and this fixture must not perturb their environment or timing.
 @pytest.fixture(autouse=True)
 def reset_hirefire(request, monkeypatch):
@@ -75,7 +75,7 @@ def reset_hirefire(request, monkeypatch):
 
 
 # The library's logger does not propagate (so it never double-emits into a host
-# app's root logging), so caplog — which captures via the root — needs its handler
+# app's root logging), so caplog (which captures via the root) needs its handler
 # attached directly to capture HireFire's log output.
 @pytest.fixture(autouse=True)
 def capture_hirefire_logs(request, caplog):
