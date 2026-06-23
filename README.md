@@ -33,30 +33,11 @@ For more information, visit the [home page][HireFire].
 
 ## Development
 
-Requires [Docker](https://www.docker.com/) (Redis and RabbitMQ run in containers for the macro test suites) and [mise](https://mise.jdx.dev/) (installs the pinned Python versions from `.tool-versions`).
+Requires [Docker](https://www.docker.com/) — Redis and RabbitMQ for the macro tests run in containers — and [mise](https://mise.jdx.dev/), which installs the pinned Python versions (3.11–3.14) from `.tool-versions`. `bin/services up` starts the containers on Docker-assigned free host ports recorded in a git-ignored `.env` (read by the test suite); `bin/services down` stops them and removes `.env`. Because the ports are assigned fresh at startup, multiple worktrees — and any system-wide Redis/RabbitMQ — run side by side without conflicts.
 
-Redis and RabbitMQ for the macro test suites run in Docker. `bin/services up` starts them, lets Docker assign a free host port to each, and records those ports in a git-ignored `.env` (read by the test suite); `bin/services down` stops them and removes `.env`. Because the ports are assigned fresh at startup, multiple worktrees — and any system-wide Redis/RabbitMQ — run side by side without conflicts.
-
-```bash
-# Initial setup: installs Python 3.11-3.14 via mise + poetry, and starts
-# Redis and RabbitMQ via Docker Compose
-bin/setup
-
-# Start / stop the Redis + RabbitMQ containers (ports recorded in .env)
-bin/services up
-bin/services down
-
-# Run tests
-poetry run tox -e py314-core   # Quick test on Python 3.14
-poetry run tox                 # Full test suite
-
-# Code formatting and linting
-poetry run paver format        # Format code (autoflake, isort, black)
-poetry run paver check         # Check formatting without applying
-poetry run paver test          # Run tests with coverage
-poetry run paver doc           # Build documentation
-poetry run paver               # Default: format + test
-```
+- Run `bin/setup` to prepare the environment.
+- Run `bin/services up` / `bin/services down` to start / stop the Redis and RabbitMQ containers.
+- Run `poetry run paver <task>` for common tasks (`format`, `check`, `test`, `doc`), or `poetry run tox` for the full version matrix.
 
 ## Release
 
