@@ -52,9 +52,6 @@ def test_cpu_defaults_to_empty(config):
     assert config.cpu == []
 
 
-# dyno: legacy / Heroku front door (full truth table)
-
-
 def test_dyno_web_configures_http(config):
     config.dyno("web")
     assert isinstance(config.web, Web)
@@ -116,9 +113,6 @@ def test_dyno_cpu_rejects_a_sampler(config):
         config.dyno("web", lambda: 1, tracking="cpu")
 
 
-# service: universal / platform-neutral front door (full truth table)
-
-
 def test_service_http_configures_http(config):
     config.service("web", tracking="http")
     assert isinstance(config.web, Web)
@@ -161,9 +155,6 @@ def test_service_without_keyword_or_sampler_raises(config):
 def test_service_rejects_an_unknown_keyword(config):
     with pytest.raises(UnknownCollectorError):
         config.service("web", tracking="foo")
-
-
-# Shared invariants across both front doors
 
 
 def test_empty_name_raises(config):
@@ -220,9 +211,6 @@ def test_dyno_and_service_register_into_the_same_collectors(config, monkeypatch)
     assert [collector.name for collector in config.cpu] == ["clock"]
 
 
-# Memoized collaborators
-
-
 def test_dispatcher_returns_instance(config):
     assert isinstance(config.dispatcher, Dispatcher)
 
@@ -251,9 +239,6 @@ def test_buffer_returns_instance(config):
 
 def test_buffer_is_memoized(config):
     assert config.buffer is config.buffer
-
-
-# Identity gating
 
 
 def test_cpu_collector_active_when_identity_matches(config, monkeypatch):
@@ -346,9 +331,6 @@ def test_heroku_config_var_conflict_warned_only_once(config, monkeypatch, caplog
     config.dispatcher  # both gates run, but resolution (and the warning) is memoized
 
     assert caplog.text.count("app-wide") == 1
-
-
-# Misc configuration
 
 
 def test_log_queue_metrics_defaults_to_false(config):

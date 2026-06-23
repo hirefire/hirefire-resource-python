@@ -212,10 +212,10 @@ def test_sample_if_due_skips_when_not_yet_due():
     stub_lease(granted="true", **{"HireFire-Sample-Frequency": "15"})
     lease = Lease()
     lease.request_if_due()
-    lease.sample_if_due(lambda: None)  # first sample: due immediately
+    lease.sample_if_due(lambda: None)
 
     sampled = []
-    lease.sample_if_due(lambda: sampled.append(True))  # second: not yet due
+    lease.sample_if_due(lambda: sampled.append(True))
     assert sampled == []
 
 

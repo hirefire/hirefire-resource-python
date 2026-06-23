@@ -17,9 +17,6 @@ def reading(mapping):
     return lambda path: mapping.get(path)
 
 
-# CPU collector
-
-
 def test_first_sample_only_seeds_the_baseline():
     with patch.object(Usage, "total_seconds", return_value=10.0), patch.object(
         Usage, "available_cpus", return_value=1.0
@@ -147,9 +144,6 @@ def test_recovers_after_an_initially_unavailable_usage_source():
             collector.sample()  # 0.5 over 1s on 1 CPU => 50%
 
         assert buffer().flush()["cpu"] == {"clock": {1002: [50.0]}}
-
-
-# Usage
 
 
 def test_total_seconds_prefers_cgroup_v2():

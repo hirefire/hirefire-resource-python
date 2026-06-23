@@ -54,11 +54,9 @@ _HIREFIRE_ENV = [
 ]
 
 
-# Every test starts from a clean configuration and a clean identity/token
-# environment, and any dispatcher thread is stopped afterwards. The macro tests
-# don't use the HireFire singleton (they call the queue-metric functions
-# directly), so they are left untouched. Their own fixtures own their broker
-# state, and this fixture must not perturb their environment or timing.
+# Every test starts from a clean configuration and identity/token environment, and
+# any dispatcher thread is stopped afterwards. The macro tests call the queue-metric
+# functions directly (no singleton), so they are left untouched.
 @pytest.fixture(autouse=True)
 def reset_hirefire(request, monkeypatch):
     if "macro" in request.module.__name__.split("."):

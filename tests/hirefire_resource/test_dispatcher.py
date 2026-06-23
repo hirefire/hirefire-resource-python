@@ -106,10 +106,10 @@ def test_starts_and_stops():
     assert not dispatcher.running()
     assert dispatcher.start()
     assert dispatcher.running()
-    assert not dispatcher.start()  # idempotent
+    assert not dispatcher.start()
     assert dispatcher.stop()
     assert not dispatcher.running()
-    assert not dispatcher.stop()  # idempotent
+    assert not dispatcher.stop()
 
 
 @mocketize
@@ -194,11 +194,11 @@ def test_seconds_from_a_failed_dispatch_are_reclaimed_by_the_next_success():
 
     dispatcher = configure_web_only()
     with freeze_time(at(1000)):
-        dispatcher._tick()  # 200: watermark 1000
+        dispatcher._tick()
     with freeze_time(at(1003)):
-        dispatcher._tick()  # 500: watermark holds
+        dispatcher._tick()
     with freeze_time(at(1005)):
-        dispatcher._tick()  # 200: reclaims 1001..1005
+        dispatcher._tick()
 
     assert sorted(bodies[2][0]["samples"].keys()) == [
         "1001",
@@ -291,11 +291,11 @@ def test_oversized_drop_advances_the_watermark_past_the_hole():
 
     dispatcher = configure_web_only()
     with freeze_time(at(1000)):
-        dispatcher._tick()  # watermark 1000
+        dispatcher._tick()
     with freeze_time(at(1010)):
         for _ in range(15000):
             HireFire.configuration.buffer.sample_web(12345)
-        dispatcher._tick()  # oversized: dropped, watermark advances to 1010
+        dispatcher._tick()
     with freeze_time(at(1012)):
         dispatcher._tick()
 
@@ -385,7 +385,7 @@ def test_cpu_samples_are_not_repopulated_on_dispatch_failure(monkeypatch):
         with freeze_time(at(1000)):
             dispatcher._tick()
         with freeze_time(at(1001)):
-            dispatcher._tick()  # 500: sample dropped, not re-buffered
+            dispatcher._tick()
 
     assert HireFire.configuration.buffer.flush()["cpu"] == {}
 
@@ -606,7 +606,7 @@ def test_dispatch_frequency_defaults_to_one_without_the_header():
     with freeze_time(at(1001)):
         dispatcher._tick()
 
-    assert len(bodies) == 2  # every tick dispatches
+    assert len(bodies) == 2
 
 
 @mocketize
@@ -617,13 +617,13 @@ def test_honors_a_server_supplied_dispatch_frequency():
 
     dispatcher = configure_web_only()
     with freeze_time(at(1000)):
-        dispatcher._tick()  # dispatches, learns 5
+        dispatcher._tick()
     with freeze_time(at(1002)):
-        dispatcher._tick()  # within window: skipped
+        dispatcher._tick()
     with freeze_time(at(1004)):
-        dispatcher._tick()  # still within window: skipped
+        dispatcher._tick()
     with freeze_time(at(1005)):
-        dispatcher._tick()  # window elapsed: dispatches
+        dispatcher._tick()
 
     assert len(bodies) == 2
 
@@ -671,7 +671,7 @@ def test_dispatch_failure_without_web_data_does_not_repopulate(caplog):
     Entry.single_register(Entry.POST, INGEST_URL, status=500)
 
     dispatcher = configure_workers_only()
-    dispatcher._tick()  # 500: workers-only, so web data is empty
+    dispatcher._tick()
 
     assert HireFire.configuration.buffer.flush()["web"] == {}
     assert "Dispatch error" in caplog.text

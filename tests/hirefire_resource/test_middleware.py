@@ -97,10 +97,8 @@ def test_calculate_request_queue_time_parses_each_router_unit():
 
 
 def test_calculate_request_queue_time_normalizes_every_precision_variant():
-    # The same instant (epoch 1700000000.250) in each unit a router may emit. All
-    # must normalize to the identical 750ms. The 250ms fraction exercises the
-    # sub-millisecond path in every unit, including nanoseconds (whose value
-    # exceeds a float's exact-integer range, so truncation would lose a ms).
+    # The same instant in every unit a router may emit, all normalizing to 750ms.
+    # The 250ms fraction tests the sub-ms path, including ns (beyond a float's exact int range).
     with patch("time.time", return_value=1_700_000_001):
         assert calculate_request_queue_time("t=1700000000.250") == 750  # seconds
         assert calculate_request_queue_time("1700000000250") == 750  # milliseconds

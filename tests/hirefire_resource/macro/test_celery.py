@@ -75,7 +75,6 @@ def test_job_queue_latency_with_jobs(celery_app):
     assert math.isclose(
         job_queue_latency("mailer", broker_url=celery_app.conf.broker_url), 8, abs_tol=1
     )
-    # Verify that peeking doesn't discard the message
     assert (
         job_queue_size("celery", "mailer", broker_url=celery_app.conf.broker_url) == 10
     )
@@ -89,7 +88,6 @@ def test_job_queue_latency_with_jobs_multi(celery_app):
         8,
         abs_tol=1,
     )
-    # Verify that peeking doesn't discard the message
     assert (
         job_queue_size("celery", "mailer", broker_url=celery_app.conf.broker_url) == 10
     )
@@ -123,7 +121,6 @@ async def test_job_queue_latency_with_jobs_async(celery_app):
         8,
         abs_tol=1,
     )
-    # Verify that peeking doesn't discard the message
     assert (
         await async_job_queue_size(
             "celery", "mailer", broker_url=celery_app.conf.broker_url
@@ -143,7 +140,6 @@ async def test_job_queue_latency_with_jobs_multi_async(celery_app):
         8,
         abs_tol=1,
     )
-    # Verify that peeking doesn't discard the message
     assert (
         await async_job_queue_size(
             "celery", "mailer", broker_url=celery_app.conf.broker_url
@@ -220,16 +216,12 @@ async def test_job_queue_size_with_jobs_async(celery_app):
     )
 
 
-# Tests for priority queues (RabbitMQ only)
-
-
 @pytest.fixture
 def priority_celery_app():
     """Create a Celery app with priority queue configuration."""
     broker_url = amqp_url
     app = Celery(broker=broker_url)
 
-    # Configure queues with x-max-priority
     queue_arguments = {"x-max-priority": 10}
     app.conf.task_queues = [
         Queue("priority_queue", queue_arguments=queue_arguments),
@@ -245,9 +237,7 @@ def setup_priority_queue(priority_celery_app):
     """Create the priority queue in RabbitMQ with x-max-priority argument."""
     with priority_celery_app.connection_or_acquire() as connection:
         channel = connection.default_channel
-        # Delete queue if it exists (to start fresh)
         channel.queue_delete(queue="priority_queue")
-        # Create queue WITH x-max-priority argument
         channel.queue_declare(
             queue="priority_queue",
             durable=True,
@@ -257,7 +247,6 @@ def setup_priority_queue(priority_celery_app):
 
     yield priority_celery_app
 
-    # Cleanup: delete the queue after test
     with priority_celery_app.connection_or_acquire() as connection:
         channel = connection.default_channel
         channel.queue_delete(queue="priority_queue")
@@ -276,11 +265,9 @@ def test_job_queue_size_priority_queue_with_broker_url(setup_priority_queue):
     priority_celery_app = setup_priority_queue
     broker_url = priority_celery_app.conf.broker_url
 
-    # Add tasks to the queue
     priority_celery_app.send_task("test_task", queue="priority_queue")
     priority_celery_app.send_task("test_task", queue="priority_queue")
 
-    # Using broker_url (no queue arguments passed)
     result = job_queue_size("priority_queue", broker_url=broker_url)
 
     # In the test environment this works, but may fail in other environments
@@ -299,15 +286,12 @@ def test_job_queue_size_priority_queue_with_celery_app_returns_correct_count(
     """
     priority_celery_app = setup_priority_queue
 
-    # Add tasks to the queue
     priority_celery_app.send_task("test_task", queue="priority_queue")
     priority_celery_app.send_task("test_task", queue="priority_queue")
     priority_celery_app.send_task("test_task", queue="priority_queue")
 
-    # Recommended: Pass the celery_app parameter so queue arguments are extracted
     result = job_queue_size("priority_queue", celery_app=priority_celery_app)
 
-    # This should return the correct count
     assert result == 3
 
 
@@ -369,16 +353,13 @@ def test_job_queue_size_with_mismatched_priority_arguments(celery_app):
     """
     broker_url = celery_app.conf.broker_url
 
-    # Skip this test for Redis - priority queues are RabbitMQ only
     if not broker_url.startswith("amqp"):
         pytest.skip("Priority queues only work with RabbitMQ")
 
-    # Use a unique queue name to avoid conflicts
     import uuid
 
     queue_name = f"test_mismatch_{uuid.uuid4().hex[:8]}"
 
-    # Create a Celery app configured with the priority queue
     temp_app = Celery(broker=broker_url)
     temp_app.conf.task_queues = [
         Queue(queue_name, queue_arguments={"x-max-priority": 20}),
@@ -394,35 +375,29 @@ def test_job_queue_size_with_mismatched_priority_arguments(celery_app):
                 arguments={"x-max-priority": 20},  # Created with priority 20
             )
 
-        # Add some tasks using the properly configured app
         temp_app.send_task("test_task", queue=queue_name)
         temp_app.send_task("test_task", queue=queue_name)
 
-        # Create a Celery app with WRONG priority (10 instead of 20)
         wrong_app = Celery(broker=broker_url)
         wrong_app.conf.task_queues = [
             Queue(queue_name, queue_arguments={"x-max-priority": 10}),  # Wrong!
         ]
 
-        # Try to query with wrong arguments
         # In strict RabbitMQ versions, this triggers PRECONDITION_FAILED (returns 0)
         # In lenient versions (like the test environment), it still works (returns 2)
         result_wrong = job_queue_size(queue_name, celery_app=wrong_app)
         # Both outcomes are acceptable - the test just verifies it doesn't crash
         assert result_wrong in [0, 2]
 
-        # Create a Celery app with CORRECT priority (20)
         correct_app = Celery(broker=broker_url)
         correct_app.conf.task_queues = [
             Queue(queue_name, queue_arguments={"x-max-priority": 20}),  # Correct!
         ]
 
-        # Query with correct arguments - should work and return actual count
         result_correct = job_queue_size(queue_name, celery_app=correct_app)
         assert result_correct == 2
 
     finally:
-        # Cleanup
         try:
             with temp_app.connection_or_acquire() as connection:
                 channel = connection.default_channel
