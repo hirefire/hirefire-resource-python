@@ -23,17 +23,17 @@ The test suite runs against these minimum versions and the current latest releas
 
 ---
 
-Since 2011, over 1,500 companies have trusted [HireFire] to autoscale more than 5,000 applications hosted on [Heroku], managing over 10,000 web and worker dynos.
+Since 2011, HireFire has helped over 1,500 companies autoscale more than 5,000 [Heroku] applications across 10,000+ web and worker dynos.
 
-HireFire is distinguished by its support for both web and worker dynos, extending autoscaling capabilities to Standard-tier dynos. It provides fine-grained control over scaling behavior and improves scaling accuracy by monitoring more reliable metrics at the application level. These metrics include request queue time (web), job queue latency (worker), and job queue size (worker), which contribute to making more effective scaling decisions.
+HireFire autoscales both web and worker dynos, on all dyno tiers, using whichever signal fits the workload: request queue time or requests per minute for web dynos, job queue latency or job queue size for worker dynos, and CPU utilization for compute-bound web or worker dynos. Each tracks real demand, so dynos are added when you need them and removed when you don't. You pay only for what you use.
 
-For more information, visit the [home page][HireFire].
+Learn more at the [home page][HireFire].
 
 ---
 
 ## Development
 
-Requires [Docker](https://www.docker.com/) — Redis and RabbitMQ for the macro tests run in containers — and [mise](https://mise.jdx.dev/), which installs the pinned Python versions (3.11–3.14) from `.tool-versions`. `bin/services up` starts the containers on Docker-assigned free host ports recorded in a git-ignored `.env` (read by the test suite); `bin/services down` stops them and removes `.env`. Because the ports are assigned fresh at startup, multiple worktrees — and any system-wide Redis/RabbitMQ — run side by side without conflicts.
+Requires [Docker](https://www.docker.com/) and [mise](https://mise.jdx.dev/). Redis and RabbitMQ for the macro tests run in containers, and mise installs the pinned Python versions (3.11 through 3.14) from `.tool-versions`. `bin/services up` starts the containers on Docker-assigned free host ports recorded in a git-ignored `.env` (read by the test suite). `bin/services down` stops them and removes `.env`. Because the ports are assigned fresh at startup, multiple worktrees, and any system-wide Redis/RabbitMQ, run side by side without conflicts.
 
 - Run `bin/setup` to prepare the environment.
 - Run `bin/services up` / `bin/services down` to start / stop the Redis and RabbitMQ containers.
