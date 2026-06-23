@@ -10,9 +10,9 @@ This library integrates Python applications with HireFire's Dyno Managers (Herok
 
 - Django 4+
 - Flask 2+
-- Quart
-- FastAPI
-- Starlette
+- Quart 0+
+- FastAPI 0+
+- Starlette 0+
 
 **Supported worker libraries:**
 
