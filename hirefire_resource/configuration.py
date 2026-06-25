@@ -67,10 +67,11 @@ class Configuration:
         *,
         tracking: DynoTracking | None = None,
     ) -> None:
-        """Declares a service.
+        """Declares a service by dyno name.
 
-        Exactly like :meth:`service`, plus the convention that a process named
-        "web" implies ``tracking="http"``.
+        Like :meth:`service`, but the name "web" (case-insensitive) implies
+        ``tracking="http"`` on its own, and ``"cpu"`` is the only ``tracking`` value
+        ``dyno`` accepts.
 
         Resolution: ``tracking="cpu"`` tracks CPU, a sampler tracks job metrics, and the
         name "web" (case-insensitive) tracks http on its own. ``"cpu"`` is the only
@@ -84,6 +85,7 @@ class Configuration:
             tracking (str, optional): ``"cpu"``, or omit.
 
         Raises:
+            ValueError: The name is empty.
             MissingSamplerError: A non-"web" name given with neither ``tracking="cpu"`` nor a sampler.
             UnexpectedSamplerError: A sampler given alongside ``tracking="cpu"``.
             UnknownCollectorError: ``tracking`` given anything other than ``"cpu"``.
@@ -147,6 +149,7 @@ class Configuration:
             tracking (str, optional): ``"http"`` or ``"cpu"``. Omit when passing a sampler.
 
         Raises:
+            ValueError: The name is empty.
             MissingSamplerError: Neither ``tracking`` nor a sampler was given.
             UnexpectedSamplerError: A sampler given alongside ``tracking="http"`` or ``"cpu"``.
             UnknownCollectorError: ``tracking`` given an unsupported value.
