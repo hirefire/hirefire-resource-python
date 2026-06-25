@@ -5,7 +5,7 @@ from hirefire_resource import HireFire
 REQUEST_QUEUE_TIME_LIMIT = 60_000
 
 
-def process_request_queue_time(request_start):
+def process_request_queue_time(request_start: str | None) -> None:
     if not request_start:
         return
 
@@ -28,11 +28,11 @@ def process_request_queue_time(request_start):
         )
 
 
-def log_request_queue_time(request_queue_time):
+def log_request_queue_time(request_queue_time: int) -> None:
     print(f"[hirefire:router] queue={request_queue_time}ms")
 
 
-def calculate_request_queue_time(request_start):
+def calculate_request_queue_time(request_start: str) -> int | None:
     value = _parse_timestamp(request_start)
     if value is None or value < 1e9:
         return None
@@ -52,7 +52,7 @@ def calculate_request_queue_time(request_start):
     return None
 
 
-def _parse_timestamp(request_start):
+def _parse_timestamp(request_start: str) -> float | None:
     text = str(request_start)
     if text.startswith("t="):
         text = text[2:]

@@ -1,4 +1,14 @@
-def request_start_from_scope(scope):
+from collections.abc import Awaitable, Callable, Mapping, MutableMapping
+from typing import Any
+
+# Minimal ASGI signatures. The message dicts are typed loosely (Any values) because
+# the adapters only read scope["type"] and the request headers.
+Scope = MutableMapping[str, Any]
+Receive = Callable[[], Awaitable[MutableMapping[str, Any]]]
+Send = Callable[[MutableMapping[str, Any]], Awaitable[None]]
+
+
+def request_start_from_scope(scope: Mapping[str, Any]) -> str | None:
     queue_start = None
     for header_name, header_value in scope.get("headers", []):
         name = header_name.lower()

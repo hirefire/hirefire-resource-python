@@ -18,7 +18,12 @@ keywords = [
     "dyno"
 ]
 packages = [{include = "hirefire_resource"}]
-include = ["README.md", "CHANGELOG.md", "LICENSE"]
+include = [
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    {path = "hirefire_resource/py.typed", format = ["sdist", "wheel"]}
+]
 classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
@@ -27,7 +32,8 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14"
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed"
 ]
 
 [tool.poetry.dependencies]
@@ -44,7 +50,33 @@ pytest-watch = "^4.2.0"
 pytest-asyncio = "^1.0.0"
 pytest-cov = "^7.0.0"
 sphinx = "^7.2.6"
+mypy = "^1.13.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.mypy]
+python_version = "3.11"
+files = ["hirefire_resource"]
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unused_configs = true
+no_implicit_optional = true
+strict_equality = true
+check_untyped_defs = true
+
+# The queue macros import job backends (redis, celery, kombu, amqp, dateutil) that
+# are optional integrations, not base dependencies, so they are absent in the
+# type-check environment (and the per-cell test matrix installs only one at a time).
+# Treat them as untyped rather than requiring every backend to be installed to type
+# check. This is the Python analog of Node's optional-peer-dependency handling.
+[[tool.mypy.overrides]]
+module = [
+    "redis.*",
+    "celery.*",
+    "kombu.*",
+    "amqp.*",
+    "dateutil.*"
+]
+ignore_missing_imports = true

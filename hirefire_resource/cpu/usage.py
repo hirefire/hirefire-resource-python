@@ -18,7 +18,7 @@ class Usage:
     }
 
     @classmethod
-    def total_seconds(cls):
+    def total_seconds(cls) -> float | None:
         for source in (
             cls.cgroup_v2_seconds,
             cls.cgroup_v1_seconds,
@@ -31,7 +31,7 @@ class Usage:
         return None
 
     @classmethod
-    def cgroup_v2_seconds(cls):
+    def cgroup_v2_seconds(cls) -> float | None:
         content = cls.read(cls.CGROUP_V2_USAGE)
         if content is None:
             return None
@@ -44,14 +44,14 @@ class Usage:
         return None
 
     @classmethod
-    def cgroup_v1_seconds(cls):
+    def cgroup_v1_seconds(cls) -> float | None:
         usage = cls._number(cls.read(cls.CGROUP_V1_USAGE))
         if usage is None:
             return None
         return usage / 1_000_000_000.0
 
     @classmethod
-    def proc_namespace_seconds(cls):
+    def proc_namespace_seconds(cls) -> float | None:
         paths = glob.glob(cls.PROC_STAT_GLOB)
         if not paths:
             return None
@@ -73,7 +73,7 @@ class Usage:
         return float(ticks) / cls.clock_ticks()
 
     @classmethod
-    def stat_ticks(cls, content):
+    def stat_ticks(cls, content: str) -> int | None:
         close = content.rfind(")")
         if close == -1:
             return None
@@ -88,18 +88,18 @@ class Usage:
             return None
 
     @classmethod
-    def clock_ticks(cls):
+    def clock_ticks(cls) -> int:
         try:
             return os.sysconf("SC_CLK_TCK")
         except (ValueError, OSError, AttributeError):
             return 100
 
     @classmethod
-    def process_seconds(cls):
+    def process_seconds(cls) -> float:
         return time.process_time()
 
     @classmethod
-    def available_cpus(cls):
+    def available_cpus(cls) -> float | None:
         for source in (
             cls.cgroup_v2_quota,
             cls.cgroup_v1_quota,
@@ -113,7 +113,7 @@ class Usage:
         return None
 
     @classmethod
-    def cgroup_v2_quota(cls):
+    def cgroup_v2_quota(cls) -> float | None:
         value = cls.read(cls.CGROUP_V2_QUOTA)
         if value is None:
             return None
@@ -129,7 +129,7 @@ class Usage:
         return quota / period
 
     @classmethod
-    def cgroup_v1_quota(cls):
+    def cgroup_v1_quota(cls) -> float | None:
         quota = cls._number(cls.read(cls.CGROUP_V1_QUOTA))
         period = cls._number(cls.read(cls.CGROUP_V1_PERIOD))
         if quota is None or period is None or quota <= 0 or period <= 0:
@@ -137,7 +137,7 @@ class Usage:
         return quota / period
 
     @classmethod
-    def heroku_entitlement(cls):
+    def heroku_entitlement(cls) -> float | None:
         if not os.environ.get("DYNO"):
             return None
 
@@ -147,7 +147,7 @@ class Usage:
         return cls.CEDAR_SHARED_ENTITLEMENTS.get(int(limit))
 
     @classmethod
-    def render_entitlement(cls):
+    def render_entitlement(cls) -> float | None:
         if not os.environ.get("RENDER"):
             return None
 
@@ -155,11 +155,11 @@ class Usage:
         return count if count is not None and count > 0 else None
 
     @classmethod
-    def processor_count(cls):
+    def processor_count(cls) -> int | None:
         return os.cpu_count()
 
     @classmethod
-    def read(cls, path):
+    def read(cls, path: str) -> str | None:
         try:
             if os.access(path, os.R_OK):
                 with open(path) as file:
@@ -169,7 +169,7 @@ class Usage:
         return None
 
     @staticmethod
-    def _number(value):
+    def _number(value: str | None) -> float | None:
         if value is None:
             return None
         try:

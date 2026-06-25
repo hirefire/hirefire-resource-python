@@ -2,8 +2,10 @@ import logging
 import os
 import sys
 import threading
+from typing import Literal, cast
 
 from hirefire_resource import identity
+from hirefire_resource._types import Sampler
 from hirefire_resource.buffer import Buffer
 from hirefire_resource.cpu import CPU
 from hirefire_resource.dispatcher import Dispatcher
@@ -11,7 +13,10 @@ from hirefire_resource.web import Web
 from hirefire_resource.worker import Worker
 from hirefire_resource.workers import Workers
 
-_UNSET = object()
+ServiceTracking = Literal["http", "cpu"]
+DynoTracking = Literal["cpu"]
+
+_UNSET: object = object()
 
 
 class MissingSamplerError(Exception):
@@ -34,28 +39,34 @@ class Configuration:
     SERVICE_COLLECTORS = {"http": "http", "cpu": "cpu"}
     DYNO_COLLECTORS = {"cpu": "cpu"}
 
-    def __init__(self):
-        self.web = None
+    def __init__(self) -> None:
+        self.web: Web | None = None
         self.workers = Workers()
-        self.cpu = []
+        self.cpu: list[CPU] = []
         self.logger = self._init_logger()
         self.log_queue_metrics = False
-        self._names = []
-        self._buffer = None
-        self._dispatcher = None
-        self._token = None
-        self._resolved_identity = _UNSET
+        self._names: list[str] = []
+        self._buffer: Buffer | None = None
+        self._dispatcher: Dispatcher | None = None
+        self._token: str | None = None
+        self._resolved_identity: str | None | object = _UNSET
         self._mutex = threading.Lock()
 
     @property
-    def token(self):
+    def token(self) -> str | None:
         return self._token or os.environ.get("HIREFIRE_TOKEN")
 
     @token.setter
-    def token(self, value):
+    def token(self, value: str | None) -> None:
         self._token = value
 
-    def dyno(self, name, proc=None, *, tracking=None):
+    def dyno(
+        self,
+        name: str,
+        proc: Sampler | None = None,
+        *,
+        tracking: DynoTracking | None = None,
+    ) -> None:
         """Declares a service.
 
         Exactly like :meth:`service`, plus the convention that a process named
@@ -107,7 +118,13 @@ class Configuration:
 
         self._register(name, collector, proc)
 
-    def service(self, name, proc=None, *, tracking=None):
+    def service(
+        self,
+        name: str,
+        proc: Sampler | None = None,
+        *,
+        tracking: ServiceTracking | None = None,
+    ) -> None:
         """Declares what a process tracks.
 
         The name is a label with no implicit meaning, so what to track is always
@@ -160,7 +177,7 @@ class Configuration:
         self._register(name, collector, proc)
 
     @property
-    def buffer(self):
+    def buffer(self) -> Buffer:
         if self._buffer is None:
             with self._mutex:
                 if self._buffer is None:
@@ -168,7 +185,7 @@ class Configuration:
         return self._buffer
 
     @property
-    def dispatcher(self):
+    def dispatcher(self) -> Dispatcher:
         if self._dispatcher is None:
             with self._mutex:
                 if self._dispatcher is None:
@@ -180,11 +197,11 @@ class Configuration:
                     )
         return self._dispatcher
 
-    def stop_dispatcher(self):
+    def stop_dispatcher(self) -> None:
         if self._dispatcher is not None:
             self._dispatcher.stop()
 
-    def active_cpu_collectors(self):
+    def active_cpu_collectors(self) -> list[CPU]:
         if not self.cpu:
             return []
 
@@ -204,16 +221,16 @@ class Configuration:
             if collector.name.lower() == resolved.lower()
         ]
 
-    def web_liveness(self):
+    def web_liveness(self) -> bool:
         if not self.web:
             return True
 
         resolved = self.resolved_identity()
         return resolved is None or resolved.lower() == self.web.name.lower()
 
-    def resolved_identity(self):
+    def resolved_identity(self) -> str | None:
         if self._resolved_identity is not _UNSET:
-            return self._resolved_identity
+            return cast("str | None", self._resolved_identity)
 
         if identity.heroku_conflict():
             self.logger.warning(
@@ -226,7 +243,7 @@ class Configuration:
         self._resolved_identity = identity.resolve()
         return self._resolved_identity
 
-    def _coerce_name(self, name):
+    def _coerce_name(self, name: str | None) -> str:
         name = "" if name is None else str(name)
 
         if name == "":
@@ -237,7 +254,7 @@ class Configuration:
 
         return name
 
-    def _register(self, name, collector, proc):
+    def _register(self, name: str, collector: str, proc: Sampler | None) -> None:
         if any(existing.lower() == name.lower() for existing in self._names):
             raise DuplicateDynoError(
                 f"Duplicate declaration for {name!r}. "
@@ -263,7 +280,7 @@ class Configuration:
             self._reject_sampler(name, proc)
             self.cpu.append(CPU(name))
 
-    def _reject_sampler(self, name, proc):
+    def _reject_sampler(self, name: str, proc: Sampler | None) -> None:
         if proc is None:
             return
 
@@ -272,7 +289,7 @@ class Configuration:
             "(its values are collected automatically)."
         )
 
-    def _init_logger(self):
+    def _init_logger(self) -> logging.Logger:
         logger = logging.getLogger("hirefire_resource")
         logger.setLevel(logging.INFO)
 

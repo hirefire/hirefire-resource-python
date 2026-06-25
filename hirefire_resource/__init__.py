@@ -1,7 +1,10 @@
 from importlib.metadata import PackageNotFoundError, metadata
+from typing import Any
 
 try:
-    _metadata = metadata("hirefire-resource")
+    # importlib.metadata's PackageMetadata stub omits .get(); the runtime object is
+    # email.message.Message-backed and supports it. Read it as Any to keep the call.
+    _metadata: Any = metadata("hirefire-resource")
 
     __version__ = _metadata.get("Version")
     __author__ = _metadata.get("Author")
@@ -18,3 +21,5 @@ except PackageNotFoundError:
     __docformat__ = "unknown"
 
 from hirefire_resource.hirefire import HireFire  # noqa
+
+__all__ = ["HireFire"]

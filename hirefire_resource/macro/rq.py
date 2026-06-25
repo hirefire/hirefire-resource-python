@@ -7,7 +7,7 @@ from datetime import datetime
 import redis
 
 
-def job_queue_latency(*queues, redis_url=None):
+def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
     """
     Calculates the maximum job queue latency using RQ. If no queues are specified, it measures
     latency across all available queues.
@@ -47,14 +47,15 @@ def job_queue_latency(*queues, redis_url=None):
 
     redis_client = redis.Redis.from_url(redis_url)
 
-    if not queues:
+    queue_names: set[str] | tuple[str, ...] = queues
+    if not queue_names:
         keys = redis_client.keys("rq:scheduled:*") + redis_client.keys("rq:queue:*")
-        queues = set(key.decode("utf-8").split(":")[2] for key in keys)
+        queue_names = set(key.decode("utf-8").split(":")[2] for key in keys)
 
     pipeline = redis_client.pipeline()
     current_time = time.time()
 
-    for queue in queues:
+    for queue in queue_names:
         pipeline.lindex(f"rq:queue:{queue}", 0)
         pipeline.zrangebyscore(
             f"rq:scheduled:{queue}",
@@ -90,7 +91,7 @@ def job_queue_latency(*queues, redis_url=None):
     return max_latency
 
 
-async def async_job_queue_latency(*queues, redis_url=None):
+async def async_job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
     """
     Asynchronously calculates the maximum job queue latency using RQ. If no queues are specified, it
     measures latency across all available queues.
@@ -125,7 +126,7 @@ async def async_job_queue_latency(*queues, redis_url=None):
     return await loop.run_in_executor(None, func)
 
 
-def job_queue_size(*queues, redis_url=None):
+def job_queue_size(*queues: str, redis_url: str | None = None) -> int:
     """
     Calculates the total job queue size using RQ. If no queues are specified, it measures size
     across all available queues.
@@ -165,14 +166,15 @@ def job_queue_size(*queues, redis_url=None):
 
     redis_client = redis.Redis.from_url(redis_url)
 
-    if not queues:
+    queue_names: set[str] | tuple[str, ...] = queues
+    if not queue_names:
         keys = redis_client.keys("rq:scheduled:*") + redis_client.keys("rq:queue:*")
-        queues = set(key.decode("utf-8").split(":")[2] for key in keys)
+        queue_names = set(key.decode("utf-8").split(":")[2] for key in keys)
 
     pipeline = redis_client.pipeline()
     current_time = int(time.time())
 
-    for queue in queues:
+    for queue in queue_names:
         pipeline.llen(f"rq:queue:{queue}")
         pipeline.zcount(f"rq:scheduled:{queue}", 0, current_time)
 
@@ -182,7 +184,7 @@ def job_queue_size(*queues, redis_url=None):
     return total_jobs
 
 
-async def async_job_queue_size(*queues, redis_url=None):
+async def async_job_queue_size(*queues: str, redis_url: str | None = None) -> int:
     """
     Asynchronously calculates the total job queue size using RQ. If no queues are specified, it
     measures size across all available queues.
@@ -217,7 +219,7 @@ async def async_job_queue_size(*queues, redis_url=None):
     return await loop.run_in_executor(None, func)
 
 
-def _iso_to_unix(iso_time):
+def _iso_to_unix(iso_time: str) -> float:
     dt = datetime.fromisoformat(iso_time.replace("Z", "+00:00"))
     unix_time = float(dt.timestamp())
 

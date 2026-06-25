@@ -1,14 +1,15 @@
+from collections.abc import Iterator
 from contextlib import contextmanager
 
 from hirefire_resource.configuration import Configuration
 
 
 class HireFire:
-    configuration = Configuration()
+    configuration: Configuration = Configuration()
 
     @classmethod
     @contextmanager
-    def configure(cls):
+    def configure(cls) -> Iterator[Configuration]:
         """Configures HireFire and starts reporting metrics.
 
         Yields the configuration object so each process can declare what it tracks
@@ -33,7 +34,7 @@ class HireFire:
             cls.configuration.dispatcher.start()
 
     @classmethod
-    def reset(cls):
+    def reset(cls) -> None:
         if cls.configuration is not None:
             cls.configuration.stop_dispatcher()
         cls.configuration = Configuration()

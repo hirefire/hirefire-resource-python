@@ -4,6 +4,7 @@ import json
 import os
 import time
 from datetime import datetime, timezone
+from typing import Any, Callable, TypeVar, cast
 
 from celery import Celery
 from celery.signals import before_task_publish
@@ -16,8 +17,9 @@ try:
 
     AMQP_AVAILABLE = True
 except ImportError:
-
-    class ChannelError(Exception):
+    # Fallback so `except ChannelError` still binds when amqp is absent. mypy sees
+    # this as redefining the optional import above, which is the intent.
+    class ChannelError(Exception):  # type: ignore[no-redef]
         pass
 
     AMQP_AVAILABLE = False
@@ -25,7 +27,7 @@ except ImportError:
 from hirefire_resource.errors import MissingQueueError
 
 
-def _get_queue_arguments_from_app(app, queues):
+def _get_queue_arguments_from_app(app: Any, queues: tuple[str, ...]) -> dict[str, Any]:
     """
     Extract queue arguments from Celery app configuration for specified queues.
 
@@ -45,7 +47,12 @@ def _get_queue_arguments_from_app(app, queues):
     return queue_args
 
 
-def mitigate_connection_reset_error(retries=10, delay=1):
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def mitigate_connection_reset_error(
+    retries: int = 10, delay: int = 1
+) -> Callable[[_F], _F]:
     """
     Decorator to retry a function when ConnectionResetError occurs.
 
@@ -54,8 +61,8 @@ def mitigate_connection_reset_error(retries=10, delay=1):
         delay (int): Fixed delay between retry attempts in seconds.
     """
 
-    def decorator(func):
-        def wrapper(*args, **kwargs):
+    def decorator(func: _F) -> _F:
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             for attempt in range(retries):
                 try:
                     return func(*args, **kwargs)
@@ -65,13 +72,13 @@ def mitigate_connection_reset_error(retries=10, delay=1):
                     else:
                         raise
 
-        return wrapper
+        return cast(_F, wrapper)
 
     return decorator
 
 
 @mitigate_connection_reset_error()
-def job_queue_latency(*queues, broker_url=None):
+def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
     """
     Calculates the maximum job queue latency across the specified queues using Celery with either
     Redis or RabbitMQ (AMQP) as the broker.
@@ -167,7 +174,7 @@ def job_queue_latency(*queues, broker_url=None):
         return 0
 
 
-async def async_job_queue_latency(*queues, broker_url=None):
+async def async_job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
     """
     Asynchronously calculates the maximum job queue latency across the specified queues using Celery
     with either Redis or RabbitMQ (AMQP) as the broker.
@@ -232,7 +239,11 @@ async def async_job_queue_latency(*queues, broker_url=None):
 
 
 @mitigate_connection_reset_error()
-def job_queue_size(*queues, broker_url=None, celery_app=None):
+def job_queue_size(
+    *queues: str,
+    broker_url: str | None = None,
+    celery_app: "Celery | None" = None,
+) -> int:
     """
     Calculates the total job queue size across the specified queues using Celery with either Redis
     or RabbitMQ (AMQP) as the broker.
@@ -334,7 +345,11 @@ def job_queue_size(*queues, broker_url=None, celery_app=None):
         return 0
 
 
-async def async_job_queue_size(*queues, broker_url=None, celery_app=None):
+async def async_job_queue_size(
+    *queues: str,
+    broker_url: str | None = None,
+    celery_app: "Celery | None" = None,
+) -> int:
     """
     Asynchronously calculates the total job queue size across the specified queues using Celery with
     either Redis or RabbitMQ (AMQP) as the broker.
@@ -399,8 +414,12 @@ async def async_job_queue_size(*queues, broker_url=None, celery_app=None):
 
 @before_task_publish.connect
 def run_at_header_signal(
-    sender=None, headers=None, body=None, properties=None, **kwargs
-):
+    sender: Any = None,
+    headers: Any = None,
+    body: Any = None,
+    properties: Any = None,
+    **kwargs: Any,
+) -> None:
     headers = headers or {}
     eta = headers.get("eta")
 
@@ -410,7 +429,7 @@ def run_at_header_signal(
         headers["run_at"] = datetime.now(timezone.utc).isoformat()
 
 
-def _job_queue_latency_redis(channel, queue):
+def _job_queue_latency_redis(channel: Any, queue: str) -> float:
     oldest_job = channel.client.lindex(queue, -1)
 
     if oldest_job:
@@ -425,7 +444,7 @@ def _job_queue_latency_redis(channel, queue):
     return 0
 
 
-def _job_queue_latency_rabbitmq(channel, queue):
+def _job_queue_latency_rabbitmq(channel: Any, queue: str) -> float:
     try:
         message = channel.basic_get(queue)
 
@@ -448,12 +467,12 @@ def _job_queue_latency_rabbitmq(channel, queue):
         return 0
 
 
-def _job_queue_size_worker(app, queues):
+def _job_queue_size_worker(app: Any, queues: tuple[str, ...]) -> int:
     worker_data = _worker_data(app)
     return sum(worker_data.get(queue, 0) for queue in queues)
 
 
-def _job_queue_size_broker(app, channel, queues):
+def _job_queue_size_broker(app: Any, channel: Any, queues: tuple[str, ...]) -> int:
     if hasattr(channel, "_size"):
         return sum(_job_queue_size_redis(channel, queue) for queue in queues)
     else:
@@ -464,11 +483,11 @@ def _job_queue_size_broker(app, channel, queues):
         )
 
 
-def _job_queue_size_redis(channel, queue):
+def _job_queue_size_redis(channel: Any, queue: str) -> int:
     return channel.client.llen(queue)
 
 
-def _job_queue_size_rabbitmq(channel, queue, arguments=None):
+def _job_queue_size_rabbitmq(channel: Any, queue: str, arguments: Any = None) -> int:
     try:
         return channel.queue_declare(
             queue=queue, passive=True, arguments=arguments
@@ -478,16 +497,16 @@ def _job_queue_size_rabbitmq(channel, queue, arguments=None):
 
 
 _worker_data_cache_enabled = True
-_worker_data_cache_value = None
+_worker_data_cache_value: dict[str, int] | None = None
 _worker_data_cache_time = time.time() - (5 + 1)
 
 
-def _cache_worker_data(enabled):
+def _cache_worker_data(enabled: bool) -> None:
     global _worker_data_cache_enabled
     _worker_data_cache_enabled = enabled
 
 
-def _worker_data(app):
+def _worker_data(app: Any) -> dict[str, int]:
     global _worker_data_cache_value, _worker_data_cache_time
 
     if not _worker_data_cache_enabled or (_worker_data_cache_time + 5) < time.time():
@@ -495,7 +514,7 @@ def _worker_data(app):
         app.conf.event_queue_exclusive = True
         i = app.control.inspect()
         now = time.time()
-        queue_info = {}
+        queue_info: dict[str, int] = {}
 
         for collection in [i.active(), i.reserved(), i.scheduled()]:
             if collection is not None:
@@ -523,4 +542,6 @@ def _worker_data(app):
         _worker_data_cache_value = queue_info
         _worker_data_cache_time = time.time()
 
-    return _worker_data_cache_value
+    # The first call always populates the cache (it starts stale), so by here the
+    # value is a dict, never the initial None.
+    return cast("dict[str, int]", _worker_data_cache_value)

@@ -4,12 +4,12 @@ from hirefire_resource.cpu.usage import Usage
 
 
 class CPU:
-    def __init__(self, name):
+    def __init__(self, name: str) -> None:
         self.name = str(name)
-        self._last_usage = None
-        self._last_time = None
+        self._last_usage: float | None = None
+        self._last_time: float | None = None
 
-    def sample(self):
+    def sample(self) -> None:
         now = time.time()
         usage = Usage.total_seconds()
 
@@ -18,7 +18,7 @@ class CPU:
         self._last_usage = usage
         self._last_time = now
 
-        if usage is None or previous_usage is None:
+        if usage is None or previous_usage is None or previous_time is None:
             return
 
         wall_delta = now - previous_time
