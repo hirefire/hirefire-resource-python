@@ -68,6 +68,10 @@ class Lease:
         self._client.close()
 
     def _reinit_after_fork(self) -> None:
+        self.process_id = str(uuid.uuid4())
+        self._granted = False
+        self._expires_at = time.time()
+        self._next_sample_at = time.time()
         self._client._reinit_after_fork()
 
     @staticmethod

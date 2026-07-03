@@ -23,9 +23,10 @@ def process_request_queue_time(request_start: str | None) -> None:
         if configuration.log_queue_metrics:
             log_request_queue_time(request_queue_time)
     except Exception as error:
-        HireFire.configuration.logger.error(
-            f"[HireFire] Failed to process request queue time: {error}"
-        )
+        try:
+            HireFire.configuration.logger.error(f"[HireFire] Middleware error: {error}")
+        except Exception:
+            pass
 
 
 def log_request_queue_time(request_queue_time: int) -> None:

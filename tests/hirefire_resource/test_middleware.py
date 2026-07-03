@@ -30,9 +30,24 @@ def test_process_request_queue_time_swallows_metric_path_failures(
     with patch.object(Dispatcher, "start", side_effect=RuntimeError("no threads")):
         process_request_queue_time(recent_request_start())  # must not raise
 
-    assert "Failed to process request queue time" in caplog.text
+    assert "Middleware error" in caplog.text
     # The sample is buffered before the dispatcher start, so it still lands.
     assert HireFire.configuration.buffer.flush()["web"]
+
+
+def test_process_request_queue_time_survives_a_raising_logger(set_HIREFIRE_TOKEN):
+    with patch.object(Dispatcher, "start"):
+        with HireFire.configure() as config:
+            config.dyno("web")
+
+    class RaisingLogger:
+        def error(self, message):
+            raise RuntimeError("logger down")
+
+    HireFire.configuration.logger = RaisingLogger()
+
+    with patch.object(Dispatcher, "start", side_effect=RuntimeError("no threads")):
+        process_request_queue_time(recent_request_start())  # must not raise
 
 
 # The X-Request-Start header is client-controlled bytes. A non-UTF-8 value must

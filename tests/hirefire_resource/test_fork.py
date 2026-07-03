@@ -51,6 +51,23 @@ def test_reinit_after_fork_replaces_locks_and_drops_connections():
     assert client._last_used_at is None
 
 
+def test_reinit_after_fork_reissues_lease_identity_and_drops_the_grant():
+    config, dispatcher = _materialize()
+    lease = dispatcher._lease
+
+    original_process_id = lease.process_id
+    lease._granted = True
+    lease._expires_at = float("inf")
+    lease._next_sample_at = float("inf")
+
+    _reinit_after_fork()
+
+    assert lease.process_id != original_process_id
+    assert lease._granted is False
+    assert lease._expires_at != float("inf")
+    assert lease._next_sample_at != float("inf")
+
+
 @pytest.mark.skipif(not hasattr(os, "fork"), reason="fork() is POSIX-only")
 def test_forked_child_recovers_a_lock_held_across_the_fork():
     buffer = HireFire.configuration.buffer
