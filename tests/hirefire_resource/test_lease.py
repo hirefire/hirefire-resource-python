@@ -296,6 +296,20 @@ def test_closes_the_underlying_client():
 
 
 @mocketize
+def test_expiry_paces_off_the_monotonic_clock_not_the_wall_clock():
+    stub_lease(granted="true", **{"HireFire-Lease-TTL": "30"})
+
+    mono = [5000.0]
+    # Wall clock far from the monotonic reading, to show which one the expiry derives from.
+    with freeze_time(at(1000)), patch("time.monotonic", side_effect=lambda: mono[0]):
+        lease = Lease()
+        lease.request_if_due()
+
+    # _expires_at derives from the monotonic clock (5000 + 30), never the wall clock (1000 + 30).
+    assert lease._expires_at == 5030.0
+
+
+@mocketize
 def test_unauthorized_ignores_frequency_and_ttl_headers():
     Entry.single_register(
         Entry.POST,

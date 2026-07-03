@@ -11,7 +11,10 @@ class CPU:
         self._last_source: str | None = None
 
     def sample(self) -> None:
-        now = time.time()
+        # Measure the interval on the monotonic clock so a wall-clock step (e.g. NTP)
+        # cannot distort the utilization delta. The buffered sample's bucket timestamp
+        # stays wall-clock.
+        now = time.monotonic()
         usage, source = Usage.reading()
 
         previous_usage = self._last_usage
@@ -29,17 +32,18 @@ class CPU:
         ):
             return
 
-        wall_delta = now - previous_time
+        elapsed_delta = now - previous_time
         usage_delta = usage - previous_usage
 
-        if wall_delta <= 0 or usage_delta < 0:
+        # elapsed_delta <= 0 is a backstop: the monotonic clock never steps back.
+        if elapsed_delta <= 0 or usage_delta < 0:
             return
 
         available = Usage.available_cpus()
         if available is None or available <= 0:
             return
 
-        cores_used = usage_delta / wall_delta
+        cores_used = usage_delta / elapsed_delta
         percentage = max(0.0, min(100.0, cores_used / available * 100.0))
 
         from hirefire_resource.hirefire import HireFire

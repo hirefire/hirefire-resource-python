@@ -1,8 +1,15 @@
+import re
 import time
 
 from hirefire_resource import HireFire
+from hirefire_resource.log import safe_log
 
 REQUEST_QUEUE_TIME_LIMIT = 60_000
+
+# Take the leading numeric run and ignore any trailing content, matching Ruby's
+# String#to_f and JS parseFloat. A proxy chain that sets X-Request-Start twice folds the
+# header to "<ts>, <ts>", which a strict float() would reject outright, dropping the sample.
+_LEADING_NUMBER = re.compile(r"\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)")
 
 
 def process_request_queue_time(request_start: str | None) -> None:
@@ -23,10 +30,11 @@ def process_request_queue_time(request_start: str | None) -> None:
         if configuration.log_queue_metrics:
             log_request_queue_time(request_queue_time)
     except Exception as error:
-        try:
-            HireFire.configuration.logger.error(f"[HireFire] Middleware error: {error}")
-        except Exception:
-            pass
+        safe_log(
+            HireFire.configuration.logger,
+            "error",
+            f"[HireFire] Middleware error: {error}",
+        )
 
 
 def log_request_queue_time(request_queue_time: int) -> None:
@@ -58,7 +66,11 @@ def _parse_timestamp(request_start: str) -> float | None:
     if text.startswith("t="):
         text = text[2:]
 
+    match = _LEADING_NUMBER.match(text)
+    if match is None:
+        return None
+
     try:
-        return float(text)
+        return float(match.group(1))
     except ValueError:
         return None

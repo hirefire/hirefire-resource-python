@@ -17,25 +17,26 @@ class Lease:
         self._client = Client()
         self._ttl = 15
         self._granted = False
-        self._expires_at = time.time()
-        self._next_sample_at = time.time()
+        # Pace off the monotonic clock so a wall-clock step (e.g. NTP) cannot skew renewal.
+        self._expires_at = time.monotonic()
+        self._next_sample_at = time.monotonic()
         self.sample_frequency = 15
 
     def granted(self) -> bool:
         return self._granted
 
     def sample_if_due(self, sampler: Callable[[], None]) -> None:
-        if not (self._granted and time.time() >= self._next_sample_at):
+        if not (self._granted and time.monotonic() >= self._next_sample_at):
             return
 
-        self._next_sample_at = time.time() + self.sample_frequency
+        self._next_sample_at = time.monotonic() + self.sample_frequency
         sampler()
 
     def request_if_due(self) -> None:
-        if not (self._enabled and time.time() >= self._expires_at):
+        if not (self._enabled and time.monotonic() >= self._expires_at):
             return
 
-        self._expires_at = time.time() + self._ttl
+        self._expires_at = time.monotonic() + self._ttl
 
         try:
             response = self._client.request_lease(self.process_id)
@@ -60,7 +61,7 @@ class Lease:
         ttl = response.headers.get("HireFire-Lease-TTL")
         if ttl is not None:
             self._ttl = self._bounded(ttl, self.TTL_BOUNDS)
-            self._expires_at = time.time() + self._ttl
+            self._expires_at = time.monotonic() + self._ttl
 
         self._granted = response.headers.get("HireFire-Lease-Granted") == "true"
 
@@ -70,8 +71,8 @@ class Lease:
     def _reinit_after_fork(self) -> None:
         self.process_id = str(uuid.uuid4())
         self._granted = False
-        self._expires_at = time.time()
-        self._next_sample_at = time.time()
+        self._expires_at = time.monotonic()
+        self._next_sample_at = time.monotonic()
         self._client._reinit_after_fork()
 
     @staticmethod

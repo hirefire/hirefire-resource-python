@@ -747,6 +747,23 @@ def test_ignores_an_unparseable_dispatch_frequency():
 
 
 @mocketize
+def test_dispatch_pacing_uses_the_monotonic_clock_not_the_wall_clock():
+    stub_lease()
+    bodies = capture_ingest_bodies()
+
+    dispatcher = configure_web_only()
+    mono = [500.0]
+    # Wall clock frozen throughout; the monotonic pacing clock advances independently.
+    with freeze_time(at(1000)), patch("time.monotonic", side_effect=lambda: mono[0]):
+        dispatcher._tick()  # first dispatch, next due at monotonic 501
+        mono[0] = 502.0  # monotonic advances past the 1s interval, wall clock unchanged
+        dispatcher._tick()  # dispatches again on the same wall second
+
+    # Two dispatches on one frozen wall second: pacing follows the monotonic clock.
+    assert len(bodies) == 2
+
+
+@mocketize
 def test_dispatch_failure_without_web_data_does_not_repopulate(caplog):
     caplog.set_level(logging.ERROR)
     stub_lease(granted=True)

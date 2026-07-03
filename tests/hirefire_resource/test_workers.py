@@ -92,3 +92,16 @@ def test_zero_sample_is_accepted():
 
     # 0 is a valid idle-queue reading, not a sampler failure.
     assert buffer().flush()["workers"] == [{"name": "worker", "sample": 0}]
+
+
+def test_a_raising_logger_does_not_escape_sampling():
+    with HireFire.configure() as config:
+        config.dyno("worker", lambda: (_ for _ in ()).throw(RuntimeError("down")))
+
+    class RaisingLogger:
+        def error(self, message):
+            raise IOError("closed stream")
+
+    HireFire.configuration.logger = RaisingLogger()
+
+    HireFire.configuration.workers.sample()  # must not propagate the logger's IOError

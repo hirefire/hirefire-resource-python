@@ -9,6 +9,7 @@ from hirefire_resource._types import Sampler
 from hirefire_resource.buffer import Buffer
 from hirefire_resource.cpu import CPU
 from hirefire_resource.dispatcher import Dispatcher
+from hirefire_resource.log import safe_log
 from hirefire_resource.web import Web
 from hirefire_resource.worker import Worker
 from hirefire_resource.workers import Workers
@@ -218,10 +219,12 @@ class Configuration:
         resolved = self.resolved_identity()
 
         if resolved is None:
-            self.logger.error(
+            safe_log(
+                self.logger,
+                "error",
                 "[HireFire] CPU metrics are configured but this process's identity "
                 "could not be resolved, so the CPU collector is disabled. Set the "
-                "HIREFIRE_SERVICE_NAME environment variable to this process's dyno name."
+                "HIREFIRE_SERVICE_NAME environment variable to this process's dyno name.",
             )
             return []
 
@@ -243,11 +246,13 @@ class Configuration:
             return cast("str | None", self._resolved_identity)
 
         if identity.heroku_conflict():
-            self.logger.warning(
+            safe_log(
+                self.logger,
+                "warning",
                 f"[HireFire] HIREFIRE_SERVICE_NAME ({identity.explicit()}) does not match "
                 f"the Heroku DYNO prefix ({identity.heroku_dyno()}). Heroku config vars are "
                 "app-wide, so this makes every dyno identify as the same name. Set it inline "
-                "per process in the Procfile, or unset it to use automatic detection."
+                "per process in the Procfile, or unset it to use automatic detection.",
             )
 
         self._resolved_identity = identity.resolve()

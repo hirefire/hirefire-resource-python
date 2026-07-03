@@ -146,3 +146,13 @@ def test_calculate_request_queue_time_cap_boundary():
         # Exactly 60_000ms is at the inclusive limit, so kept. One over is dropped.
         assert calculate_request_queue_time("1699999940000") == 60_000
         assert calculate_request_queue_time("1699999939999") is None
+
+
+def test_calculate_request_queue_time_reads_a_folded_duplicate_header():
+    # A proxy chain that sets X-Request-Start at two hops folds the header to "<ts>, <ts>".
+    # The leading numeric run is parsed (like Ruby's to_f / JS parseFloat), not rejected.
+    with patch("time.time", return_value=1_700_000_001):
+        assert calculate_request_queue_time("1700000000000, 1700000000500") == 1000
+        assert (
+            calculate_request_queue_time("t=1700000000.000, t=1700000000.500") == 1000
+        )

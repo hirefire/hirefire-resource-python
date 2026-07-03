@@ -115,7 +115,7 @@ def test_skips_sample_when_usage_unavailable():
         assert buffer().flush()["cpu"] == {}
 
 
-def test_non_positive_wall_delta_skips_the_sample():
+def test_non_positive_elapsed_delta_skips_the_sample():
     with patch.object(
         Usage, "reading", side_effect=[(10.0, "cgroup_v2"), (10.5, "cgroup_v2")]
     ), patch.object(Usage, "available_cpus", return_value=1.0):
@@ -124,6 +124,22 @@ def test_non_positive_wall_delta_skips_the_sample():
             collector.sample()
             assert collector.sample() is None
         assert buffer().flush()["cpu"] == {}
+
+
+def test_elapsed_delta_uses_the_monotonic_clock_not_wall_time():
+    with patch.object(
+        Usage, "reading", side_effect=[(10.0, "cgroup_v2"), (10.5, "cgroup_v2")]
+    ), patch.object(Usage, "available_cpus", return_value=1.0):
+        collector = CPU("clock")
+        # Wall clock frozen at the same second for both reads: a wall-clock elapsed delta
+        # would be 0 and skip. The monotonic clock advances 1s, so 0.5 CPU-seconds over it
+        # => 50%, bucketed by the (frozen) wall second. patch(time.monotonic) is entered
+        # inside freeze_time so it overrides freezegun's frozen monotonic.
+        with freeze_time(at(1000)), patch("time.monotonic", side_effect=[100.0, 101.0]):
+            collector.sample()
+            collector.sample()
+
+        assert buffer().flush()["cpu"] == {"clock": {1000: [50.0]}}
 
 
 def test_skips_sample_when_available_cpus_is_none():

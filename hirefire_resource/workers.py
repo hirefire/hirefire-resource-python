@@ -2,6 +2,7 @@ import math
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
+from hirefire_resource.log import safe_log
 from hirefire_resource.worker import Worker
 
 if TYPE_CHECKING:
@@ -35,17 +36,21 @@ class Workers:
                 value = worker.sample()
 
                 if not self._valid_sample(value):
-                    self._logger().error(
+                    safe_log(
+                        self._logger(),
+                        "error",
                         f"[HireFire] The sampler for dyno {worker.name!r} returned "
-                        f"{value!r}, expected a non-negative number. Sample dropped."
+                        f"{value!r}, expected a non-negative number. Sample dropped.",
                     )
                     continue
 
                 self._buffer().sample_worker(worker.name, value)
             except Exception as error:
-                self._logger().error(
+                safe_log(
+                    self._logger(),
+                    "error",
                     f"[HireFire] The sampler for dyno {worker.name!r} raised "
-                    f"{type(error).__name__}: {error}"
+                    f"{type(error).__name__}: {error}",
                 )
 
     def _valid_sample(self, value: object) -> bool:

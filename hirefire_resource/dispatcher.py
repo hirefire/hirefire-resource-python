@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from hirefire_resource.buffer import FlushedBuffer
 from hirefire_resource.client import Client, Response
 from hirefire_resource.lease import Lease
+from hirefire_resource.log import safe_log
 from hirefire_resource.workers import Workers
 
 if TYPE_CHECKING:
@@ -74,10 +75,14 @@ class Dispatcher:
                 self._running = True
                 self._pid = os.getpid()
         except Exception as error:
-            self._logger().error(f"[HireFire] Could not start dispatcher: {error}")
+            safe_log(
+                self._logger(),
+                "error",
+                f"[HireFire] Could not start dispatcher: {error}",
+            )
             return False
 
-        self._logger().info("[HireFire] Starting dispatcher.")
+        safe_log(self._logger(), "info", "[HireFire] Starting dispatcher.")
 
         return True
 
@@ -108,7 +113,7 @@ class Dispatcher:
         self._client.close()
         self._lease.close()
 
-        self._logger().info("[HireFire] Dispatcher stopped.")
+        safe_log(self._logger(), "info", "[HireFire] Dispatcher stopped.")
 
         return True
 
@@ -141,17 +146,23 @@ class Dispatcher:
         self._guard(lambda: self._lease.sample_if_due(self._workers.sample))
 
     def _dispatch_if_due(self) -> None:
-        if self._next_dispatch_at is not None and time.time() < self._next_dispatch_at:
+        # Pace off the monotonic clock so a wall-clock step (e.g. NTP) cannot skew the
+        # cadence. Sample timestamps stay wall-clock (_backfill_web_seconds), which the
+        # server keys on.
+        if (
+            self._next_dispatch_at is not None
+            and time.monotonic() < self._next_dispatch_at
+        ):
             return
 
         self._dispatch()
-        self._next_dispatch_at = time.time() + self._dispatch_frequency
+        self._next_dispatch_at = time.monotonic() + self._dispatch_frequency
 
     def _guard(self, func: Callable[[], object]) -> None:
         try:
             func()
         except Exception as error:
-            self._logger().error(f"[HireFire] {error}")
+            safe_log(self._logger(), "error", f"[HireFire] {error}")
 
     def _dispatch(self) -> None:
         data: FlushedBuffer | None = None
@@ -166,7 +177,9 @@ class Dispatcher:
                 return self._drop_oversized_payload(body)
 
             if os.environ.get("HIREFIRE_VERBOSE"):
-                self._logger().info(f"[HireFire] Dispatching metrics: {body}")
+                safe_log(
+                    self._logger(), "info", f"[HireFire] Dispatching metrics: {body}"
+                )
             response = self._client.submit_samples(body)
             self._apply_dispatch_frequency(response)
             if self._web_watermark is not None:
@@ -174,7 +187,7 @@ class Dispatcher:
         except Exception as error:
             if data and data["web"]:
                 self._buffer().repopulate_web(data["web"])
-            self._logger().error(f"[HireFire] Dispatch error: {error}")
+            safe_log(self._logger(), "error", f"[HireFire] Dispatch error: {error}")
 
     def _apply_dispatch_frequency(self, response: Response | None) -> None:
         if response is None:
@@ -197,10 +210,12 @@ class Dispatcher:
     def _drop_oversized_payload(self, body: str) -> None:
         if self._web_watermark is not None:
             self._last_web_second = self._web_watermark
-        self._logger().error(
+        safe_log(
+            self._logger(),
+            "error",
             f"[HireFire] Dropped metrics payload: {len(body.encode('utf-8'))} bytes "
             f"exceeds the {self.PAYLOAD_SIZE_LIMIT}-byte limit. Resuming from the "
-            "current second."
+            "current second.",
         )
 
     def _build_payload(self, data: FlushedBuffer) -> list[Any]:
