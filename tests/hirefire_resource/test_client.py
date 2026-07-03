@@ -232,6 +232,39 @@ def test_reuses_a_single_connection_across_requests(
     assert first.sock is not None
 
 
+def test_reconnects_when_the_keep_alive_socket_sat_idle_past_the_timeout(
+    client, set_HIREFIRE_TOKEN, fake_connections
+):
+    # A socket idle past the timeout is likely server-dropped: reconnect, don't reuse.
+    fake_connections.scripts = [[FakeResponse(200)], [FakeResponse(200)]]
+
+    client.submit_samples("[]")  # establish the persistent connection
+    established = client._connection
+
+    client._last_used_at -= Client.KEEP_ALIVE_TIMEOUT + 1  # idle past the timeout
+
+    client.submit_samples("[]")
+
+    assert client._connection is not established  # reconnected
+    assert len(fake_connections.created) == 2
+
+
+def test_reuses_a_keep_alive_socket_still_within_the_timeout(
+    client, set_HIREFIRE_TOKEN, fake_connections
+):
+    fake_connections.scripts = [[FakeResponse(200), FakeResponse(200)]]
+
+    client.submit_samples("[]")
+    established = client._connection
+
+    client._last_used_at -= Client.KEEP_ALIVE_TIMEOUT - 1  # idle, within the timeout
+
+    client.submit_samples("[]")
+
+    assert client._connection is established  # reused
+    assert len(fake_connections.created) == 1
+
+
 def test_reconnects_and_retries_once_on_a_stale_keep_alive_socket(
     client, set_HIREFIRE_TOKEN, fake_connections
 ):

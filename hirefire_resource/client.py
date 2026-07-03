@@ -2,6 +2,7 @@ import http.client
 import os
 import socket
 import threading
+import time
 from dataclasses import dataclass
 from email.message import Message
 from typing import cast
@@ -35,11 +36,16 @@ STALE_CONNECTION_ERRORS = (
 
 
 class Client:
+    # An idle keep-alive socket is likely server-dropped, so reconnect rather than reuse
+    # it. 60 outlasts the 30s max dispatch interval.
+    KEEP_ALIVE_TIMEOUT = 60
+
     def __init__(self, timeout: int = 5) -> None:
         self._timeout = timeout
         self._mutex = threading.Lock()
         self._connection: http.client.HTTPConnection | None = None
         self._owner_pid: int | None = None
+        self._last_used_at: float | None = None
 
     def submit_samples(self, body: str) -> "Response | None":
         token = self._require_token()
@@ -92,6 +98,7 @@ class Client:
                     connection.request("POST", path, encoded_body, headers)
                     response = connection.getresponse()
                     response.read()
+                    self._last_used_at = time.monotonic()
                     return Response(response.status, response.headers)
                 except (socket.timeout, TimeoutError):
                     self._reset_connection()
@@ -134,6 +141,11 @@ class Client:
         if connection is None or connection.sock is None:
             return False
 
+        if self._last_used_at is None or (
+            time.monotonic() - self._last_used_at > self.KEEP_ALIVE_TIMEOUT
+        ):
+            return False
+
         default_port = 443 if uri.scheme == "https" else 80
         return (
             self._owner_pid == os.getpid()
@@ -144,6 +156,7 @@ class Client:
     def _reset_connection(self) -> None:
         connection = self._connection
         self._connection = None
+        self._last_used_at = None
         if connection is not None:
             try:
                 connection.close()
