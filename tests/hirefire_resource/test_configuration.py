@@ -200,6 +200,14 @@ def test_dyno_and_service_share_the_one_http_guard(config):
         config.dyno("web")
 
 
+def test_rejected_declaration_does_not_reserve_the_name(config):
+    with pytest.raises(UnexpectedSamplerError):
+        config.service("web", lambda: 1, tracking="http")
+
+    config.service("web", tracking="http")
+    assert config.web.name == "web"
+
+
 def test_dyno_and_service_register_into_the_same_collectors(config, monkeypatch):
     config.dyno("web")
     config.service("worker", lambda: 1)

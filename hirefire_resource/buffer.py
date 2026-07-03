@@ -54,6 +54,9 @@ class Buffer:
 
     def _reinit_after_fork(self) -> None:
         self._mutex = threading.Lock()
+        self._web = {}
+        self._workers = {}
+        self._cpu = {}
 
     def repopulate_web(self, data: dict[int, list[int]]) -> None:
         now = int(time.time())

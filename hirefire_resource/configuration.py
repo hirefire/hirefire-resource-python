@@ -270,7 +270,6 @@ class Configuration:
                 f"Duplicate declaration for {name!r}. "
                 "Each dyno name maps to exactly one collector."
             )
-        self._names.append(name)
 
         if collector == "http":
             self._reject_sampler(name, proc)
@@ -289,6 +288,8 @@ class Configuration:
         elif collector == "cpu":
             self._reject_sampler(name, proc)
             self.cpu.append(CPU(name))
+
+        self._names.append(name)
 
     def _reject_sampler(self, name: str, proc: Sampler | None) -> None:
         if proc is None:

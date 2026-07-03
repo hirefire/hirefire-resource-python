@@ -51,6 +51,21 @@ def test_reinit_after_fork_replaces_locks_and_drops_connections():
     assert client._last_used_at is None
 
 
+def test_reinit_after_fork_clears_inherited_buffer_samples():
+    config, _ = _materialize()
+    buffer = config.buffer
+    buffer.sample_web(7)
+    buffer.sample_worker("worker", 5)
+    buffer.sample_cpu("web", 12.5)
+
+    _reinit_after_fork()
+
+    flushed = config.buffer.flush()
+    assert flushed["web"] == {}
+    assert flushed["workers"] == []
+    assert flushed["cpu"] == {}
+
+
 def test_reinit_after_fork_reissues_lease_identity_and_drops_the_grant():
     config, dispatcher = _materialize()
     lease = dispatcher._lease
