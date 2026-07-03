@@ -15,9 +15,6 @@ from hirefire_resource.middleware.asgi.django import HireFireMiddleware
 from tests.helpers import set_HIREFIRE_TOKEN  # noqa: F401
 
 
-# A minimal real Django ASGI app: a single catch-all view, with the HireFire
-# ASGI middleware wrapping Django's real ASGI application. Requests run through
-# httpx's ASGI transport into Django's ASGI handler and URL resolver.
 async def catch_all(request):
     return HttpResponse("DEFAULT")
 

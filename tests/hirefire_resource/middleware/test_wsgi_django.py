@@ -12,9 +12,6 @@ from hirefire_resource.dispatcher import Dispatcher
 from tests.helpers import set_HIREFIRE_TOKEN  # noqa: F401
 
 
-# A minimal real Django app: a single catch-all view behind the HireFire
-# middleware. Requests run through Django's real WSGI handler, middleware chain,
-# and URL resolver via the test Client.
 def catch_all(request):
     return HttpResponse("DEFAULT")
 

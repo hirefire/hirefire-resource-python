@@ -15,8 +15,8 @@ def test_swallows_a_raising_logger():
         def error(self, message):
             raise IOError("closed stream")
 
-    safe_log(RaisingLogger(), "error", "boom")  # must not raise
+    safe_log(RaisingLogger(), "error", "boom")
 
 
 def test_skips_a_logger_that_does_not_respond_to_the_level():
-    safe_log(object(), "error", "boom")  # must not raise
+    safe_log(object(), "error", "boom")

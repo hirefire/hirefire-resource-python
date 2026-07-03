@@ -25,7 +25,6 @@ except ImportError:
     pass
 
 
-# Load .env (written by bin/services up) so the macro suites reach this checkout's services.
 def _load_worktree_env():
     path = os.path.join(os.path.dirname(__file__), os.pardir, ".env")
     if not os.path.exists(path):
@@ -54,9 +53,6 @@ _HIREFIRE_ENV = [
 ]
 
 
-# Every test starts from a clean configuration and identity/token environment, and
-# any dispatcher thread is stopped afterwards. The macro tests call the queue-metric
-# functions directly (no singleton), so they are left untouched.
 @pytest.fixture(autouse=True)
 def reset_hirefire(request, monkeypatch):
     if "macro" in request.module.__name__.split("."):
@@ -72,9 +68,8 @@ def reset_hirefire(request, monkeypatch):
     HireFire.reset()
 
 
-# The library's logger does not propagate (so it never double-emits into a host
-# app's root logging), so caplog (which captures via the root) needs its handler
-# attached directly to capture HireFire's log output.
+# The hirefire_resource logger does not propagate, so caplog (which captures via the
+# root logger) needs its handler attached directly to see HireFire's output.
 @pytest.fixture(autouse=True)
 def capture_hirefire_logs(request, caplog):
     if "macro" in request.module.__name__.split("."):

@@ -37,7 +37,6 @@ def test_second_sample_buffers_normalized_percentage():
         with freeze_time(at(1001)):
             collector.sample()
 
-        # 0.5 CPU-seconds over 1 wall-second on 1 available CPU => 50%.
         assert buffer().flush()["cpu"] == {"clock": {1001: [50.0]}}
 
 
@@ -51,7 +50,6 @@ def test_normalizes_by_available_cpus():
         with freeze_time(at(1001)):
             collector.sample()
 
-        # 1 CPU-second over 1s on 4 CPUs => 25%.
         assert buffer().flush()["cpu"] == {"worker": {1001: [25.0]}}
 
 
@@ -77,7 +75,6 @@ def test_negative_usage_delta_skips_and_reseeds_the_baseline():
         collector = CPU("clock")
         with freeze_time(at(1000)):
             collector.sample()
-        # Source dropped 10.0 -> 5.0 between reads: skip, then re-baseline against 5.0.
         with freeze_time(at(1001)):
             assert collector.sample() is None
         with freeze_time(at(1002)):
@@ -131,10 +128,6 @@ def test_elapsed_delta_uses_the_monotonic_clock_not_wall_time():
         Usage, "reading", side_effect=[(10.0, "cgroup_v2"), (10.5, "cgroup_v2")]
     ), patch.object(Usage, "available_cpus", return_value=1.0):
         collector = CPU("clock")
-        # Wall clock frozen at the same second for both reads: a wall-clock elapsed delta
-        # would be 0 and skip. The monotonic clock advances 1s, so 0.5 CPU-seconds over it
-        # => 50%, bucketed by the (frozen) wall second. patch(time.monotonic) is entered
-        # inside freeze_time so it overrides freezegun's frozen monotonic.
         with freeze_time(at(1000)), patch("time.monotonic", side_effect=[100.0, 101.0]):
             collector.sample()
             collector.sample()
@@ -174,11 +167,11 @@ def test_recovers_after_an_initially_unavailable_usage_source():
     ), patch.object(Usage, "available_cpus", return_value=1.0):
         collector = CPU("clock")
         with freeze_time(at(1000)):
-            assert collector.sample() is None  # source down: no baseline
+            assert collector.sample() is None
         with freeze_time(at(1001)):
-            assert collector.sample() is None  # source back: seeds baseline
+            assert collector.sample() is None
         with freeze_time(at(1002)):
-            collector.sample()  # 0.5 over 1s on 1 CPU => 50%
+            collector.sample()
 
         assert buffer().flush()["cpu"] == {"clock": {1002: [50.0]}}
 
@@ -229,7 +222,6 @@ def test_total_seconds_falls_back_to_proc_namespace_sum():
     with patch.object(Usage, "read", side_effect=reading(mapping)), patch(
         "hirefire_resource.cpu.usage.glob.glob", return_value=list(mapping)
     ), patch.object(Usage, "clock_ticks", return_value=100):
-        # (500+250) + (150+100) = 1000 ticks / 100 = 10.0 seconds, whole-dyno.
         assert abs(Usage.total_seconds() - 10.0) < 0.0001
 
 
@@ -318,26 +310,26 @@ def test_cgroup_quota_wins_over_entitlement(monkeypatch):
 
 def test_render_entitlement_from_render_cpu_count(monkeypatch):
     monkeypatch.setenv("RENDER", "true")
-    monkeypatch.setenv("RENDER_CPU_COUNT", "0.5")  # Render's fractional core count
+    monkeypatch.setenv("RENDER_CPU_COUNT", "0.5")
     with patch.object(Usage, "read", side_effect=reading({})):
         assert abs(Usage.available_cpus() - 0.5) < 0.0001
 
 
 def test_render_entitlement_ignored_off_render(monkeypatch):
-    monkeypatch.setenv("RENDER_CPU_COUNT", "8")  # set, but RENDER unset
+    monkeypatch.setenv("RENDER_CPU_COUNT", "8")
     with patch.object(Usage, "read", side_effect=reading({})):
         assert Usage.available_cpus() == os.cpu_count()
 
 
 def test_render_without_a_cpu_count_falls_through_to_processor_count(monkeypatch):
-    monkeypatch.setenv("RENDER", "true")  # RENDER set, but no RENDER_CPU_COUNT
+    monkeypatch.setenv("RENDER", "true")
     with patch.object(Usage, "read", side_effect=reading({})):
         assert Usage.available_cpus() == os.cpu_count()
 
 
 def test_cgroup_quota_wins_over_render_entitlement(monkeypatch):
     monkeypatch.setenv("RENDER", "true")
-    monkeypatch.setenv("RENDER_CPU_COUNT", "8")  # would be wrong if it won
+    monkeypatch.setenv("RENDER_CPU_COUNT", "8")
     with patch.object(
         Usage, "read", side_effect=reading({Usage.CGROUP_V2_QUOTA: "50000 100000"})
     ):
@@ -378,7 +370,6 @@ def test_cgroup_v2_without_a_usage_usec_line_falls_through_to_v1():
         Usage.CGROUP_V1_USAGE: "3000000000",
     }
     with patch.object(Usage, "read", side_effect=reading(mapping)):
-        # The v2 file is present but malformed (no usage_usec line) => fall through.
         assert abs(Usage.total_seconds() - 3.0) < 0.0001
 
 
@@ -401,12 +392,10 @@ def test_proc_namespace_seconds_none_when_every_entry_is_unreadable():
         "hirefire_resource.cpu.usage.glob.glob",
         return_value=["/proc/1/stat", "/proc/2/stat"],
     ), patch.object(Usage, "read", return_value=None):
-        # Files vanished between glob and read: nothing counted => None (not 0.0).
         assert Usage.proc_namespace_seconds() is None
 
 
 def test_total_seconds_falls_through_on_malformed_cgroup_v2():
-    # A non-numeric usage value must not raise. Fall through to the next source.
     mapping = {
         Usage.CGROUP_V2_USAGE: "usage_usec notanumber",
         Usage.CGROUP_V1_USAGE: "3000000000",
@@ -416,7 +405,6 @@ def test_total_seconds_falls_through_on_malformed_cgroup_v2():
 
 
 def test_available_cpus_falls_through_on_malformed_quota():
-    # Garbage in cpu.max must not raise. Fall through to the processor count.
     with patch.object(
         Usage, "read", side_effect=reading({Usage.CGROUP_V2_QUOTA: "garbage 100000"})
     ):

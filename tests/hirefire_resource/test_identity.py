@@ -78,6 +78,5 @@ def test_dyno_name_without_a_suffix_is_returned_as_is(monkeypatch):
 
 
 def test_dyno_name_with_a_single_trailing_segment_is_preserved(monkeypatch):
-    # One trailing "-<alnum>" segment is not a Fir pod suffix (needs two).
     monkeypatch.setenv("DYNO", "worker-abc123")
     assert identity.resolve() == "worker-abc123"

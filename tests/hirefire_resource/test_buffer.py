@@ -73,7 +73,7 @@ def test_sample_web_bounded_when_dispatch_is_starved():
 
     data = buffer.flush()
     assert len(data["web"]) <= 66
-    assert min(data["web"].keys()) == 1006  # seconds beyond the TTL pruned
+    assert min(data["web"].keys()) == 1006
     assert max(data["web"].keys()) == 1070
 
 
@@ -115,7 +115,7 @@ def test_flush_returns_and_resets_cpu():
 
     data = buffer.flush()
     assert data["cpu"] == {"clock": {1000: [50.0]}}
-    assert buffer.flush()["cpu"] == {}  # second flush is reset
+    assert buffer.flush()["cpu"] == {}
 
 
 def test_sample_cpu_groups_values_within_a_second():
@@ -128,7 +128,6 @@ def test_sample_cpu_groups_values_within_a_second():
 
 
 def test_repopulate_web_keeps_the_second_exactly_at_the_ttl_boundary():
-    # 40 == now - ttl: the boundary second is inside the window (drop is `<`).
     buffer = Buffer()
     with freeze_time(at(100)):
         buffer.repopulate_web({40: [5]})

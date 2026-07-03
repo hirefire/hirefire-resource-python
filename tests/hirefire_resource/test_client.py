@@ -32,13 +32,7 @@ class FakeResponse:
         return b""
 
 
-# A scriptable stand-in for http.client's connection. mocket serves one exchange per
-# socket and cannot model a reused keep-alive socket, so connection reuse, the
-# stale-socket retry, and fork rebuild are tested against this fake (the Python analog
-# of the Ruby suite inspecting the persisted connection object rather than the wire).
 class FakeConnection:
-    # One script (a list of per-request outcomes: a FakeResponse or an exception) is
-    # consumed per connection built, in creation order. `created` records each build.
     scripts: list = []
     created: list = []
 
@@ -51,7 +45,7 @@ class FakeConnection:
         FakeConnection.created.append(self)
 
     def request(self, method, path, body, headers):
-        self.sock = object()  # http.client sets a live socket during send
+        self.sock = object()
         outcome = self._outcomes.pop(0)
         if isinstance(outcome, BaseException):
             raise outcome
@@ -249,17 +243,16 @@ def test_reuses_a_single_connection_across_requests(
 def test_reconnects_when_the_keep_alive_socket_sat_idle_past_the_timeout(
     client, set_HIREFIRE_TOKEN, fake_connections
 ):
-    # A socket idle past the timeout is likely server-dropped: reconnect, don't reuse.
     fake_connections.scripts = [[FakeResponse(200)], [FakeResponse(200)]]
 
-    client.submit_samples("[]")  # establish the persistent connection
+    client.submit_samples("[]")
     established = client._connection
 
-    client._last_used_at -= Client.KEEP_ALIVE_TIMEOUT + 1  # idle past the timeout
+    client._last_used_at -= Client.KEEP_ALIVE_TIMEOUT + 1
 
     client.submit_samples("[]")
 
-    assert client._connection is not established  # reconnected
+    assert client._connection is not established
     assert len(fake_connections.created) == 2
 
 
@@ -271,43 +264,41 @@ def test_reuses_a_keep_alive_socket_still_within_the_timeout(
     client.submit_samples("[]")
     established = client._connection
 
-    client._last_used_at -= Client.KEEP_ALIVE_TIMEOUT - 1  # idle, within the timeout
+    client._last_used_at -= Client.KEEP_ALIVE_TIMEOUT - 1
 
     client.submit_samples("[]")
 
-    assert client._connection is established  # reused
+    assert client._connection is established
     assert len(fake_connections.created) == 1
 
 
 def test_reconnects_and_retries_once_on_a_stale_keep_alive_socket(
     client, set_HIREFIRE_TOKEN, fake_connections
 ):
-    # Establish, then the reused socket resets on the next write: reconnect and retry.
     fake_connections.scripts = [
         [FakeResponse(200), ConnectionResetError("peer reset")],
         [FakeResponse(200)],
     ]
 
-    client.submit_samples("[]")  # establish the persistent connection
+    client.submit_samples("[]")
     established = client._connection
 
     result = client.submit_samples("[]")
 
     assert result is not None
-    assert client._connection is not established  # reconnected
+    assert client._connection is not established
     assert len(fake_connections.created) == 2
 
 
 def test_reconnects_and_retries_once_on_a_desynced_keep_alive_response(
     client, set_HIREFIRE_TOKEN, fake_connections
 ):
-    # A reused socket reading a garbled status line is a stale-stream symptom.
     fake_connections.scripts = [
         [FakeResponse(200), http.client.BadStatusLine("garbled")],
         [FakeResponse(200)],
     ]
 
-    client.submit_samples("[]")  # establish the persistent connection
+    client.submit_samples("[]")
     established = client._connection
 
     result = client.submit_samples("[]")
@@ -320,13 +311,12 @@ def test_reconnects_and_retries_once_on_a_desynced_keep_alive_response(
 def test_does_not_retry_a_cold_connection_failure(
     client, set_HIREFIRE_TOKEN, fake_connections
 ):
-    # A cold connection is not reused, so the reset is a real fault, not staleness.
     fake_connections.scripts = [[ConnectionResetError("peer reset")]]
 
     with pytest.raises(RequestError):
         client.submit_samples("[]")
 
-    assert len(fake_connections.created) == 1  # raised without retrying
+    assert len(fake_connections.created) == 1
 
 
 def test_opens_a_fresh_connection_in_a_forked_child(
@@ -337,12 +327,11 @@ def test_opens_a_fresh_connection_in_a_forked_child(
     client.submit_samples("[]")
     inherited = client._connection
 
-    # Simulate a fork: the child inherits _connection, but its PID no longer owns it.
     client._owner_pid = os.getpid() - 1
 
     client.submit_samples("[]")
 
-    assert client._connection is not inherited  # a fresh socket, never the parent's
+    assert client._connection is not inherited
     assert client._owner_pid == os.getpid()
     assert len(fake_connections.created) == 2
 

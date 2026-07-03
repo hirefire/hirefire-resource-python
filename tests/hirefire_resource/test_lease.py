@@ -13,8 +13,6 @@ from tests.helpers import at, set_HIREFIRE_TOKEN  # noqa: F401
 LEASE_URL = "https://data.hirefire.io/metrics/lease"
 
 
-# Every lease test needs a token (the client requires one to poll). The explicit
-# dependency on set_HIREFIRE_TOKEN guarantees the reset/env fixtures run first.
 @pytest.fixture(autouse=True)
 def with_token(set_HIREFIRE_TOKEN):
     pass
@@ -123,7 +121,7 @@ def test_transport_failure_demotes_and_waits_a_full_ttl():
             lease.request_if_due()
         assert not lease.granted()
 
-        lease.request_if_due()  # not due again until the TTL elapses
+        lease.request_if_due()
         assert mock_request.call_count == 1
 
 
@@ -233,7 +231,7 @@ def test_failed_sample_consumes_its_window():
 
     sampled = []
     lease.sample_if_due(lambda: sampled.append(True))
-    assert sampled == []  # the raising sample consumed this window, no retry-per-tick
+    assert sampled == []
 
 
 @mocketize
@@ -249,11 +247,11 @@ def test_sample_if_due_advances_next_sample_at():
 
 @mocketize
 def test_retains_sample_frequency_when_the_header_is_absent():
-    stub_lease(granted="true")  # no HireFire-Sample-Frequency header
+    stub_lease(granted="true")
     lease = Lease()
     lease.request_if_due()
     assert lease.granted()
-    assert lease.sample_frequency == 15  # default retained
+    assert lease.sample_frequency == 15
 
 
 @mocketize
@@ -261,14 +259,14 @@ def test_grants_only_on_a_literal_true():
     stub_lease(granted="1", **{"HireFire-Sample-Frequency": "15"})
     lease = Lease()
     lease.request_if_due()
-    assert not lease.granted()  # only the exact string "true" grants
+    assert not lease.granted()
 
 
 @mocketize
 def test_clamps_a_garbled_sample_frequency_to_a_sane_floor():
     stub_lease(
         granted="true",
-        **{"HireFire-Sample-Frequency": "0"},  # a bad header must not sample every tick
+        **{"HireFire-Sample-Frequency": "0"},
     )
     lease = Lease()
     lease.request_if_due()
@@ -279,7 +277,7 @@ def test_clamps_a_garbled_sample_frequency_to_a_sane_floor():
 def test_clamps_a_garbled_ttl_to_a_sane_floor():
     stub_lease(
         granted="true",
-        **{"HireFire-Lease-TTL": "0"},  # a bad header must not re-request every tick
+        **{"HireFire-Lease-TTL": "0"},
     )
     lease = Lease()
     lease.request_if_due()
@@ -300,12 +298,10 @@ def test_expiry_paces_off_the_monotonic_clock_not_the_wall_clock():
     stub_lease(granted="true", **{"HireFire-Lease-TTL": "30"})
 
     mono = [5000.0]
-    # Wall clock far from the monotonic reading, to show which one the expiry derives from.
     with freeze_time(at(1000)), patch("time.monotonic", side_effect=lambda: mono[0]):
         lease = Lease()
         lease.request_if_due()
 
-    # _expires_at derives from the monotonic clock (5000 + 30), never the wall clock (1000 + 30).
     assert lease._expires_at == 5030.0
 
 
@@ -320,4 +316,4 @@ def test_unauthorized_ignores_frequency_and_ttl_headers():
     lease = Lease()
     lease.request_if_due()
     assert not lease.granted()
-    assert lease.sample_frequency == 15  # a 401 returns before reading headers
+    assert lease.sample_frequency == 15

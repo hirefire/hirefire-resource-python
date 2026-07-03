@@ -37,8 +37,6 @@ def stub_lease(granted=False):
 
 
 class IngestBodies:
-    # JSON payloads POSTed to /metrics/ingest, read from mocket's request log on
-    # demand: responses are registered up front, so the sent bodies are read after.
     def _items(self):
         return [
             json.loads(request.body)
@@ -119,11 +117,11 @@ def test_a_failed_thread_spawn_leaves_the_dispatcher_retryable(caplog):
     dispatcher = configure_web_only()
 
     with patch("threading.Thread.start", side_effect=RuntimeError("cannot spawn")):
-        assert not dispatcher.start()  # spawn failed: no loop, returns False not raises
-        assert not dispatcher.running()  # state not latched running with no thread
+        assert not dispatcher.start()
+        assert not dispatcher.running()
     assert "Could not start dispatcher" in caplog.text
 
-    assert dispatcher.start()  # a later call retries cleanly
+    assert dispatcher.start()
     assert dispatcher.running()
     dispatcher.stop()
 
@@ -356,7 +354,7 @@ def test_dispatch_tick_does_not_run_worker_sampling():
         dispatcher._tick()
 
     assert [entry["name"] for entry in bodies[0]] == ["web"]
-    assert sampled == []  # the dispatch loop never samples workers
+    assert sampled == []
 
 
 @mocketize
@@ -369,7 +367,7 @@ def test_worker_tick_samples_without_dispatching_and_a_later_tick_delivers_it():
         dispatcher = HireFire.configuration.dispatcher
 
         dispatcher._worker_tick()
-        assert bodies == []  # samples into the buffer but does not dispatch
+        assert bodies == []
 
         dispatcher._tick()
 
@@ -413,9 +411,9 @@ def test_dispatches_cpu_samples_in_the_samples_format(monkeypatch):
     ):
         dispatcher = configure_cpu_only(monkeypatch, "clock")
         with freeze_time(at(1000)):
-            dispatcher._tick()  # seeds baseline only
+            dispatcher._tick()
         with freeze_time(at(1001)):
-            dispatcher._tick()  # 0.5 core over 1s => 50%
+            dispatcher._tick()
 
     assert len(bodies) == 1
     entry = bodies[0][0]
@@ -514,9 +512,7 @@ def test_mismatched_cpu_collector_stays_dormant_through_the_tick(monkeypatch):
     bodies = capture_ingest_bodies()
     monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "web")
     HireFire.configuration.dyno("web")
-    HireFire.configuration.dyno(
-        "worker", tracking="cpu"
-    )  # dormant here: identity is "web"
+    HireFire.configuration.dyno("worker", tracking="cpu")
     dispatcher = HireFire.configuration.dispatcher
 
     with freeze_time(at(1000)):
@@ -533,7 +529,6 @@ def test_forked_child_restarts_the_dispatcher():
     dispatcher = configure_web_only()
     assert dispatcher.start()
 
-    # Simulate a fork: _running is inherited from the parent, but its thread is not.
     child_pid = os.getpid() + 1
     with patch("os.getpid", return_value=child_pid):
         assert not dispatcher.running()
@@ -607,7 +602,6 @@ def test_stop_flushes_the_buffer():
     bodies = capture_ingest_bodies()
 
     dispatcher = configure_web_only()
-    # Mark running without spawning the thread, so the only dispatch is stop's.
     dispatcher._running = True
     dispatcher._pid = os.getpid()
 
@@ -621,10 +615,7 @@ def test_stop_flushes_the_buffer():
 
 @mocketize
 def test_stop_closes_the_persistent_connections():
-    # Workers-only with an empty buffer: stop's final dispatch is a no-op, so the only
-    # thing under test is that both keep-alive clients are released.
     dispatcher = configure_workers_only()
-    # Mark running without spawning threads, so stop reaches the close path directly.
     dispatcher._running = True
     dispatcher._pid = os.getpid()
 
@@ -660,11 +651,10 @@ def test_tick_survives_a_payload_build_error(caplog):
         with patch.object(
             dispatcher, "_build_payload", side_effect=RuntimeError("boom")
         ):
-            dispatcher._tick()  # an error here must not escape and kill the thread
+            dispatcher._tick()
 
     assert bodies == []
     assert "Dispatch error" in caplog.text
-    # The flushed web samples are preserved by the error handler, not lost.
     assert HireFire.configuration.buffer.flush()["web"][1000] == [7]
 
 
@@ -753,13 +743,11 @@ def test_dispatch_pacing_uses_the_monotonic_clock_not_the_wall_clock():
 
     dispatcher = configure_web_only()
     mono = [500.0]
-    # Wall clock frozen throughout; the monotonic pacing clock advances independently.
     with freeze_time(at(1000)), patch("time.monotonic", side_effect=lambda: mono[0]):
-        dispatcher._tick()  # first dispatch, next due at monotonic 501
-        mono[0] = 502.0  # monotonic advances past the 1s interval, wall clock unchanged
-        dispatcher._tick()  # dispatches again on the same wall second
+        dispatcher._tick()
+        mono[0] = 502.0
+        dispatcher._tick()
 
-    # Two dispatches on one frozen wall second: pacing follows the monotonic clock.
     assert len(bodies) == 2
 
 

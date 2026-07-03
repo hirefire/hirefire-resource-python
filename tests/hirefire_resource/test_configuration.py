@@ -29,8 +29,6 @@ def test_default_logger(config):
 
 
 def test_logger_does_not_propagate_to_root(config):
-    # Own stdout handler, but no propagation, otherwise a host app with root
-    # logging configured would see every HireFire line twice.
     assert config.logger.propagate is False
 
 
@@ -333,10 +331,10 @@ def test_heroku_config_var_conflict_warned_only_once(config, monkeypatch, caplog
     monkeypatch.setenv("DYNO", "worker.1")
     monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "web")
 
-    config.dyno("web")  # web_liveness resolves identity
-    config.dyno("clock", tracking="cpu")  # active_cpu_collectors resolves identity too
+    config.dyno("web")
+    config.dyno("clock", tracking="cpu")
 
-    config.dispatcher  # both gates run, but resolution (and the warning) is memoized
+    config.dispatcher
 
     assert caplog.text.count("app-wide") == 1
 
@@ -363,10 +361,6 @@ def test_token_can_be_overridden(config, monkeypatch):
 
 def test_token_defaults_to_none_without_env(config):
     assert config.token is None
-
-
-# tracking is keyword-only. The second positional argument is the sampler, which
-# keeps the 1.x dyno("worker", callable) form working.
 
 
 def test_tracking_cannot_be_passed_positionally(config):
