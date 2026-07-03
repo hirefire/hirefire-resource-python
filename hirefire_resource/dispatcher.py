@@ -42,27 +42,47 @@ class Dispatcher:
         self._running = False
         self._pid: int | None = None
         self._thread: threading.Thread | None = None
+        self._worker_thread: threading.Thread | None = None
         self._last_web_second: int | None = None
         self._web_watermark: int | None = None
         self._dispatch_frequency = self.DEFAULT_DISPATCH_FREQUENCY
         self._next_dispatch_at: float | None = None
 
     def start(self) -> bool:
-        with self._mutex:
-            if self._running and self._pid == os.getpid():
-                return False
+        if self._running and self._pid == os.getpid():
+            return False  # fast path: skip the mutex when already running
 
-            self._running = True
-            self._pid = os.getpid()
-            self._thread = threading.Thread(target=self._run, daemon=True)
-            self._thread.start()
+        try:
+            with self._mutex:
+                if self._running and self._pid == os.getpid():
+                    return False
+
+                # Spawn before flipping _running so a failed spawn stays retryable, not
+                # latched "running" with no loop. Called unguarded from configure(), so
+                # it must not raise.
+                thread = threading.Thread(target=self._dispatch_loop, daemon=True)
+                worker_thread = (
+                    threading.Thread(target=self._worker_loop, daemon=True)
+                    if self._workers.any()
+                    else None
+                )
+                thread.start()
+                if worker_thread is not None:
+                    worker_thread.start()
+                self._thread = thread
+                self._worker_thread = worker_thread
+                self._running = True
+                self._pid = os.getpid()
+        except Exception as error:
+            self._logger().error(f"[HireFire] Could not start dispatcher: {error}")
+            return False
 
         self._logger().info("[HireFire] Starting dispatcher.")
 
         return True
 
     def stop(self) -> bool:
-        thread = None
+        threads: list[threading.Thread] = []
 
         with self._mutex:
             if not self._running:
@@ -70,14 +90,23 @@ class Dispatcher:
 
             self._running = False
             if self._pid == os.getpid():
-                thread = self._thread
+                threads = [
+                    thread
+                    for thread in (self._thread, self._worker_thread)
+                    if thread is not None
+                ]
             self._thread = None
+            self._worker_thread = None
             self._pid = None
 
-        if thread is not None:
+        for thread in threads:
             thread.join(5)
 
         self._dispatch()
+
+        # Close after the final dispatch, which reopens the client.
+        self._client.close()
+        self._lease.close()
 
         self._logger().info("[HireFire] Dispatcher stopped.")
 
@@ -87,17 +116,24 @@ class Dispatcher:
         with self._mutex:
             return self._running and self._pid == os.getpid()
 
-    def _run(self) -> None:
+    def _dispatch_loop(self) -> None:
         while self.running():
             self._tick()
             time.sleep(1)
 
+    def _worker_loop(self) -> None:
+        while self.running():
+            self._worker_tick()
+            time.sleep(1)
+
     def _tick(self) -> None:
-        self._guard(self._lease.request_if_due)
-        self._guard(lambda: self._lease.sample_if_due(self._workers.sample))
         for collector in self._cpu:
             self._guard(collector.sample)
         self._dispatch_if_due()
+
+    def _worker_tick(self) -> None:
+        self._guard(self._lease.request_if_due)
+        self._guard(lambda: self._lease.sample_if_due(self._workers.sample))
 
     def _dispatch_if_due(self) -> None:
         if self._next_dispatch_at is not None and time.time() < self._next_dispatch_at:

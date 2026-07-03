@@ -265,6 +265,37 @@ def test_grants_only_on_a_literal_true():
 
 
 @mocketize
+def test_clamps_a_garbled_sample_frequency_to_a_sane_floor():
+    stub_lease(
+        granted="true",
+        **{"HireFire-Sample-Frequency": "0"},  # a bad header must not sample every tick
+    )
+    lease = Lease()
+    lease.request_if_due()
+    assert lease.sample_frequency == Lease.SAMPLE_FREQUENCY_BOUNDS[0]
+
+
+@mocketize
+def test_clamps_a_garbled_ttl_to_a_sane_floor():
+    stub_lease(
+        granted="true",
+        **{"HireFire-Lease-TTL": "0"},  # a bad header must not re-request every tick
+    )
+    lease = Lease()
+    lease.request_if_due()
+    assert lease._ttl == Lease.TTL_BOUNDS[0]
+
+
+@mocketize
+def test_closes_the_underlying_client():
+    stub_lease(granted="true")
+    lease = Lease()
+    lease.request_if_due()
+    lease.close()
+    assert lease._client._connection is None
+
+
+@mocketize
 def test_unauthorized_ignores_frequency_and_ttl_headers():
     Entry.single_register(
         Entry.POST,

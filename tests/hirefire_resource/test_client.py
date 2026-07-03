@@ -1,4 +1,6 @@
+import email.message
 import http.client
+import os
 import socket
 import ssl
 from unittest.mock import patch
@@ -19,6 +21,55 @@ LEASE_URL = "https://data.hirefire.io/metrics/lease"
 @pytest.fixture
 def client():
     return Client()
+
+
+class FakeResponse:
+    def __init__(self, status=200):
+        self.status = status
+        self.headers = email.message.Message()
+
+    def read(self):
+        return b""
+
+
+# A scriptable stand-in for http.client's connection. mocket serves one exchange per
+# socket and cannot model a reused keep-alive socket, so connection reuse, the
+# stale-socket retry, and fork rebuild are tested against this fake (the Python analog
+# of the Ruby suite inspecting the persisted connection object rather than the wire).
+class FakeConnection:
+    # One script (a list of per-request outcomes: a FakeResponse or an exception) is
+    # consumed per connection built, in creation order. `created` records each build.
+    scripts: list = []
+    created: list = []
+
+    def __init__(self, host, port, timeout=None):
+        self.host = host
+        self.port = port if port is not None else 443
+        self.timeout = timeout
+        self.sock = None
+        self._outcomes = FakeConnection.scripts.pop(0) if FakeConnection.scripts else []
+        FakeConnection.created.append(self)
+
+    def request(self, method, path, body, headers):
+        self.sock = object()  # http.client sets a live socket during send
+        outcome = self._outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        self._pending = outcome
+
+    def getresponse(self):
+        return self._pending
+
+    def close(self):
+        self.sock = None
+
+
+@pytest.fixture
+def fake_connections():
+    FakeConnection.scripts = []
+    FakeConnection.created = []
+    with patch("http.client.HTTPSConnection", FakeConnection):
+        yield FakeConnection
 
 
 @mocketize
@@ -165,3 +216,102 @@ def test_request_lease_sends_the_agent_header(client, set_HIREFIRE_TOKEN):
     client.request_lease("abc123")
 
     assert Mocket.last_request().headers.get("hirefire-agent") == f"Python-{VERSION}"
+
+
+def test_reuses_a_single_connection_across_requests(
+    client, set_HIREFIRE_TOKEN, fake_connections
+):
+    fake_connections.scripts = [[FakeResponse(200), FakeResponse(200)]]
+
+    client.submit_samples("[]")
+    first = client._connection
+    client.submit_samples("[]")
+
+    assert client._connection is first
+    assert len(fake_connections.created) == 1
+    assert first.sock is not None
+
+
+def test_reconnects_and_retries_once_on_a_stale_keep_alive_socket(
+    client, set_HIREFIRE_TOKEN, fake_connections
+):
+    # Establish, then the reused socket resets on the next write: reconnect and retry.
+    fake_connections.scripts = [
+        [FakeResponse(200), ConnectionResetError("peer reset")],
+        [FakeResponse(200)],
+    ]
+
+    client.submit_samples("[]")  # establish the persistent connection
+    established = client._connection
+
+    result = client.submit_samples("[]")
+
+    assert result is not None
+    assert client._connection is not established  # reconnected
+    assert len(fake_connections.created) == 2
+
+
+def test_reconnects_and_retries_once_on_a_desynced_keep_alive_response(
+    client, set_HIREFIRE_TOKEN, fake_connections
+):
+    # A reused socket reading a garbled status line is a stale-stream symptom.
+    fake_connections.scripts = [
+        [FakeResponse(200), http.client.BadStatusLine("garbled")],
+        [FakeResponse(200)],
+    ]
+
+    client.submit_samples("[]")  # establish the persistent connection
+    established = client._connection
+
+    result = client.submit_samples("[]")
+
+    assert result is not None
+    assert client._connection is not established
+    assert len(fake_connections.created) == 2
+
+
+def test_does_not_retry_a_cold_connection_failure(
+    client, set_HIREFIRE_TOKEN, fake_connections
+):
+    # A cold connection is not reused, so the reset is a real fault, not staleness.
+    fake_connections.scripts = [[ConnectionResetError("peer reset")]]
+
+    with pytest.raises(RequestError):
+        client.submit_samples("[]")
+
+    assert len(fake_connections.created) == 1  # raised without retrying
+
+
+def test_opens_a_fresh_connection_in_a_forked_child(
+    client, set_HIREFIRE_TOKEN, fake_connections
+):
+    fake_connections.scripts = [[FakeResponse(200)], [FakeResponse(200)]]
+
+    client.submit_samples("[]")
+    inherited = client._connection
+
+    # Simulate a fork: the child inherits _connection, but its PID no longer owns it.
+    client._owner_pid = os.getpid() - 1
+
+    client.submit_samples("[]")
+
+    assert client._connection is not inherited  # a fresh socket, never the parent's
+    assert client._owner_pid == os.getpid()
+    assert len(fake_connections.created) == 2
+
+
+@mocketize
+def test_close_clears_the_persistent_connection(client, set_HIREFIRE_TOKEN):
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    client.submit_samples("[]")
+    assert client._connection is not None
+
+    client.close()
+
+    assert client._connection is None
+
+
+def test_close_is_safe_without_a_connection(client):
+    client.close()
+
+    assert client._connection is None

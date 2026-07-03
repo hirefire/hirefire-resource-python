@@ -6,6 +6,11 @@ from hirefire_resource.client import Client, RequestError
 
 
 class Lease:
+    # Bound server-supplied cadence: a zero or garbled header must not collapse it to a
+    # per-tick storm.
+    TTL_BOUNDS = (5, 3600)
+    SAMPLE_FREQUENCY_BOUNDS = (1, 3600)
+
     def __init__(self, enabled: bool = True) -> None:
         self._enabled = enabled
         self.process_id = str(uuid.uuid4())
@@ -48,11 +53,25 @@ class Lease:
 
         sample_frequency = response.headers.get("HireFire-Sample-Frequency")
         if sample_frequency is not None:
-            self.sample_frequency = int(sample_frequency)
+            self.sample_frequency = self._bounded(
+                sample_frequency, self.SAMPLE_FREQUENCY_BOUNDS
+            )
 
         ttl = response.headers.get("HireFire-Lease-TTL")
         if ttl is not None:
-            self._ttl = int(ttl)
+            self._ttl = self._bounded(ttl, self.TTL_BOUNDS)
             self._expires_at = time.time() + self._ttl
 
         self._granted = response.headers.get("HireFire-Lease-Granted") == "true"
+
+    def close(self) -> None:
+        self._client.close()
+
+    @staticmethod
+    def _bounded(value: str, bounds: tuple[int, int]) -> int:
+        low, high = bounds
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = low
+        return max(low, min(parsed, high))

@@ -113,6 +113,22 @@ def test_starts_and_stops():
 
 
 @mocketize
+def test_a_failed_thread_spawn_leaves_the_dispatcher_retryable(caplog):
+    caplog.set_level(logging.ERROR)
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    dispatcher = configure_web_only()
+
+    with patch("threading.Thread.start", side_effect=RuntimeError("cannot spawn")):
+        assert not dispatcher.start()  # spawn failed: no loop, returns False not raises
+        assert not dispatcher.running()  # state not latched running with no thread
+    assert "Could not start dispatcher" in caplog.text
+
+    assert dispatcher.start()  # a later call retries cleanly
+    assert dispatcher.running()
+    dispatcher.stop()
+
+
+@mocketize
 def test_dispatches_web_metrics():
     stub_lease()
     bodies = capture_ingest_bodies()
@@ -233,6 +249,7 @@ def test_lease_unauthorized_does_not_log_error(caplog):
     bodies = capture_ingest_bodies()
 
     dispatcher = configure_workers_only()
+    dispatcher._worker_tick()
     dispatcher._tick()
 
     assert bodies == []
@@ -311,6 +328,7 @@ def test_combined_web_and_worker_dispatch():
     with freeze_time(at(1000)):
         dispatcher = configure_web_and_workers()
         HireFire.configuration.buffer.sample_web(5)
+        dispatcher._worker_tick()
         dispatcher._tick()
 
     entries = bodies[0]
@@ -321,11 +339,53 @@ def test_combined_web_and_worker_dispatch():
 
 
 @mocketize
+def test_dispatch_tick_does_not_run_worker_sampling():
+    stub_lease(granted=True)
+    bodies = capture_ingest_bodies()
+    sampled = []
+
+    def sampler():
+        sampled.append(True)
+        return 42
+
+    with freeze_time(at(1000)):
+        HireFire.configuration.dyno("web")
+        HireFire.configuration.dyno("worker", sampler)
+        dispatcher = HireFire.configuration.dispatcher
+        HireFire.configuration.buffer.sample_web(5)
+        dispatcher._tick()
+
+    assert [entry["name"] for entry in bodies[0]] == ["web"]
+    assert sampled == []  # the dispatch loop never samples workers
+
+
+@mocketize
+def test_worker_tick_samples_without_dispatching_and_a_later_tick_delivers_it():
+    stub_lease(granted=True)
+    bodies = capture_ingest_bodies()
+
+    with freeze_time(at(1000)):
+        HireFire.configuration.dyno("worker", lambda: 42)
+        dispatcher = HireFire.configuration.dispatcher
+
+        dispatcher._worker_tick()
+        assert bodies == []  # samples into the buffer but does not dispatch
+
+        dispatcher._tick()
+
+    assert len(bodies) == 1
+    assert any(
+        entry["name"] == "worker" and entry.get("sample") == 42 for entry in bodies[0]
+    )
+
+
+@mocketize
 def test_lease_granted_dispatches_workers():
     stub_lease(granted=True)
     bodies = capture_ingest_bodies()
 
     dispatcher = configure_workers_only()
+    dispatcher._worker_tick()
     dispatcher._tick()
 
     assert any(
@@ -339,6 +399,7 @@ def test_lease_denied_skips_worker_collection():
     bodies = capture_ingest_bodies()
 
     dispatcher = configure_workers_only()
+    dispatcher._worker_tick()
     dispatcher._tick()
 
     assert bodies == []
@@ -496,6 +557,7 @@ def test_tick_dispatches_when_the_lease_request_fails(caplog):
             ),
         ):
             HireFire.configuration.buffer.sample_web(12)
+            dispatcher._worker_tick()
             dispatcher._tick()
 
     assert len(bodies) == 1
@@ -514,7 +576,9 @@ def test_tick_dispatches_when_a_sampler_raises(caplog):
     with freeze_time(at(1000)):
         HireFire.configuration.dyno("web")
         HireFire.configuration.dyno("worker", boom)
-        HireFire.configuration.dispatcher._tick()
+        dispatcher = HireFire.configuration.dispatcher
+        dispatcher._worker_tick()
+        dispatcher._tick()
 
     assert len(bodies) == 1
     assert [entry["name"] for entry in bodies[0]] == ["web"]
@@ -553,6 +617,24 @@ def test_stop_flushes_the_buffer():
 
     assert len(bodies) == 1
     assert bodies[0][0]["samples"] == {"1000": [7]}
+
+
+@mocketize
+def test_stop_closes_the_persistent_connections():
+    # Workers-only with an empty buffer: stop's final dispatch is a no-op, so the only
+    # thing under test is that both keep-alive clients are released.
+    dispatcher = configure_workers_only()
+    # Mark running without spawning threads, so stop reaches the close path directly.
+    dispatcher._running = True
+    dispatcher._pid = os.getpid()
+
+    with patch.object(dispatcher._client, "close") as client_close, patch.object(
+        dispatcher._lease, "close"
+    ) as lease_close:
+        dispatcher.stop()
+
+    client_close.assert_called_once()
+    lease_close.assert_called_once()
 
 
 @mocketize
@@ -671,6 +753,7 @@ def test_dispatch_failure_without_web_data_does_not_repopulate(caplog):
     Entry.single_register(Entry.POST, INGEST_URL, status=500)
 
     dispatcher = configure_workers_only()
+    dispatcher._worker_tick()
     dispatcher._tick()
 
     assert HireFire.configuration.buffer.flush()["web"] == {}

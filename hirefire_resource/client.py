@@ -1,10 +1,11 @@
 import http.client
 import os
 import socket
+import threading
 from dataclasses import dataclass
 from email.message import Message
 from typing import cast
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 
 from hirefire_resource.version import VERSION
 
@@ -21,9 +22,24 @@ class Response:
     headers: Message
 
 
+# Symptoms of a keep-alive socket the peer already dropped: the next use resets, the
+# pipe breaks, or a reused socket reads a garbled or empty status line. Retry once.
+STALE_CONNECTION_ERRORS = (
+    http.client.RemoteDisconnected,
+    http.client.BadStatusLine,
+    ConnectionResetError,
+    ConnectionAbortedError,
+    BrokenPipeError,
+    EOFError,
+)
+
+
 class Client:
     def __init__(self, timeout: int = 5) -> None:
         self._timeout = timeout
+        self._mutex = threading.Lock()
+        self._connection: http.client.HTTPConnection | None = None
+        self._owner_pid: int | None = None
 
     def submit_samples(self, body: str) -> "Response | None":
         token = self._require_token()
@@ -58,30 +74,81 @@ class Client:
             },
         )
 
+    def close(self) -> None:
+        # Takes the same mutex as _execute, so it never closes a socket mid-request.
+        with self._mutex:
+            self._reset_connection()
+
     def _execute(self, endpoint: str, body: str, headers: dict[str, str]) -> Response:
         uri = urlparse(self._base_url())
-        connection_class: type[http.client.HTTPConnection]
-        if uri.scheme == "https":
-            connection_class = http.client.HTTPSConnection
-        else:
-            connection_class = http.client.HTTPConnection
-
-        host = cast(str, uri.hostname)
-        connection = connection_class(host, uri.port, timeout=self._timeout)
         path = uri.path.rstrip("/") + endpoint
         encoded_body = body.encode("utf-8")
 
-        try:
-            connection.request("POST", path, encoded_body, headers)
-            response = connection.getresponse()
-            response.read()
-            return Response(response.status, response.headers)
-        except (socket.timeout, TimeoutError):
-            raise RequestError("Request timed out.")
-        except (http.client.HTTPException, OSError) as error:
-            raise RequestError(f"Network error ({type(error).__name__}: {error}).")
-        finally:
-            connection.close()
+        with self._mutex:
+            while True:
+                reused = self._reusable(uri)
+                try:
+                    connection = self._connection_for(uri)
+                    connection.request("POST", path, encoded_body, headers)
+                    response = connection.getresponse()
+                    response.read()
+                    return Response(response.status, response.headers)
+                except (socket.timeout, TimeoutError):
+                    self._reset_connection()
+                    raise RequestError("Request timed out.")
+                except (http.client.HTTPException, OSError) as error:
+                    self._reset_connection()
+                    # Retry once, and only for a reused connection: a cold failure is a
+                    # real fault, not staleness. The retry runs cold, so it cannot loop.
+                    if reused and isinstance(error, STALE_CONNECTION_ERRORS):
+                        continue
+                    raise RequestError(
+                        f"Network error ({type(error).__name__}: {error})."
+                    )
+
+    def _connection_for(self, uri: ParseResult) -> http.client.HTTPConnection:
+        if self._reusable(uri):
+            return cast(http.client.HTTPConnection, self._connection)
+
+        self._reset_connection()
+        host = cast(str, uri.hostname)
+        if uri.scheme == "https":
+            connection: http.client.HTTPConnection = http.client.HTTPSConnection(
+                host, uri.port, timeout=self._timeout
+            )
+        else:
+            connection = http.client.HTTPConnection(
+                host, uri.port, timeout=self._timeout
+            )
+        # http.client connects lazily on the first request, which sets .sock. _reusable
+        # then treats a live .sock as an open keep-alive connection.
+        self._owner_pid = os.getpid()
+        self._connection = connection
+        return connection
+
+    # Reuse only a live connection this process opened to the same host. The PID check
+    # rebuilds after a fork: the child inherits the connection, but its socket is
+    # shared with the parent.
+    def _reusable(self, uri: ParseResult) -> bool:
+        connection = self._connection
+        if connection is None or connection.sock is None:
+            return False
+
+        default_port = 443 if uri.scheme == "https" else 80
+        return (
+            self._owner_pid == os.getpid()
+            and connection.host == uri.hostname
+            and connection.port == (uri.port or default_port)
+        )
+
+    def _reset_connection(self) -> None:
+        connection = self._connection
+        self._connection = None
+        if connection is not None:
+            try:
+                connection.close()
+            except OSError:
+                pass
 
     def _base_url(self) -> str:
         return os.environ.get("HIREFIRE_DATA_URL", "https://data.hirefire.io")
