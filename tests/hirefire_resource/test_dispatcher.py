@@ -409,7 +409,7 @@ def test_lease_denied_skips_worker_collection():
 def test_dispatches_cpu_samples_in_the_samples_format(monkeypatch):
     bodies = capture_ingest_bodies()
     with patch.object(Usage, "available_cpus", return_value=1.0), patch.object(
-        Usage, "total_seconds", side_effect=[0.0, 0.5]
+        Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (0.5, "cgroup_v2")]
     ):
         dispatcher = configure_cpu_only(monkeypatch, "clock")
         with freeze_time(at(1000)):
@@ -427,7 +427,7 @@ def test_dispatches_cpu_samples_in_the_samples_format(monkeypatch):
 def test_cpu_first_tick_seeds_baseline_without_dispatching(monkeypatch):
     bodies = capture_ingest_bodies()
     with patch.object(Usage, "available_cpus", return_value=1.0), patch.object(
-        Usage, "total_seconds", return_value=0.0
+        Usage, "reading", return_value=(0.0, "cgroup_v2")
     ):
         dispatcher = configure_cpu_only(monkeypatch, "clock")
         with freeze_time(at(1000)):
@@ -440,7 +440,7 @@ def test_cpu_first_tick_seeds_baseline_without_dispatching(monkeypatch):
 def test_cpu_samples_are_not_repopulated_on_dispatch_failure(monkeypatch):
     Entry.single_register(Entry.POST, INGEST_URL, status=500)
     with patch.object(Usage, "available_cpus", return_value=1.0), patch.object(
-        Usage, "total_seconds", side_effect=[0.0, 0.5]
+        Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (0.5, "cgroup_v2")]
     ):
         dispatcher = configure_cpu_only(monkeypatch, "clock")
         with freeze_time(at(1000)):

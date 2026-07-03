@@ -19,16 +19,20 @@ class Usage:
 
     @classmethod
     def total_seconds(cls) -> float | None:
-        for source in (
-            cls.cgroup_v2_seconds,
-            cls.cgroup_v1_seconds,
-            cls.proc_namespace_seconds,
-            cls.process_seconds,
+        return cls.reading()[0]
+
+    @classmethod
+    def reading(cls) -> tuple[float | None, str | None]:
+        for source, reader in (
+            ("cgroup_v2", cls.cgroup_v2_seconds),
+            ("cgroup_v1", cls.cgroup_v1_seconds),
+            ("proc", cls.proc_namespace_seconds),
+            ("process", cls.process_seconds),
         ):
-            value = source()
+            value = reader()
             if value is not None:
-                return value
-        return None
+                return value, source
+        return None, None
 
     @classmethod
     def cgroup_v2_seconds(cls) -> float | None:

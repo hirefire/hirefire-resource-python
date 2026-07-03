@@ -8,17 +8,25 @@ class CPU:
         self.name = str(name)
         self._last_usage: float | None = None
         self._last_time: float | None = None
+        self._last_source: str | None = None
 
     def sample(self) -> None:
         now = time.time()
-        usage = Usage.total_seconds()
+        usage, source = Usage.reading()
 
         previous_usage = self._last_usage
         previous_time = self._last_time
+        previous_source = self._last_source
         self._last_usage = usage
         self._last_time = now
+        self._last_source = source
 
-        if usage is None or previous_usage is None or previous_time is None:
+        if (
+            usage is None
+            or previous_usage is None
+            or previous_time is None
+            or source != previous_source
+        ):
             return
 
         wall_delta = now - previous_time
