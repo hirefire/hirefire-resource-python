@@ -205,6 +205,20 @@ def test_honors_a_path_prefix_in_the_data_url(set_HIREFIRE_TOKEN, monkeypatch):
 
 
 @mocketize
+def test_a_trailing_slash_in_the_data_url_does_not_double_the_path(
+    set_HIREFIRE_TOKEN, monkeypatch
+):
+    monkeypatch.setenv("HIREFIRE_DATA_URL", "https://custom.hirefire.io/prefix/")
+    Entry.single_register(
+        Entry.POST, "https://custom.hirefire.io/prefix/metrics/ingest", status=200
+    )
+
+    Client().submit_samples(PAYLOAD)
+
+    assert Mocket.last_request().path == "/prefix/metrics/ingest"
+
+
+@mocketize
 def test_request_lease_sends_the_agent_header(client, set_HIREFIRE_TOKEN):
     Entry.single_register(
         Entry.POST,
