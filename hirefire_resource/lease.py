@@ -67,6 +67,9 @@ class Lease:
     def close(self) -> None:
         self._client.close()
 
+    def _reinit_after_fork(self) -> None:
+        self._client._reinit_after_fork()
+
     @staticmethod
     def _bounded(value: str, bounds: tuple[int, int]) -> int:
         low, high = bounds

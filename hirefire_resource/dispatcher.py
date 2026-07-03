@@ -116,6 +116,11 @@ class Dispatcher:
         with self._mutex:
             return self._running and self._pid == os.getpid()
 
+    def _reinit_after_fork(self) -> None:
+        self._mutex = threading.Lock()
+        self._client._reinit_after_fork()
+        self._lease._reinit_after_fork()
+
     def _dispatch_loop(self) -> None:
         while self.running():
             self._tick()

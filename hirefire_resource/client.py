@@ -85,6 +85,12 @@ class Client:
         with self._mutex:
             self._reset_connection()
 
+    def _reinit_after_fork(self) -> None:
+        self._mutex = threading.Lock()
+        self._connection = None
+        self._owner_pid = None
+        self._last_used_at = None
+
     def _execute(self, endpoint: str, body: str, headers: dict[str, str]) -> Response:
         uri = urlparse(self._base_url())
         path = uri.path.rstrip("/") + endpoint

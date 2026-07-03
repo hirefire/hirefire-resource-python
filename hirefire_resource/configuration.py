@@ -204,6 +204,13 @@ class Configuration:
         if self._dispatcher is not None:
             self._dispatcher.stop()
 
+    def _reinit_after_fork(self) -> None:
+        self._mutex = threading.Lock()
+        if self._buffer is not None:
+            self._buffer._reinit_after_fork()
+        if self._dispatcher is not None:
+            self._dispatcher._reinit_after_fork()
+
     def active_cpu_collectors(self) -> list[CPU]:
         if not self.cpu:
             return []

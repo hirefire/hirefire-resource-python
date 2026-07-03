@@ -1,3 +1,4 @@
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -38,3 +39,14 @@ class HireFire:
         if cls.configuration is not None:
             cls.configuration.stop_dispatcher()
         cls.configuration = Configuration()
+
+
+def _reinit_after_fork() -> None:
+    try:
+        HireFire.configuration._reinit_after_fork()
+    except Exception:
+        pass
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reinit_after_fork)
