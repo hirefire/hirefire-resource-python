@@ -11,9 +11,6 @@ class CPU:
         self._last_source: str | None = None
 
     def sample(self) -> None:
-        # Measure the interval on the monotonic clock so a wall-clock step (e.g. NTP)
-        # cannot distort the utilization delta. The buffered sample's bucket timestamp
-        # stays wall-clock.
         now = time.monotonic()
         usage, source = Usage.reading()
 
@@ -35,7 +32,6 @@ class CPU:
         elapsed_delta = now - previous_time
         usage_delta = usage - previous_usage
 
-        # elapsed_delta <= 0 is a backstop: the monotonic clock never steps back.
         if elapsed_delta <= 0 or usage_delta < 0:
             return
 

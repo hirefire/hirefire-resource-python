@@ -6,8 +6,6 @@ from hirefire_resource.client import Client, RequestError
 
 
 class Lease:
-    # Bound server-supplied cadence: a zero or garbled header must not collapse it to a
-    # per-tick storm.
     TTL_BOUNDS = (5, 3600)
     SAMPLE_FREQUENCY_BOUNDS = (1, 3600)
 
@@ -17,7 +15,6 @@ class Lease:
         self._client = Client()
         self._ttl = 15
         self._granted = False
-        # Pace off the monotonic clock so a wall-clock step (e.g. NTP) cannot skew renewal.
         self._expires_at = time.monotonic()
         self._next_sample_at = time.monotonic()
         self.sample_frequency = 15

@@ -18,13 +18,9 @@ class RequestError(Exception):
 @dataclass
 class Response:
     status: int
-    # http.client delivers response headers as an HTTPMessage (a Message subclass),
-    # read case-insensitively via .get()/in.
     headers: Message
 
 
-# Symptoms of a keep-alive socket the peer already dropped: the next use resets, the
-# pipe breaks, or a reused socket reads a garbled or empty status line. Retry once.
 STALE_CONNECTION_ERRORS = (
     http.client.RemoteDisconnected,
     http.client.BadStatusLine,
@@ -36,8 +32,6 @@ STALE_CONNECTION_ERRORS = (
 
 
 class Client:
-    # An idle keep-alive socket is likely server-dropped, so reconnect rather than reuse
-    # it. 60 outlasts the 30s max dispatch interval.
     KEEP_ALIVE_TIMEOUT = 60
 
     def __init__(self, timeout: int = 5) -> None:
@@ -81,7 +75,6 @@ class Client:
         )
 
     def close(self) -> None:
-        # Takes the same mutex as _execute, so it never closes a socket mid-request.
         with self._mutex:
             self._reset_connection()
 
@@ -111,8 +104,6 @@ class Client:
                     raise RequestError("Request timed out.")
                 except (http.client.HTTPException, OSError) as error:
                     self._reset_connection()
-                    # Retry once, and only for a reused connection: a cold failure is a
-                    # real fault, not staleness. The retry runs cold, so it cannot loop.
                     if reused and isinstance(error, STALE_CONNECTION_ERRORS):
                         continue
                     raise RequestError(
@@ -133,15 +124,10 @@ class Client:
             connection = http.client.HTTPConnection(
                 host, uri.port, timeout=self._timeout
             )
-        # http.client connects lazily on the first request, which sets .sock. _reusable
-        # then treats a live .sock as an open keep-alive connection.
         self._owner_pid = os.getpid()
         self._connection = connection
         return connection
 
-    # Reuse only a live connection this process opened to the same host. The PID check
-    # rebuilds after a fork: the child inherits the connection, but its socket is
-    # shared with the parent.
     def _reusable(self, uri: ParseResult) -> bool:
         connection = self._connection
         if connection is None or connection.sock is None:

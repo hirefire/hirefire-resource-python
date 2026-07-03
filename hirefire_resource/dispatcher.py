@@ -45,22 +45,18 @@ class Dispatcher:
         self._thread: threading.Thread | None = None
         self._worker_thread: threading.Thread | None = None
         self._last_web_second: int | None = None
-        self._web_watermark: int | None = None
         self._dispatch_frequency = self.DEFAULT_DISPATCH_FREQUENCY
         self._next_dispatch_at: float | None = None
 
     def start(self) -> bool:
         if self._running and self._pid == os.getpid():
-            return False  # fast path: skip the mutex when already running
+            return False
 
         try:
             with self._mutex:
                 if self._running and self._pid == os.getpid():
                     return False
 
-                # Spawn before flipping _running so a failed spawn stays retryable, not
-                # latched "running" with no loop. Called unguarded from configure(), so
-                # it must not raise.
                 thread = threading.Thread(target=self._dispatch_loop, daemon=True)
                 worker_thread = (
                     threading.Thread(target=self._worker_loop, daemon=True)
@@ -109,7 +105,6 @@ class Dispatcher:
 
         self._dispatch()
 
-        # Close after the final dispatch, which reopens the client.
         self._client.close()
         self._lease.close()
 
@@ -146,9 +141,6 @@ class Dispatcher:
         self._guard(lambda: self._lease.sample_if_due(self._workers.sample))
 
     def _dispatch_if_due(self) -> None:
-        # Pace off the monotonic clock so a wall-clock step (e.g. NTP) cannot skew the
-        # cadence. Sample timestamps stay wall-clock (_backfill_web_seconds), which the
-        # server keys on.
         if (
             self._next_dispatch_at is not None
             and time.monotonic() < self._next_dispatch_at
@@ -168,13 +160,13 @@ class Dispatcher:
         data: FlushedBuffer | None = None
         try:
             data = self._buffer().flush()
-            payload = self._build_payload(data)
+            payload, watermark = self._build_payload(data)
             if not payload:
                 return
 
             body = json.dumps(payload, separators=(",", ":"))
             if len(body.encode("utf-8")) > self.PAYLOAD_SIZE_LIMIT:
-                return self._drop_oversized_payload(body)
+                return self._drop_oversized_payload(body, watermark)
 
             if os.environ.get("HIREFIRE_VERBOSE"):
                 safe_log(
@@ -182,8 +174,8 @@ class Dispatcher:
                 )
             response = self._client.submit_samples(body)
             self._apply_dispatch_frequency(response)
-            if self._web_watermark is not None:
-                self._last_web_second = self._web_watermark
+            if watermark is not None:
+                self._last_web_second = watermark
         except Exception as error:
             if data and data["web"]:
                 self._buffer().repopulate_web(data["web"])
@@ -207,9 +199,9 @@ class Dispatcher:
 
         self._dispatch_frequency = min(value, self.MAX_DISPATCH_FREQUENCY)
 
-    def _drop_oversized_payload(self, body: str) -> None:
-        if self._web_watermark is not None:
-            self._last_web_second = self._web_watermark
+    def _drop_oversized_payload(self, body: str, watermark: int | None) -> None:
+        if watermark is not None:
+            self._last_web_second = watermark
         safe_log(
             self._logger(),
             "error",
@@ -218,12 +210,13 @@ class Dispatcher:
             "current second.",
         )
 
-    def _build_payload(self, data: FlushedBuffer) -> list[Any]:
+    def _build_payload(self, data: FlushedBuffer) -> tuple[list[Any], int | None]:
         entries: list[Any] = []
+        watermark: int | None = None
 
         if self._web and self._web_liveness:
             samples = self._backfill_web_seconds(data["web"])
-            self._web_watermark = max(samples.keys())
+            watermark = max(samples.keys())
             entries.append(
                 {"name": self._web.name, "samples": self._stringify_keys(samples)}
             )
@@ -237,7 +230,7 @@ class Dispatcher:
         for name, cpu_samples in data["cpu"].items():
             entries.append({"name": name, "samples": self._stringify_keys(cpu_samples)})
 
-        return entries
+        return entries, watermark
 
     def _backfill_web_seconds(
         self, samples: dict[int, list[int]]

@@ -6,9 +6,6 @@ from hirefire_resource.log import safe_log
 
 REQUEST_QUEUE_TIME_LIMIT = 60_000
 
-# Take the leading numeric run and ignore any trailing content, matching Ruby's
-# String#to_f and JS parseFloat. A proxy chain that sets X-Request-Start twice folds the
-# header to "<ts>, <ts>", which a strict float() would reject outright, dropping the sample.
 _LEADING_NUMBER = re.compile(r"\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)")
 
 

@@ -1,8 +1,6 @@
 from collections.abc import Awaitable, Callable, Mapping, MutableMapping
 from typing import Any
 
-# Minimal ASGI signatures. The message dicts are typed loosely (Any values) because
-# the adapters only read scope["type"] and the request headers.
 Scope = MutableMapping[str, Any]
 Receive = Callable[[], Awaitable[MutableMapping[str, Any]]]
 Send = Callable[[MutableMapping[str, Any]], Awaitable[None]]
