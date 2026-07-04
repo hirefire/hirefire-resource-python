@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A zero cgroup v2 CPU quota (`cpu.max` of `0 <period>`) now falls through to the next divisor source instead of reporting zero available CPUs and disabling CPU sampling.
 - Internal dispatch pacing, lease renewal, and the CPU utilization delta now measure elapsed time on a monotonic clock, so a system clock adjustment (e.g. an NTP step) no longer skews the dispatch cadence, lease renewal, or a CPU reading. The metric timestamps themselves stay wall-clock, as the server requires.
 - `X-Request-Start` parsing reads the leading numeric value and ignores any trailing content (matching the Ruby and Node clients), so a request behind a proxy chain that sets the header at two hops (folding it to `"<ts>, <ts>"`) still yields a queue-time sample instead of being dropped.
 - A logger assigned to `config.logger` that raises from its logging method is now caught rather than propagated, so it can no longer escape a dispatcher or worker guard and halt metric reporting, or abort boot from `HireFire.configure()`.

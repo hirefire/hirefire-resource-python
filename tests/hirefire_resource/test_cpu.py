@@ -214,6 +214,16 @@ def test_reading_labels_the_source_it_falls_through_to():
         assert source == "cgroup_v1"
 
 
+def test_reading_returns_none_when_every_source_fails():
+    with patch.object(Usage, "cgroup_v2_seconds", return_value=None), patch.object(
+        Usage, "cgroup_v1_seconds", return_value=None
+    ), patch.object(Usage, "proc_namespace_seconds", return_value=None), patch.object(
+        Usage, "process_seconds", return_value=None
+    ):
+        assert Usage.reading() == (None, None)
+        assert Usage.total_seconds() is None
+
+
 def test_total_seconds_falls_back_to_proc_namespace_sum():
     mapping = {
         "/proc/1/stat": "1 (ruby) S 0 1 1 0 -1 0 0 0 0 0 500 250 0 0 20 0 1 0 9 0 0",
@@ -252,6 +262,13 @@ def test_available_cpus_reads_cgroup_v2_quota():
 def test_available_cpus_ignores_unlimited_v2_quota():
     with patch.object(
         Usage, "read", side_effect=reading({Usage.CGROUP_V2_QUOTA: "max 100000"})
+    ):
+        assert Usage.available_cpus() == os.cpu_count()
+
+
+def test_available_cpus_ignores_a_non_positive_v2_quota():
+    with patch.object(
+        Usage, "read", side_effect=reading({Usage.CGROUP_V2_QUOTA: "0 100000"})
     ):
         assert Usage.available_cpus() == os.cpu_count()
 
@@ -295,6 +312,12 @@ def test_entitlement_ignored_off_heroku():
     with patch.object(
         Usage, "read", side_effect=reading({Usage.CEDAR_MEMORY_LIMIT: "536870912"})
     ):
+        assert Usage.available_cpus() == os.cpu_count()
+
+
+def test_heroku_entitlement_without_a_readable_memory_limit_falls_through(monkeypatch):
+    monkeypatch.setenv("DYNO", "web.1")
+    with patch.object(Usage, "read", return_value=None):
         assert Usage.available_cpus() == os.cpu_count()
 
 
@@ -387,12 +410,28 @@ def test_stat_ticks_returns_none_for_a_truncated_line():
     assert Usage.stat_ticks("123 (ruby) S 0 1") is None
 
 
+def test_stat_ticks_returns_none_for_non_numeric_fields():
+    line = "123 (ruby) S 0 1 1 0 -1 0 0 0 0 0 utime stime 0 0 20 0 1 0 9 0 0"
+    assert Usage.stat_ticks(line) is None
+
+
 def test_proc_namespace_seconds_none_when_every_entry_is_unreadable():
     with patch(
         "hirefire_resource.cpu.usage.glob.glob",
         return_value=["/proc/1/stat", "/proc/2/stat"],
     ), patch.object(Usage, "read", return_value=None):
         assert Usage.proc_namespace_seconds() is None
+
+
+def test_a_garbled_proc_stat_entry_is_skipped_and_the_rest_counted():
+    mapping = {
+        "/proc/1/stat": "1 (ruby) S 0 1 1 0 -1 0 0 0 0 0 500 250 0 0 20 0 1 0 9 0 0",
+        "/proc/2/stat": "2 garbled stat line",
+    }
+    with patch.object(Usage, "read", side_effect=reading(mapping)), patch(
+        "hirefire_resource.cpu.usage.glob.glob", return_value=list(mapping)
+    ), patch.object(Usage, "clock_ticks", return_value=100):
+        assert abs(Usage.proc_namespace_seconds() - 7.5) < 0.0001
 
 
 def test_total_seconds_falls_through_on_malformed_cgroup_v2():
@@ -409,3 +448,14 @@ def test_available_cpus_falls_through_on_malformed_quota():
         Usage, "read", side_effect=reading({Usage.CGROUP_V2_QUOTA: "garbage 100000"})
     ):
         assert Usage.available_cpus() == os.cpu_count()
+
+
+def test_available_cpus_is_none_when_every_source_fails():
+    with patch.object(Usage, "cgroup_v2_quota", return_value=None), patch.object(
+        Usage, "cgroup_v1_quota", return_value=None
+    ), patch.object(Usage, "heroku_entitlement", return_value=None), patch.object(
+        Usage, "render_entitlement", return_value=None
+    ), patch.object(
+        Usage, "processor_count", return_value=None
+    ):
+        assert Usage.available_cpus() is None

@@ -128,7 +128,7 @@ class Usage:
 
         quota = cls._number(parts[0])
         period = cls._number(parts[1]) if len(parts) > 1 else None
-        if quota is None or period is None or period <= 0:
+        if quota is None or period is None or quota <= 0 or period <= 0:
             return None
         return quota / period
 
