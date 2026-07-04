@@ -27,9 +27,6 @@ class Workers:
     def __len__(self) -> int:
         return len(self._workers)
 
-    def __getitem__(self, index: int) -> Worker:
-        return self._workers[index]
-
     def sample(self) -> None:
         for worker in self._workers:
             try:

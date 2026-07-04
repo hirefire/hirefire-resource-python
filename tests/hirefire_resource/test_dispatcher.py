@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import threading
 import time
 from unittest.mock import patch
 
@@ -141,6 +142,20 @@ def test_dispatches_web_metrics():
     assert len(bodies) == 1
     assert bodies[0][0]["name"] == "web"
     assert list(bodies[0][0]["samples"].values())[0] == [12, 8]
+
+
+@mocketize
+def test_logs_the_payload_when_verbose_is_set(monkeypatch, caplog):
+    caplog.set_level(logging.INFO)
+    monkeypatch.setenv("HIREFIRE_VERBOSE", "1")
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+
+    dispatcher = configure_web_only()
+    with freeze_time(at(1000)):
+        HireFire.configuration.buffer.sample_web(12)
+        dispatcher._tick()
+
+    assert "Dispatching metrics" in caplog.text
 
 
 @mocketize
@@ -297,6 +312,25 @@ def test_oversized_payload_is_dropped_without_a_request(caplog):
     assert bodies == []
     assert HireFire.configuration.buffer.flush()["web"] == {}
     assert "Dropped metrics payload" in caplog.text
+
+
+@mocketize
+def test_an_oversized_payload_without_web_data_drops_without_touching_the_watermark(
+    caplog,
+):
+    caplog.set_level(logging.ERROR)
+    stub_lease(granted=True)
+    bodies = capture_ingest_bodies()
+
+    config = HireFire.configuration
+    config.dyno("w" * 70_000, lambda: 1)
+    dispatcher = config.dispatcher
+    dispatcher._worker_tick()
+    dispatcher._tick()
+
+    assert bodies == []
+    assert "Dropped metrics payload" in caplog.text
+    assert dispatcher._last_web_second is None
 
 
 @mocketize
@@ -595,6 +629,36 @@ def test_started_thread_dispatches_until_stopped():
 
     dispatcher.stop()
     assert not dispatcher.running()
+
+
+@mocketize
+def test_a_hung_worker_sampler_does_not_stall_web_dispatch():
+    stub_lease(granted=True)
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    bodies = IngestBodies()
+
+    release = threading.Event()
+
+    def hung_sampler():
+        release.wait()
+        return 1
+
+    config = HireFire.configuration
+    config.dyno("web")
+    config.dyno("worker", hung_sampler)
+    dispatcher = config.dispatcher
+
+    config.buffer.sample_web(5)
+    dispatcher.start()
+
+    try:
+        deadline = time.time() + 5
+        while not any(entry["name"] == "web" for body in bodies for entry in body):
+            assert time.time() < deadline, "web metrics never dispatched"
+            time.sleep(0.05)
+    finally:
+        release.set()
+        dispatcher.stop()
 
 
 @mocketize

@@ -67,6 +67,17 @@ def test_invalid_sample_values_are_dropped_and_logged(caplog):
     assert buffer().flush()["workers"] == [{"name": "worker", "sample": 7}]
 
 
+def test_a_boolean_sample_is_dropped(caplog):
+    caplog.set_level(logging.ERROR)
+    with HireFire.configure() as config:
+        config.dyno("worker", lambda: True)
+
+    HireFire.configuration.workers.sample()
+
+    assert buffer().flush()["workers"] == []
+    assert "expected a non-negative number" in caplog.text
+
+
 def test_iteration_and_names():
     workers = Workers()
     workers.append(Worker("worker", lambda: 1))

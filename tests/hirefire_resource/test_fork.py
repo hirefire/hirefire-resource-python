@@ -1,4 +1,5 @@
 import os
+from unittest.mock import patch
 
 import pytest
 
@@ -81,6 +82,15 @@ def test_reinit_after_fork_reissues_lease_identity_and_drops_the_grant():
     assert lease._granted is False
     assert lease._expires_at != float("inf")
     assert lease._next_sample_at != float("inf")
+
+
+def test_the_fork_hook_swallows_reinit_failures():
+    with patch.object(
+        HireFire.configuration,
+        "_reinit_after_fork",
+        side_effect=RuntimeError("boom"),
+    ):
+        _reinit_after_fork()
 
 
 @pytest.mark.skipif(not hasattr(os, "fork"), reason="fork() is POSIX-only")

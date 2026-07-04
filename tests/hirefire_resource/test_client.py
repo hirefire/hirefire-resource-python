@@ -351,3 +351,15 @@ def test_close_is_safe_without_a_connection(client):
     client.close()
 
     assert client._connection is None
+
+
+def test_close_swallows_a_failing_connection_shutdown(client):
+    class FailingConnection:
+        def close(self):
+            raise OSError("already closed")
+
+    client._connection = FailingConnection()
+
+    client.close()
+
+    assert client._connection is None

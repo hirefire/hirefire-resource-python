@@ -285,6 +285,39 @@ def test_clamps_a_garbled_ttl_to_a_sane_floor():
 
 
 @mocketize
+def test_clamps_a_non_numeric_sample_frequency_to_the_floor():
+    stub_lease(
+        granted="true",
+        **{"HireFire-Sample-Frequency": "abc"},
+    )
+    lease = Lease()
+    lease.request_if_due()
+    assert lease.sample_frequency == Lease.SAMPLE_FREQUENCY_BOUNDS[0]
+
+
+@mocketize
+def test_clamps_an_over_large_sample_frequency_to_the_ceiling():
+    stub_lease(
+        granted="true",
+        **{"HireFire-Sample-Frequency": "99999"},
+    )
+    lease = Lease()
+    lease.request_if_due()
+    assert lease.sample_frequency == Lease.SAMPLE_FREQUENCY_BOUNDS[1]
+
+
+@mocketize
+def test_clamps_an_over_large_ttl_to_the_ceiling():
+    stub_lease(
+        granted="true",
+        **{"HireFire-Lease-TTL": "99999"},
+    )
+    lease = Lease()
+    lease.request_if_due()
+    assert lease._ttl == Lease.TTL_BOUNDS[1]
+
+
+@mocketize
 def test_closes_the_underlying_client():
     stub_lease(granted="true")
     lease = Lease()

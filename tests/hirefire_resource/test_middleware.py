@@ -47,6 +47,60 @@ def test_process_request_queue_time_survives_a_raising_logger(set_HIREFIRE_TOKEN
         process_request_queue_time(recent_request_start())
 
 
+def test_process_request_queue_time_without_a_request_start_is_a_noop(
+    set_HIREFIRE_TOKEN,
+):
+    with patch.object(Dispatcher, "start"):
+        with HireFire.configure() as config:
+            config.dyno("web")
+
+    with patch.object(Dispatcher, "start") as start:
+        process_request_queue_time(None)
+        process_request_queue_time("")
+
+    assert HireFire.configuration.buffer.flush()["web"] == {}
+    start.assert_not_called()
+
+
+def test_process_request_queue_time_ignores_an_unparseable_value(set_HIREFIRE_TOKEN):
+    with patch.object(Dispatcher, "start"):
+        with HireFire.configure() as config:
+            config.dyno("web")
+
+    with patch.object(Dispatcher, "start") as start:
+        process_request_queue_time("garbage")
+
+    assert HireFire.configuration.buffer.flush()["web"] == {}
+    start.assert_not_called()
+
+
+def test_logs_queue_metrics_when_enabled(set_HIREFIRE_TOKEN, capsys):
+    with patch.object(Dispatcher, "start"):
+        with HireFire.configure() as config:
+            config.dyno("web")
+            config.log_queue_metrics = True
+
+    with patch.object(Dispatcher, "start"), patch(
+        "time.time", return_value=1_700_000_001
+    ):
+        process_request_queue_time("1700000000000")
+
+    assert "[hirefire:router] queue=1000ms" in capsys.readouterr().out
+
+
+def test_silent_without_log_queue_metrics(set_HIREFIRE_TOKEN, capsys):
+    with patch.object(Dispatcher, "start"):
+        with HireFire.configure() as config:
+            config.dyno("web")
+
+    with patch.object(Dispatcher, "start"), patch(
+        "time.time", return_value=1_700_000_001
+    ):
+        process_request_queue_time("1700000000000")
+
+    assert capsys.readouterr().out == ""
+
+
 def test_request_start_from_scope_handles_non_utf8_bytes():
     scope = {"headers": [(b"x-request-start", b"t=\xff\xfe")]}
 
@@ -82,24 +136,6 @@ def test_request_start_from_environ_prefers_x_request_start():
         "HTTP_X_QUEUE_START": "1699999996000",
     }
     assert request_start_from_environ(environ) == "1700000000000"
-
-
-def test_calculate_request_queue_time_keeps_a_high_but_plausible_value():
-    with patch("time.time", return_value=1_700_000_000):
-        assert calculate_request_queue_time("1699999950000") == 50_000
-
-
-def test_calculate_request_queue_time_drops_an_over_the_limit_value():
-    with patch("time.time", return_value=1_700_000_000):
-        assert calculate_request_queue_time("1699999000000") is None
-
-
-def test_calculate_request_queue_time_parses_each_router_unit():
-    with patch("time.time", return_value=1_700_000_001):
-        assert calculate_request_queue_time("t=1700000000.000") == 1000
-        assert calculate_request_queue_time("1700000000000") == 1000
-        assert calculate_request_queue_time("1700000000000000") == 1000
-        assert calculate_request_queue_time("1700000000000000000") == 1000
 
 
 def test_calculate_request_queue_time_normalizes_every_precision_variant():

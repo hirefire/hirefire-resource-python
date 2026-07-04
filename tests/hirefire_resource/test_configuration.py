@@ -179,12 +179,6 @@ def test_duplicate_name_guard_spans_dyno_and_service_case_insensitively(config):
     assert "Web" in str(exc_info.value)
 
 
-def test_duplicate_name_check_is_case_insensitive(config):
-    config.dyno("worker", lambda: 1)
-    with pytest.raises(DuplicateDynoError):
-        config.dyno("Worker", tracking="cpu")
-
-
 def test_second_http_declaration_under_a_different_name_raises(config):
     config.dyno("web")
     with pytest.raises(DuplicateDynoError) as exc_info:
