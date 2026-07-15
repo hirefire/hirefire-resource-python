@@ -12,7 +12,12 @@ from hirefire_resource.version import VERSION
 
 
 class RequestError(Exception):
-    pass
+    """Raised when a HireFire API request cannot complete successfully.
+
+    Covers a missing token, transport/timeout failures, 5xx or other unexpected
+    statuses (a 401 is treated as "no grant" and does not raise), and failed lease
+    responses.
+    """
 
 
 @dataclass

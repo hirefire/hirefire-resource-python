@@ -53,8 +53,10 @@ _F = TypeVar("_F", bound=Callable[..., Any])
 def mitigate_connection_reset_error(
     retries: int = 10, delay: int = 1
 ) -> Callable[[_F], _F]:
-    """
-    Decorator to retry a function when ConnectionResetError occurs.
+    """Internal retry helper for Celery macros on ``ConnectionResetError``.
+
+    Retries the wrapped call up to ``retries`` times with a fixed ``delay`` between
+    attempts, then re-raises. Not part of the supported public API.
 
     Args:
         retries (int): Number of retry attempts for connection errors.
@@ -79,13 +81,10 @@ def mitigate_connection_reset_error(
 
 @mitigate_connection_reset_error()
 def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
-    """
-    Calculates the maximum job queue latency across the specified queues using Celery with either
-    Redis or RabbitMQ (AMQP) as the broker.
+    """Maximum job queue latency across the given Celery queues (Redis or RabbitMQ).
 
-    This function dynamically selects the broker based on the provided broker_url, environment
-    variables, or falls back to a default local broker URL. If RabbitMQ (AMQP) is available, it is
-    preferred. Otherwise, Redis is used.
+    The broker is chosen from ``broker_url``, then the standard env vars, then a local
+    default (AMQP when available, otherwise Redis).
 
     Note:
         - Due to Celery's architecture, it is not possible to measure job queue latency with 100%
@@ -120,8 +119,9 @@ def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
               "redis://localhost:6379/0".
 
     Returns:
-        float: The maximum latency in seconds across the specified queues. Returns 0 if the
-            broker connection cannot be established.
+        float: The maximum latency in seconds across the specified queues. Returns 0 on
+            ``OperationalError`` (for example the broker is unreachable).
+            ``ConnectionResetError`` is retried then re-raised.
 
     Raises:
         MissingQueueError: If no queue names are provided.
@@ -175,14 +175,9 @@ def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
 
 
 async def async_job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
-    """
-    Asynchronously calculates the maximum job queue latency across the specified queues using Celery
-    with either Redis or RabbitMQ (AMQP) as the broker.
+    """Async wrapper for :func:`job_queue_latency`.
 
-    This function is an asynchronous wrapper around the synchronous `job_queue_latency` function. It
-    executes the synchronous function in a separate thread using asyncio's event loop and
-    `run_in_executor` method. This ensures that the synchronous Celery I/O operations do not block
-    the asyncio event loop.
+    Runs the synchronous Celery I/O in a thread pool so it does not block the event loop.
 
     Note:
         - Due to Celery's architecture, it is not possible to measure job queue latency with 100%
@@ -217,8 +212,9 @@ async def async_job_queue_latency(*queues: str, broker_url: str | None = None) -
               "redis://localhost:6379/0".
 
     Returns:
-        float: The maximum latency in seconds across the specified queues. Returns 0 if the
-            broker connection cannot be established.
+        float: The maximum latency in seconds across the specified queues. Returns 0 on
+            ``OperationalError`` (for example the broker is unreachable).
+            ``ConnectionResetError`` is retried then re-raised.
 
     Raises:
         MissingQueueError: If no queue names are provided.
@@ -244,13 +240,12 @@ def job_queue_size(
     broker_url: str | None = None,
     celery_app: "Celery | None" = None,
 ) -> int:
-    """
-    Calculates the total job queue size across the specified queues using Celery with either Redis
-    or RabbitMQ (AMQP) as the broker.
+    """Total job count across the given Celery queues (Redis or RabbitMQ).
 
-    This function dynamically selects the broker based on the provided broker_url, environment
-    variables, or falls back to a default local broker URL. If RabbitMQ (AMQP) is available, it is
-    preferred. Otherwise, Redis is used.
+    Sums broker backlog plus worker-held work for those queues (active, reserved, and
+    due scheduled tasks from Celery inspect). The broker is chosen from ``broker_url``
+    or ``celery_app``, then the standard env vars, then a local default (AMQP when
+    available, otherwise Redis).
 
     Note:
         - It is recommended to avoid using the eta and countdown options for tasks in queues that
@@ -282,8 +277,9 @@ def job_queue_size(
             with custom arguments like x-max-priority.
 
     Returns:
-        int: The cumulative job queue size across the specified queues. Returns 0 if the
-            broker connection cannot be established.
+        int: Broker depth plus worker-held tasks across the specified queues. Returns 0
+            on ``OperationalError`` (for example the broker is unreachable).
+            ``ConnectionResetError`` is retried then re-raised.
 
     Raises:
         MissingQueueError: If no queue names are provided.
@@ -350,14 +346,9 @@ async def async_job_queue_size(
     broker_url: str | None = None,
     celery_app: "Celery | None" = None,
 ) -> int:
-    """
-    Asynchronously calculates the total job queue size across the specified queues using Celery with
-    either Redis or RabbitMQ (AMQP) as the broker.
+    """Async wrapper for :func:`job_queue_size`.
 
-    This function is an asynchronous wrapper around the synchronous `job_queue_size` function. It
-    executes the synchronous function in a separate thread using asyncio's event loop and
-    `run_in_executor` method. This ensures that the synchronous Celery I/O operations do not block
-    the asyncio event loop.
+    Runs the synchronous Celery I/O in a thread pool so it does not block the event loop.
 
     Note:
         - It is recommended to avoid using the eta and countdown options for tasks in queues that
@@ -388,8 +379,9 @@ async def async_job_queue_size(
             queues with custom arguments like x-max-priority.
 
     Returns:
-        int: The cumulative job queue size across the specified queues. Returns 0 if the
-            broker connection cannot be established.
+        int: Broker depth plus worker-held tasks across the specified queues. Returns 0
+            on ``OperationalError`` (for example the broker is unreachable).
+            ``ConnectionResetError`` is retried then re-raised.
 
     Raises:
         MissingQueueError: If no queue names are provided.
@@ -420,6 +412,12 @@ def run_at_header_signal(
     properties: Any = None,
     **kwargs: Any,
 ) -> None:
+    """Celery ``before_task_publish`` handler that sets the ``run_at`` task header.
+
+    Connected automatically when this module is imported. Sets ``run_at`` from the
+    task's ``eta`` when present, otherwise the current UTC time. Required for
+    :func:`job_queue_latency`. Callers do not invoke this directly.
+    """
     headers = headers or {}
     eta = headers.get("eta")
 
@@ -433,7 +431,7 @@ def _job_queue_latency_redis(channel: Any, queue: str) -> float:
     oldest_job = channel.client.lindex(queue, -1)
 
     if oldest_job:
-        oldest_job = json.loads(oldest_job.decode("utf-8"))
+        oldest_job = json.loads(_as_str(oldest_job))
         run_at = oldest_job.get("headers", {}).get("run_at")
 
         if run_at:
@@ -442,6 +440,12 @@ def _job_queue_latency_redis(channel: Any, queue: str) -> float:
             return max(0, latency)
 
     return 0
+
+
+def _as_str(value: bytes | str) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return value
 
 
 def _job_queue_latency_rabbitmq(channel: Any, queue: str) -> float:

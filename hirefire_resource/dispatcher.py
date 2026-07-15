@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 
 
 class Dispatcher:
+    """Periodic reporter that samples workers/CPU and flushes buffered metrics to the API."""
+
     WEB_BACKFILL_LIMIT = 60
 
     PAYLOAD_SIZE_LIMIT = 65_536
@@ -49,6 +51,12 @@ class Dispatcher:
         self._next_dispatch_at: float | None = None
 
     def start(self) -> bool:
+        """Starts the dispatcher loops.
+
+        Returns:
+            bool: ``True`` when started. ``False`` if already running in this process,
+            or if starting the loops failed (the failure is logged).
+        """
         if self._running and self._pid == os.getpid():
             return False
 
@@ -83,6 +91,14 @@ class Dispatcher:
         return True
 
     def stop(self) -> bool:
+        """Stops the dispatcher loops and closes transport resources.
+
+        Joins local loop threads for up to 5 seconds each, then performs a best-effort
+        final flush before closing the HTTP client and lease connection.
+
+        Returns:
+            bool: ``True`` once the dispatcher has stopped, ``False`` when it was not running.
+        """
         threads: list[threading.Thread] = []
 
         with self._mutex:
@@ -113,6 +129,7 @@ class Dispatcher:
         return True
 
     def running(self) -> bool:
+        """Whether the dispatcher is currently running in this process."""
         with self._mutex:
             return self._running and self._pid == os.getpid()
 

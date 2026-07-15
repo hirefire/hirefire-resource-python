@@ -9,6 +9,7 @@ from kombu import Queue
 from hirefire_resource.errors import MissingQueueError
 from hirefire_resource.macro.celery import (
     _cache_worker_data,
+    _job_queue_latency_redis,
     async_job_queue_latency,
     async_job_queue_size,
     job_queue_latency,
@@ -404,3 +405,22 @@ def test_job_queue_size_with_mismatched_priority_arguments(celery_app):
                 channel.queue_delete(queue=queue_name)
         except Exception:
             pass
+
+
+def test_job_queue_latency_redis_accepts_str_payload():
+    run_at = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat()
+    payload = (
+        '{"headers": {"run_at": "'
+        + run_at
+        + '"}, "body": "", "content-type": "application/json"}'
+    )
+
+    class FakeClient:
+        def lindex(self, queue, index):
+            return payload
+
+    class FakeChannel:
+        client = FakeClient()
+
+    latency = _job_queue_latency_redis(FakeChannel(), "celery")
+    assert math.isclose(latency, 5, abs_tol=1)

@@ -10,6 +10,14 @@ _LEADING_NUMBER = re.compile(r"\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)")
 
 
 def process_request_queue_time(request_start: str | None) -> None:
+    """Parse a request-start header and record a queue-time sample when configured.
+
+    Used by the framework middleware and by custom wrappers. When
+    ``configuration.web`` and ``configuration.token`` are both set, samples the
+    queue time (milliseconds) and starts the dispatcher. When
+    ``log_queue_metrics`` is true, also prints ``[hirefire:router] queue=…ms``.
+    Failures in this path are logged and swallowed so the host app is unaffected.
+    """
     if not request_start:
         return
 

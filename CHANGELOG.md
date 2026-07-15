@@ -32,9 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The push destination is `data.hirefire.io` (override with `HIREFIRE_DATA_URL`). The `HIREFIRE_DISPATCH_URL` environment variable (1.x web → logdrain override) is removed. Restricted-egress networks must allowlist `data.hirefire.io` (outbound) or metrics silently stop.
 - The dispatcher now starts automatically when `HireFire.configure()` exits with a token present, so worker-only apps push without needing any web traffic. `HireFire.reset()` stops the dispatcher and replaces the configuration.
 - Supported Python versions are now 3.11 to 3.14. Python 3.9 and 3.10 are no longer supported.
+- `Configuration.active_cpu_collectors`, `web_liveness`, and `resolved_identity` are now private (`_active_cpu_collectors`, `_web_liveness`, `_resolved_identity`), matching Ruby's private methods and Node's underscore-prefixed names. They were never part of the documented public API.
 
 ### Fixed
 
+- `config.token` now treats an empty-string in-code value as set (and returns it) instead of falling through to `HIREFIRE_TOKEN`, matching Ruby and Node.
+- RQ and Celery Redis macros no longer call `.decode()` on replies that may already be `str` when the Redis URL sets `decode_responses=true` (or when the client otherwise returns strings). Keys, job ids, `enqueued_at`, and Celery queue payloads are normalized with a `bytes | str` helper first.
 - A zero cgroup v2 CPU quota (`cpu.max` of `0 <period>`) now falls through to the next divisor source instead of reporting zero available CPUs and disabling CPU sampling.
 - Internal dispatch pacing, lease renewal, and the CPU utilization delta now measure elapsed time on a monotonic clock, so a system clock adjustment (e.g. an NTP step) no longer skews the dispatch cadence, lease renewal, or a CPU reading. The metric timestamps themselves stay wall-clock, as the server requires.
 - `X-Request-Start` parsing reads the leading numeric value and ignores any trailing content (matching the Ruby and Node clients), so a request behind a proxy chain that sets the header at two hops (folding it to `"<ts>, <ts>"`) still yields a queue-time sample instead of being dropped.

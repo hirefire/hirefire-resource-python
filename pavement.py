@@ -25,8 +25,3 @@ def format():
     sh("autoflake --remove-all-unused-imports -ri .")
     sh("isort --profile black .")
     sh("black .")
-
-
-@task
-def doc():
-    sh(f"sphinx-build -M html docs docs/_build")

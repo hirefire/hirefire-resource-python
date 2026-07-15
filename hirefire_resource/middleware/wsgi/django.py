@@ -5,6 +5,13 @@ from hirefire_resource.middleware.wsgi import request_start_from_environ
 
 
 class HireFireMiddleware:
+    """Django WSGI middleware that samples request queue time.
+
+    Reads ``X-Request-Start`` (or ``X-Queue-Start``) from the request and records a
+    queue-time sample when an http process and token are configured. Add it to
+    ``MIDDLEWARE`` early in the stack.
+    """
+
     def __init__(self, get_response: Any) -> None:
         self.get_response = get_response
 

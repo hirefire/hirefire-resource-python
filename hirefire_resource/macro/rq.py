@@ -8,12 +8,11 @@ import redis
 
 
 def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
-    """
-    Calculates the maximum job queue latency using RQ. If no queues are specified, it measures
-    latency across all available queues.
+    """Maximum job queue latency across the given RQ queues.
 
-    This function dynamically selects the Redis broker based on the provided redis_url or
-    environment variables, or falls back to a default local Redis URL.
+    With no queues, measures latency across every queue present. Includes ready queue
+    jobs and **due** scheduled jobs (score ≤ now). Future scheduled jobs are ignored.
+    Redis is chosen from ``redis_url``, then the standard env vars, then a local default.
 
     Args:
         *queues (str): Names of the queues for latency measurement.
@@ -50,7 +49,7 @@ def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
     queue_names: set[str] | tuple[str, ...] = queues
     if not queue_names:
         keys = redis_client.keys("rq:scheduled:*") + redis_client.keys("rq:queue:*")
-        queue_names = set(key.decode("utf-8").split(":")[2] for key in keys)
+        queue_names = set(_as_str(key).split(":")[2] for key in keys)
 
     pipeline = redis_client.pipeline()
     current_time = time.time()
@@ -70,7 +69,7 @@ def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
 
     for job_id in job_ids[::2]:
         if job_id:
-            pipeline.hget(f"rq:job:{job_id.decode('utf-8')}", "enqueued_at")
+            pipeline.hget(f"rq:job:{_as_str(job_id)}", "enqueued_at")
 
     enqueued_at_times = pipeline.execute()
 
@@ -78,7 +77,7 @@ def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
 
     for enqueued_at in enqueued_at_times:
         if enqueued_at:
-            latency = current_time - _iso_to_unix(enqueued_at.decode("utf-8"))
+            latency = current_time - _iso_to_unix(_as_str(enqueued_at))
             max_latency = max(max_latency, latency)
 
     for job_data in job_ids[1::2]:
@@ -92,14 +91,9 @@ def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
 
 
 async def async_job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
-    """
-    Asynchronously calculates the maximum job queue latency using RQ. If no queues are specified, it
-    measures latency across all available queues.
+    """Async wrapper for :func:`job_queue_latency`.
 
-    This function is an asynchronous wrapper around the synchronous `job_queue_latency` function. It
-    executes the synchronous function in a separate thread using asyncio's event loop and
-    `run_in_executor` method. This ensures that the synchronous Redis I/O operations do not block
-    the asyncio event loop.
+    Runs the synchronous Redis I/O in a thread pool so it does not block the event loop.
 
     Args:
         *queues (str): Names of the queues for latency measurement.
@@ -127,12 +121,11 @@ async def async_job_queue_latency(*queues: str, redis_url: str | None = None) ->
 
 
 def job_queue_size(*queues: str, redis_url: str | None = None) -> int:
-    """
-    Calculates the total job queue size using RQ. If no queues are specified, it measures size
-    across all available queues.
+    """Total job count across the given RQ queues.
 
-    This function dynamically selects the Redis broker based on the provided redis_url, environment
-    variables, or falls back to a default local Redis URL.
+    With no queues, measures size across every queue present. Counts ready queue jobs
+    plus **due** scheduled jobs (score ≤ now). Future scheduled jobs are excluded.
+    Redis is chosen from ``redis_url``, then the standard env vars, then a local default.
 
     Args:
         *queues (str): Names of the queues for size measurement.
@@ -169,7 +162,7 @@ def job_queue_size(*queues: str, redis_url: str | None = None) -> int:
     queue_names: set[str] | tuple[str, ...] = queues
     if not queue_names:
         keys = redis_client.keys("rq:scheduled:*") + redis_client.keys("rq:queue:*")
-        queue_names = set(key.decode("utf-8").split(":")[2] for key in keys)
+        queue_names = set(_as_str(key).split(":")[2] for key in keys)
 
     pipeline = redis_client.pipeline()
     current_time = int(time.time())
@@ -185,14 +178,9 @@ def job_queue_size(*queues: str, redis_url: str | None = None) -> int:
 
 
 async def async_job_queue_size(*queues: str, redis_url: str | None = None) -> int:
-    """
-    Asynchronously calculates the total job queue size using RQ. If no queues are specified, it
-    measures size across all available queues.
+    """Async wrapper for :func:`job_queue_size`.
 
-    This function is an asynchronous wrapper around the synchronous `job_queue_size` function. It
-    executes the synchronous function in a separate thread using asyncio's event loop and
-    `run_in_executor` method. This ensures that the synchronous Redis I/O operations do not block
-    the asyncio event loop.
+    Runs the synchronous Redis I/O in a thread pool so it does not block the event loop.
 
     Args:
         *queues (str): Names of the queues for size measurement.
@@ -217,6 +205,12 @@ async def async_job_queue_size(*queues: str, redis_url: str | None = None) -> in
     loop = asyncio.get_event_loop()
     func = functools.partial(job_queue_size, *queues, redis_url=redis_url)
     return await loop.run_in_executor(None, func)
+
+
+def _as_str(value: bytes | str) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return value
 
 
 def _iso_to_unix(iso_time: str) -> float:

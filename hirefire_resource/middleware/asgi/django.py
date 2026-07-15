@@ -10,6 +10,16 @@ from hirefire_resource.middleware.asgi import (
 
 
 class HireFireMiddleware:
+    """Django ASGI middleware that samples request queue time.
+
+    Reads ``X-Request-Start`` (or ``X-Queue-Start``) from the ASGI scope and records a
+    queue-time sample on HTTP requests when an http process and token are configured
+    (websocket and lifespan scopes pass through without sampling). Wrap the ASGI
+    application in ``asgi.py`` (for example
+    ``application = HireFireMiddleware(get_asgi_application())``). Do not put it in
+    ``MIDDLEWARE``: that stack is for Django middleware classes, not raw ASGI wrappers.
+    """
+
     def __init__(self, inner: Any) -> None:
         self.inner = inner
 

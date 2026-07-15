@@ -131,3 +131,29 @@ async def test_async_job_queue_size():
     assert await async_job_queue_size(redis_url=redis_url) == 1
     assert await async_job_queue_size("default", redis_url=redis_url) == 1
     assert await async_job_queue_size("critical", redis_url=redis_url) == 0
+
+
+def test_job_queue_size_with_decode_responses():
+    default = Queue("default", connection=Redis.from_url(redis_url))
+    default.enqueue("my_function")
+
+    decode_url = (
+        redis_url + ("&" if "?" in redis_url else "?") + "decode_responses=true"
+    )
+    assert job_queue_size(redis_url=decode_url) == 1
+    assert job_queue_size("default", redis_url=decode_url) == 1
+
+
+def test_job_queue_latency_with_decode_responses():
+    default = Queue("default", connection=Redis.from_url(redis_url))
+
+    with freeze_time(datetime.fromtimestamp(time.time() - 200, timezone.utc)):
+        default.enqueue("my_function")
+
+    decode_url = (
+        redis_url + ("&" if "?" in redis_url else "?") + "decode_responses=true"
+    )
+    assert job_queue_latency(redis_url=decode_url) == pytest.approx(200, abs=10)
+    assert job_queue_latency("default", redis_url=decode_url) == pytest.approx(
+        200, abs=10
+    )

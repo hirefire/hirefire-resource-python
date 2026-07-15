@@ -10,6 +10,13 @@ from hirefire_resource.middleware.asgi import (
 
 
 class HireFireMiddleware:
+    """Quart middleware that samples request queue time.
+
+    Install with ``app.asgi_app = HireFireMiddleware(app)``. Records a queue-time
+    sample from ``X-Request-Start`` (or ``X-Queue-Start``) on each HTTP request when
+    an http process and token are configured.
+    """
+
     def __init__(self, app: Any) -> None:
         self.original_app = app.asgi_app
 

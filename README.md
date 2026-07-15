@@ -21,6 +21,10 @@ This library integrates Python applications with HireFire's Heroku Dyno Autoscal
 
 The test suite runs against these minimum versions and the current latest release of each runtime and library. Older versions may still work, but are not officially supported.
 
+**Types:**
+
+The package ships inline PEP 484 type hints and a `py.typed` marker (PEP 561). No separate stubs package is needed.
+
 ---
 
 Since 2011, HireFire has helped over 1,500 companies autoscale more than 5,000 [Heroku] applications across 10,000+ web and worker dynos.
@@ -37,7 +41,7 @@ Requires [Docker](https://www.docker.com/) and [mise](https://mise.jdx.dev/). Re
 
 - Run `bin/setup` to prepare the environment.
 - Run `bin/services up` / `bin/services down` to start / stop the Redis and RabbitMQ containers.
-- Run `poetry run paver <task>` for common tasks (`format`, `check`, `test`, `doc`), or `poetry run tox` for the full version matrix.
+- Run `poetry run paver <task>` for common tasks (`format`, `check`, `test`), or `poetry run tox` for the full version matrix.
 
 ## Release
 

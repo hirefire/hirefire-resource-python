@@ -357,6 +357,19 @@ def test_token_defaults_to_none_without_env(config):
     assert config.token is None
 
 
+def test_token_empty_string_is_not_overridden_by_env(config, monkeypatch):
+    monkeypatch.setenv("HIREFIRE_TOKEN", "from-env")
+    config.token = ""
+    assert config.token == ""
+
+
+def test_token_none_falls_back_to_env(config, monkeypatch):
+    monkeypatch.setenv("HIREFIRE_TOKEN", "from-env")
+    config.token = "custom-token"
+    config.token = None
+    assert config.token == "from-env"
+
+
 def test_tracking_cannot_be_passed_positionally(config):
     with pytest.raises(TypeError):
         config.dyno("clock", None, "cpu")

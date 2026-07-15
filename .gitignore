@@ -4,7 +4,6 @@
 .tox/
 __pycache__/
 /dist
-/docs/_build
 CLAUDE.md
 .worktreeinclude
 AGENTS.md

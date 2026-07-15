@@ -12,13 +12,17 @@ if TYPE_CHECKING:
 
 
 class Workers:
+    """Collection of job-metric Worker collectors declared on the configuration."""
+
     def __init__(self) -> None:
         self._workers: list[Worker] = []
 
     def append(self, worker: Worker) -> None:
+        """Adds a worker collector to the collection."""
         self._workers.append(worker)
 
     def any(self) -> bool:
+        """Whether any worker collectors are declared."""
         return len(self._workers) > 0
 
     def __iter__(self) -> Iterator[Worker]:
@@ -28,6 +32,11 @@ class Workers:
         return len(self._workers)
 
     def sample(self) -> None:
+        """Samples every worker and buffers valid metric values.
+
+        A value is valid when it is a non-boolean, non-negative, finite number.
+        Invalid or raised sampler results are logged and skipped, not re-raised.
+        """
         for worker in self._workers:
             try:
                 value = worker.sample()

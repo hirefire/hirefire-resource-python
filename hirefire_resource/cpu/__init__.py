@@ -4,6 +4,12 @@ from hirefire_resource.cpu.usage import Usage
 
 
 class CPU:
+    """CPU utilization collector for a declared process.
+
+    Attributes:
+        name: The process name this collector reports under.
+    """
+
     def __init__(self, name: str) -> None:
         self.name = str(name)
         self._last_usage: float | None = None
@@ -11,6 +17,13 @@ class CPU:
         self._last_source: str | None = None
 
     def sample(self) -> None:
+        """Samples CPU utilization and buffers a percentage when a delta is available.
+
+        The first sample only seeds a baseline. Later samples no-op when the usage
+        source changes, elapsed time is non-positive, usage went backwards, or available
+        CPUs cannot be determined. A successful sample is clamped to 0-100 and rounded
+        to two decimal places.
+        """
         now = time.monotonic()
         usage, source = Usage.reading()
 

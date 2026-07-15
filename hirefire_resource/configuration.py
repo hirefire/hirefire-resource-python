@@ -21,22 +21,51 @@ _UNSET: object = object()
 
 
 class MissingSamplerError(Exception):
-    pass
+    """Raised when ``service`` or ``dyno`` cannot resolve a collector.
+
+    Neither ``tracking`` nor a sampler was given. Bare ``dyno("web")`` is valid: the
+    ``"web"`` name implies http without either argument.
+    """
 
 
 class UnexpectedSamplerError(Exception):
-    pass
+    """Raised when a sampler is given alongside ``tracking="http"`` or ``"cpu"``.
+
+    Those collectors gather their values automatically and do not take a sampler.
+    """
 
 
 class UnknownCollectorError(Exception):
-    pass
+    """Raised when ``tracking`` is given a value the method does not accept."""
 
 
 class DuplicateDynoError(Exception):
-    pass
+    """Raised when a dyno name was already declared, or a second http process is declared.
+
+    Names are compared case-insensitively. At most one http collector may exist per
+    app process.
+    """
 
 
 class Configuration:
+    """Declares what each process tracks (http, job metrics, CPU) and holds shared settings.
+
+    Shared settings include the token, logger, and collectors registered via
+    :meth:`service` and :meth:`dyno`.
+
+    Attributes:
+        web: The http collector once an http process is declared, otherwise ``None``.
+        workers: Job-metric collectors declared via sampler callables on :meth:`service`
+            or :meth:`dyno`.
+        cpu: CPU collectors declared via :meth:`service` or :meth:`dyno` with
+            ``tracking="cpu"``.
+        logger: Logger used for HireFire diagnostic messages. Defaults to a stdout logger.
+            Assign a custom logger, or ``None`` (or a logger missing the log methods) to
+            silence diagnostics.
+        log_queue_metrics: When true, the HTTP middleware prints
+            ``[hirefire:router] queue=…ms`` for each sample.
+    """
+
     SERVICE_COLLECTORS = {"http": "http", "cpu": "cpu"}
     DYNO_COLLECTORS = {"cpu": "cpu"}
 
@@ -50,12 +79,23 @@ class Configuration:
         self._buffer: Buffer | None = None
         self._dispatcher: Dispatcher | None = None
         self._token: str | None = None
-        self._resolved_identity: str | None | object = _UNSET
+        self._identity: str | None | object = _UNSET
         self._mutex = threading.Lock()
 
     @property
     def token(self) -> str | None:
-        return self._token or os.environ.get("HIREFIRE_TOKEN")
+        """The HireFire API token.
+
+        Returns the value assigned in code when it is not ``None``, else the
+        ``HIREFIRE_TOKEN`` environment variable, else ``None``. Assigning ``None``
+        clears the in-code value so the environment variable is consulted again. It
+        does not force the token off when ``HIREFIRE_TOKEN`` is set. A token present
+        when :meth:`HireFire.configure` exits starts the dispatcher and enables
+        reporting.
+        """
+        return (
+            self._token if self._token is not None else os.environ.get("HIREFIRE_TOKEN")
+        )
 
     @token.setter
     def token(self, value: str | None) -> None:
@@ -70,14 +110,13 @@ class Configuration:
     ) -> None:
         """Declares a service by dyno name.
 
-        Like :meth:`service`, but the name "web" (case-insensitive) implies
-        ``tracking="http"`` on its own, and ``"cpu"`` is the only ``tracking`` value
-        ``dyno`` accepts.
+        Like :meth:`service`, but the name "web" (case-insensitive) implies http on its
+        own, and ``"cpu"`` is the only ``tracking`` value ``dyno`` accepts
+        (``tracking="http"`` is rejected: use :meth:`service` for that).
 
         Resolution: ``tracking="cpu"`` tracks CPU, a sampler tracks job metrics, and the
-        name "web" (case-insensitive) tracks http on its own. ``"cpu"`` is the only
-        ``tracking`` value ``dyno`` accepts. For an http process under a non-"web"
-        name, use ``service(name, tracking="http")``.
+        name "web" (case-insensitive) tracks http on its own. For an http process under a
+        non-"web" name, use ``service(name, tracking="http")``.
 
         Args:
             name (str): The process name. Must be non-empty.
@@ -140,8 +179,9 @@ class Configuration:
           typically via a queue macro (e.g. ``job_queue_latency``).
         - ``tracking="cpu"``: this process's CPU utilization.
 
-        :meth:`dyno` is this method plus the convention that the name "web"
-        implies ``"http"``.
+        :meth:`dyno` is this method plus the convention that the name "web" implies http,
+        with the restriction that ``dyno`` only accepts ``tracking="cpu"`` (not
+        ``"http"``).
 
         Args:
             name (str): The process name. Must be non-empty.
@@ -182,6 +222,7 @@ class Configuration:
 
     @property
     def buffer(self) -> Buffer:
+        """In-memory metric buffer that accumulates samples between dispatcher flushes."""
         if self._buffer is None:
             with self._mutex:
                 if self._buffer is None:
@@ -190,18 +231,20 @@ class Configuration:
 
     @property
     def dispatcher(self) -> Dispatcher:
+        """Periodic reporter that samples workers/CPU and flushes buffered metrics to the API."""
         if self._dispatcher is None:
             with self._mutex:
                 if self._dispatcher is None:
                     self._dispatcher = Dispatcher(
                         web=self.web,
                         workers=self.workers,
-                        cpu=self.active_cpu_collectors(),
-                        web_liveness=self.web_liveness(),
+                        cpu=self._active_cpu_collectors(),
+                        web_liveness=self._web_liveness(),
                     )
         return self._dispatcher
 
     def stop_dispatcher(self) -> None:
+        """Stops the dispatcher if one was started."""
         if self._dispatcher is not None:
             self._dispatcher.stop()
 
@@ -212,11 +255,11 @@ class Configuration:
         if self._dispatcher is not None:
             self._dispatcher._reinit_after_fork()
 
-    def active_cpu_collectors(self) -> list[CPU]:
+    def _active_cpu_collectors(self) -> list[CPU]:
         if not self.cpu:
             return []
 
-        resolved = self.resolved_identity()
+        resolved = self._resolved_identity()
 
         if resolved is None:
             safe_log(
@@ -234,16 +277,16 @@ class Configuration:
             if collector.name.lower() == resolved.lower()
         ]
 
-    def web_liveness(self) -> bool:
+    def _web_liveness(self) -> bool:
         if not self.web:
             return True
 
-        resolved = self.resolved_identity()
+        resolved = self._resolved_identity()
         return resolved is None or resolved.lower() == self.web.name.lower()
 
-    def resolved_identity(self) -> str | None:
-        if self._resolved_identity is not _UNSET:
-            return cast("str | None", self._resolved_identity)
+    def _resolved_identity(self) -> str | None:
+        if self._identity is not _UNSET:
+            return cast("str | None", self._identity)
 
         if identity.heroku_conflict():
             safe_log(
@@ -255,8 +298,8 @@ class Configuration:
                 "per process in the Procfile, or unset it to use automatic detection.",
             )
 
-        self._resolved_identity = identity.resolve()
-        return self._resolved_identity
+        self._identity = identity.resolve()
+        return self._identity
 
     def _coerce_name(self, name: str | None) -> str:
         name = "" if name is None else str(name)

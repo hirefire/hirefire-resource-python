@@ -6,6 +6,12 @@ from hirefire_resource.configuration import Configuration
 
 
 class HireFire:
+    """HireFire singleton entrypoint: configure processes and report metrics.
+
+    Attributes:
+        configuration: The process-wide shared configuration (class-level singleton state).
+    """
+
     configuration: Configuration = Configuration()
 
     @classmethod
@@ -36,6 +42,10 @@ class HireFire:
 
     @classmethod
     def reset(cls) -> None:
+        """Stops any running dispatcher and replaces the configuration with a fresh one.
+
+        Intended for tests and reconfiguration between runs.
+        """
         if cls.configuration is not None:
             cls.configuration.stop_dispatcher()
         cls.configuration = Configuration()

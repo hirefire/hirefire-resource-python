@@ -10,6 +10,14 @@ from hirefire_resource.middleware.asgi import (
 
 
 class HireFireMiddleware:
+    """Starlette/FastAPI middleware that samples request queue time.
+
+    Install by wrapping the app (``app = HireFireMiddleware(app)``) or, with FastAPI,
+    ``app.add_middleware(HireFireMiddleware)``. Records a queue-time sample from
+    ``X-Request-Start`` (or ``X-Queue-Start``) on each HTTP request when an http
+    process and token are configured.
+    """
+
     def __init__(self, app: Any) -> None:
         self.app = app
 
