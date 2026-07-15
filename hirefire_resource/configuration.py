@@ -328,8 +328,7 @@ class Configuration:
                 )
             self.web = Web(name)
         elif collector == "job":
-            if proc is None:
-                raise MissingSamplerError(f"Missing sampler for {name!r}")
+            assert proc is not None
             self.workers.append(Worker(name, proc))
         elif collector == "cpu":
             self._reject_sampler(name, proc)

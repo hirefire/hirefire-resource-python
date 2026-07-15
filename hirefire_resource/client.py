@@ -32,7 +32,6 @@ STALE_CONNECTION_ERRORS = (
     ConnectionResetError,
     ConnectionAbortedError,
     BrokenPipeError,
-    EOFError,
 )
 
 
