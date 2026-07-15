@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Lease renewal re-issues the process identity and drops any inherited grant when the process id changes (for example after a fork when the at-fork reinit did not run), matching Ruby.
 - Dispatcher loop threads bind to a start generation, so a hung loop that outlives `stop()`'s join cannot resume work after a later `start()`.
+- Celery RabbitMQ latency measurement always requeues the peeked message, even when parsing `run_at` fails, so a bad payload cannot leave a message unacked.
+- Celery worker-size inspect no longer permanently mutates the caller's `control_queue_exclusive` / `event_queue_exclusive` settings, and the 5-second worker-data cache is keyed per Celery app.
 - `config.token` now treats an empty-string in-code value as set (and returns it) instead of falling through to `HIREFIRE_TOKEN`, matching Ruby and Node.
 - RQ and Celery Redis macros no longer call `.decode()` on replies that may already be `str` when the Redis URL sets `decode_responses=true` (or when the client otherwise returns strings). Keys, job ids, `enqueued_at`, and Celery queue payloads are normalized with a `bytes | str` helper first.
 - A zero cgroup v2 CPU quota (`cpu.max` of `0 <period>`) now falls through to the next divisor source instead of reporting zero available CPUs and disabling CPU sampling.

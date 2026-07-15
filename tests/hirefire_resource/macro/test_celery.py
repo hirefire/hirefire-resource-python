@@ -9,7 +9,9 @@ from kombu import Queue
 from hirefire_resource.errors import MissingQueueError
 from hirefire_resource.macro.celery import (
     _cache_worker_data,
+    _job_queue_latency_rabbitmq,
     _job_queue_latency_redis,
+    _worker_data,
     async_job_queue_latency,
     async_job_queue_size,
     job_queue_latency,
@@ -424,3 +426,88 @@ def test_job_queue_latency_redis_accepts_str_payload():
 
     latency = _job_queue_latency_redis(FakeChannel(), "celery")
     assert math.isclose(latency, 5, abs_tol=1)
+
+
+def test_job_queue_latency_rabbitmq_requeues_after_parse_error():
+    class BrokenMessage:
+        headers = object()
+        delivery_tag = 7
+
+    class FakeChannel:
+        def __init__(self):
+            self.rejected = []
+
+        def basic_get(self, queue):
+            return BrokenMessage()
+
+        def basic_reject(self, delivery_tag, requeue=False):
+            self.rejected.append((delivery_tag, requeue))
+
+    channel = FakeChannel()
+    with pytest.raises(AttributeError):
+        _job_queue_latency_rabbitmq(channel, "celery")
+
+    assert channel.rejected == [(7, True)]
+
+
+def test_worker_data_restores_inspect_queue_settings(celery_app):
+    celery_app.conf.control_queue_exclusive = False
+    celery_app.conf.event_queue_exclusive = False
+
+    class FakeInspect:
+        def active(self):
+            return {}
+
+        def reserved(self):
+            return {}
+
+        def scheduled(self):
+            return {}
+
+    class FakeControl:
+        def inspect(self):
+            return FakeInspect()
+
+    celery_app.control = FakeControl()
+    _cache_worker_data(False)
+    try:
+        assert _worker_data(celery_app) == {}
+        assert celery_app.conf.control_queue_exclusive is False
+        assert celery_app.conf.event_queue_exclusive is False
+    finally:
+        _cache_worker_data(True)
+
+
+def test_worker_data_cache_is_keyed_per_app(celery_app):
+    class CountingInspect:
+        calls = 0
+
+        def active(self):
+            type(self).calls += 1
+            return {}
+
+        def reserved(self):
+            return {}
+
+        def scheduled(self):
+            return {}
+
+    class FakeControl:
+        def inspect(self):
+            return CountingInspect()
+
+    app_a = Celery(broker=celery_app.conf.broker_url)
+    app_b = Celery(broker=celery_app.conf.broker_url)
+    app_a.control = FakeControl()
+    app_b.control = FakeControl()
+
+    _cache_worker_data(True)
+    CountingInspect.calls = 0
+    try:
+        _worker_data(app_a)
+        _worker_data(app_a)
+        _worker_data(app_b)
+        assert CountingInspect.calls == 2
+    finally:
+        _cache_worker_data(False)
+        _cache_worker_data(True)

@@ -2,6 +2,7 @@ import asyncio
 import functools
 import json
 import os
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable, TypeVar, cast
@@ -455,18 +456,17 @@ def _job_queue_latency_rabbitmq(channel: Any, queue: str) -> float:
         if message is None:
             return 0
 
-        run_at = message.headers.get("run_at")
+        try:
+            run_at = message.headers.get("run_at")
 
-        if run_at:
-            run_at_time = parse(run_at)
-            latency = time.time() - run_at_time.timestamp()
-            result = max(0, latency)
-        else:
-            result = 0
+            if run_at:
+                run_at_time = parse(run_at)
+                latency = time.time() - run_at_time.timestamp()
+                return max(0, latency)
 
-        channel.basic_reject(message.delivery_tag, requeue=True)
-
-        return result
+            return 0
+        finally:
+            channel.basic_reject(message.delivery_tag, requeue=True)
     except ChannelError:
         return 0
 
@@ -501,51 +501,64 @@ def _job_queue_size_rabbitmq(channel: Any, queue: str, arguments: Any = None) ->
 
 
 _worker_data_cache_enabled = True
-_worker_data_cache_value: dict[str, int] | None = None
-_worker_data_cache_time = time.time() - (5 + 1)
+_worker_data_cache: dict[int, tuple[float, dict[str, int]]] = {}
+_worker_data_cache_lock = threading.Lock()
 
 
 def _cache_worker_data(enabled: bool) -> None:
     global _worker_data_cache_enabled
     _worker_data_cache_enabled = enabled
+    if not enabled:
+        with _worker_data_cache_lock:
+            _worker_data_cache.clear()
 
 
 def _worker_data(app: Any) -> dict[str, int]:
-    global _worker_data_cache_value, _worker_data_cache_time
+    cache_key = id(app)
+    now = time.time()
 
-    if not _worker_data_cache_enabled or (_worker_data_cache_time + 5) < time.time():
-        app.conf.control_queue_exclusive = True
-        app.conf.event_queue_exclusive = True
-        i = app.control.inspect()
-        now = time.time()
-        queue_info: dict[str, int] = {}
+    with _worker_data_cache_lock:
+        if _worker_data_cache_enabled:
+            cached = _worker_data_cache.get(cache_key)
+            if cached is not None and (cached[0] + 5) >= now:
+                return cached[1]
 
-        for collection in [i.active(), i.reserved(), i.scheduled()]:
-            if collection is not None:
-                for worker, tasks in collection.items():
-                    for task in tasks:
-                        task_info = task
+        previous_control = getattr(app.conf, "control_queue_exclusive", False)
+        previous_event = getattr(app.conf, "event_queue_exclusive", False)
+        try:
+            app.conf.control_queue_exclusive = True
+            app.conf.event_queue_exclusive = True
+            i = app.control.inspect()
+            inspect_now = time.time()
+            queue_info: dict[str, int] = {}
 
-                        if task.get("eta"):
-                            eta_string = task.get("eta")
-                            eta_datetime = parser.parse(eta_string)
-                            eta_timestamp = eta_datetime.timestamp()
+            for collection in [i.active(), i.reserved(), i.scheduled()]:
+                if collection is not None:
+                    for worker, tasks in collection.items():
+                        for task in tasks:
+                            task_info = task
 
-                            if now < eta_timestamp:
-                                continue
+                            if task.get("eta"):
+                                eta_string = task.get("eta")
+                                eta_datetime = parser.parse(eta_string)
+                                eta_timestamp = eta_datetime.timestamp()
 
-                            task_info = task["request"]
+                                if inspect_now < eta_timestamp:
+                                    continue
 
-                        queue = task_info["delivery_info"]["routing_key"]
+                                task_info = task["request"]
 
-                        if queue not in queue_info:
-                            queue_info[queue] = 0
+                            queue = task_info["delivery_info"]["routing_key"]
 
-                        queue_info[queue] += 1
+                            if queue not in queue_info:
+                                queue_info[queue] = 0
 
-        _worker_data_cache_value = queue_info
-        _worker_data_cache_time = time.time()
+                            queue_info[queue] += 1
+        finally:
+            app.conf.control_queue_exclusive = previous_control
+            app.conf.event_queue_exclusive = previous_event
 
-    # The first call always populates the cache (it starts stale), so by here the
-    # value is a dict, never the initial None.
-    return cast("dict[str, int]", _worker_data_cache_value)
+        if _worker_data_cache_enabled:
+            _worker_data_cache[cache_key] = (time.time(), queue_info)
+
+        return queue_info
