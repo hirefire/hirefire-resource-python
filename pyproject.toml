@@ -7,6 +7,7 @@ license = "MIT"
 repository = "https://github.com/hirefire/hirefire-resource-python"
 readme = "README.md"
 homepage = "https://hirefire.io"
+documentation = "https://github.com/hirefire/hirefire-resource-python#readme"
 keywords = [
     "hirefire",
     "heroku",
@@ -35,6 +36,10 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Typing :: Typed"
 ]
+
+[tool.poetry.urls]
+"Bug Tracker" = "https://github.com/hirefire/hirefire-resource-python/issues"
+"Changelog" = "https://github.com/hirefire/hirefire-resource-python/blob/master/CHANGELOG.md"
 
 [tool.poetry.dependencies]
 python = ">=3.11,<4.0"

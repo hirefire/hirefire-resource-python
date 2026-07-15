@@ -12,13 +12,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref }}
 
 jobs:
-  lint:
+  check:
     runs-on: ubuntu-latest
     steps:
     - name: Check out repository
       uses: actions/checkout@v6
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: "3.14"
     - name: Install dependencies
@@ -41,14 +41,14 @@ jobs:
     - name: Check out repository
       uses: actions/checkout@v6
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: "3.14"
     - name: List tox environments
       id: list
       run: echo "envs=$(pip install tox >/dev/null && tox -l | jq -R -c -s 'split("\n") | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
 
-  test:
+  validate:
     needs: envs
     runs-on: ubuntu-latest
     services:
@@ -72,7 +72,7 @@ jobs:
       run: echo "version=$(echo '${{ matrix.env }}' | sed -E 's/^py([0-9])([0-9]+)-.*/\1.\2/')" >> "$GITHUB_OUTPUT"
       shell: bash
     - name: Set up Python ${{ steps.python.outputs.version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ steps.python.outputs.version }}
     - name: Install tox
@@ -81,7 +81,7 @@ jobs:
       run: tox -e ${{ matrix.env }}
 
   publish:
-    needs: [lint, test]
+    needs: [check, validate]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags')
     permissions:
@@ -90,7 +90,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: 3.14
       - name: Install dependencies
