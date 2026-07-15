@@ -25,11 +25,12 @@ except ImportError:
 
     AMQP_AVAILABLE = False
 
-from hirefire_resource.errors import MissingQueueError
 from hirefire_resource.utility import normalize_queues
 
 
-def _get_queue_arguments_from_app(app: Any, queues: set[str] | tuple[str, ...]) -> dict[str, Any]:
+def _get_queue_arguments_from_app(
+    app: Any, queues: set[str] | tuple[str, ...]
+) -> dict[str, Any]:
     """
     Extract queue arguments from Celery app configuration for specified queues.
 
@@ -138,7 +139,7 @@ def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
         >>> job_queue_latency("celery", "mailer", broker_url="redis://localhost:6379/0")
         22.918
     """
-    queues = normalize_queues(*queues)
+    queue_names = normalize_queues(*queues)
 
     broker_url = (
         broker_url
@@ -169,7 +170,7 @@ def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
                 else:
                     fn = _job_queue_latency_rabbitmq
 
-                return max(fn(channel, queue) for queue in queues)
+                return max(fn(channel, queue) for queue in queue_names)
 
     except OperationalError:
         return 0
@@ -299,7 +300,7 @@ def job_queue_size(
         >>> job_queue_size("celery", celery_app=celery_app)
         42
     """
-    queues = normalize_queues(*queues)
+    queue_names = normalize_queues(*queues)
 
     if celery_app is not None and broker_url is not None:
         raise ValueError(
@@ -333,8 +334,10 @@ def job_queue_size(
     try:
         with celery_app.connection_or_acquire() as connection:
             with connection.channel() as channel:
-                worker_task_count = _job_queue_size_worker(celery_app, queues)
-                broker_task_count = _job_queue_size_broker(celery_app, channel, queues)
+                worker_task_count = _job_queue_size_worker(celery_app, queue_names)
+                broker_task_count = _job_queue_size_broker(
+                    celery_app, channel, queue_names
+                )
                 return worker_task_count + broker_task_count
 
     except OperationalError:
