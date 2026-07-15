@@ -42,9 +42,9 @@ class HireFire:
 
     @classmethod
     def reset(cls) -> None:
-        """Stops any running dispatcher and replaces the configuration with a fresh one.
+        """Stops any running dispatcher and replaces the configuration with a fresh, empty one.
 
-        Intended for tests and reconfiguration between runs.
+        Mainly for tests and reconfiguration between runs.
         """
         if cls.configuration is not None:
             cls.configuration.stop_dispatcher()

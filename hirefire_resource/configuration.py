@@ -48,10 +48,8 @@ class DuplicateDynoError(Exception):
 
 
 class Configuration:
-    """Declares what each process tracks (http, job metrics, CPU) and holds shared settings.
-
-    Shared settings include the token, logger, and collectors registered via
-    :meth:`service` and :meth:`dyno`.
+    """Declares what each process tracks (http, job metrics, CPU) and holds shared settings such as
+    the token and logger.
 
     Attributes:
         web: The http collector once an http process is declared, otherwise ``None``.
@@ -90,7 +88,7 @@ class Configuration:
         ``HIREFIRE_TOKEN`` environment variable, else ``None``. Assigning ``None``
         clears the in-code value so the environment variable is consulted again. It
         does not force the token off when ``HIREFIRE_TOKEN`` is set. A token present
-        when :meth:`HireFire.configure` exits starts the dispatcher and enables
+        when :meth:`HireFire.configure` runs starts the dispatcher and enables
         reporting.
         """
         return (
