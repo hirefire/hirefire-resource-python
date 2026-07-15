@@ -99,11 +99,12 @@ jobs:
           pip install poetry
           poetry install
       - name: Verify tag matches package version
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
           expected="v$(poetry version -s)"
-          actual="${{ github.ref_name }}"
-          if [ "$actual" != "$expected" ]; then
-            echo "Tag $actual does not match package version $expected"
+          if [ "$TAG" != "$expected" ]; then
+            echo "Tag $TAG does not match package version $expected"
             exit 1
           fi
       - name: Run build
