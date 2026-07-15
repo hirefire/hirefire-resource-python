@@ -631,6 +631,34 @@ def test_started_thread_dispatches_until_stopped():
     assert not dispatcher.running()
 
 
+def test_stale_loop_generation_stops_after_restart():
+    dispatcher = configure_web_only()
+    ticks = {"count": 0}
+    original_tick = dispatcher._tick
+
+    def counting_tick():
+        ticks["count"] += 1
+        original_tick()
+
+    dispatcher._tick = counting_tick  # type: ignore[method-assign]
+    dispatcher._running = True
+    dispatcher._pid = os.getpid()
+    generation = 1
+    dispatcher._generation = generation
+
+    assert dispatcher._loop_active(generation)
+
+    dispatcher._running = False
+    dispatcher._pid = None
+    assert not dispatcher._loop_active(generation)
+
+    dispatcher._generation = 2
+    dispatcher._running = True
+    dispatcher._pid = os.getpid()
+    assert not dispatcher._loop_active(generation)
+    assert dispatcher._loop_active(2)
+
+
 @mocketize
 def test_a_hung_worker_sampler_does_not_stall_web_dispatch():
     stub_lease(granted=True)

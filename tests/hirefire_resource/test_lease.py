@@ -1,3 +1,4 @@
+import os
 import re
 from unittest.mock import patch
 
@@ -164,6 +165,32 @@ def test_raises_on_server_error():
 
     assert "Lease request failed" in str(exc_info.value)
     assert not lease.granted()
+
+
+@mocketize
+def test_pid_mismatch_reissues_identity_before_the_next_poll():
+    stub_lease(granted="true")
+    lease = Lease()
+    lease.request_if_due()
+    assert lease.granted()
+    original_process_id = lease.process_id
+    lease._expires_at = 0
+
+    polled_ids: list[str] = []
+    real_request = lease._client.request_lease
+
+    def capture(process_id: str):
+        polled_ids.append(process_id)
+        return real_request(process_id)
+
+    child_pid = os.getpid() + 1
+    with patch.object(lease._client, "request_lease", side_effect=capture):
+        with patch("os.getpid", return_value=child_pid):
+            lease.request_if_due()
+
+    assert lease.process_id != original_process_id
+    assert polled_ids == [lease.process_id]
+    assert lease._owner_pid == child_pid
 
 
 @mocketize

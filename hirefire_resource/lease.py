@@ -1,3 +1,4 @@
+import os
 import time
 import uuid
 from collections.abc import Callable
@@ -18,6 +19,7 @@ class Lease:
         self._expires_at = time.monotonic()
         self._next_sample_at = time.monotonic()
         self.sample_frequency = 15
+        self._owner_pid = os.getpid()
 
     def granted(self) -> bool:
         return self._granted
@@ -30,6 +32,9 @@ class Lease:
         sampler()
 
     def request_if_due(self) -> None:
+        if self._owner_pid != os.getpid():
+            self._reset_after_fork()
+
         if not (self._enabled and time.monotonic() >= self._expires_at):
             return
 
@@ -66,11 +71,15 @@ class Lease:
         self._client.close()
 
     def _reinit_after_fork(self) -> None:
+        self._reset_after_fork()
+        self._client._reinit_after_fork()
+
+    def _reset_after_fork(self) -> None:
         self.process_id = str(uuid.uuid4())
         self._granted = False
         self._expires_at = time.monotonic()
         self._next_sample_at = time.monotonic()
-        self._client._reinit_after_fork()
+        self._owner_pid = os.getpid()
 
     @staticmethod
     def _bounded(value: str, bounds: tuple[int, int]) -> int:

@@ -44,6 +44,7 @@ class Dispatcher:
         self._mutex = threading.Lock()
         self._running = False
         self._pid: int | None = None
+        self._generation = 0
         self._thread: threading.Thread | None = None
         self._worker_thread: threading.Thread | None = None
         self._last_web_second: int | None = None
@@ -65,9 +66,15 @@ class Dispatcher:
                 if self._running and self._pid == os.getpid():
                     return False
 
-                thread = threading.Thread(target=self._dispatch_loop, daemon=True)
+                self._generation += 1
+                generation = self._generation
+                thread = threading.Thread(
+                    target=self._dispatch_loop, args=(generation,), daemon=True
+                )
                 worker_thread = (
-                    threading.Thread(target=self._worker_loop, daemon=True)
+                    threading.Thread(
+                        target=self._worker_loop, args=(generation,), daemon=True
+                    )
                     if self._workers.any()
                     else None
                 )
@@ -94,7 +101,9 @@ class Dispatcher:
         """Stops the dispatcher loops and closes transport resources.
 
         Joins local loop threads for up to 5 seconds each, then performs a best-effort
-        final flush before closing the HTTP client and lease connection.
+        final flush before closing the HTTP client and lease connection. Loop
+        generations prevent a hung thread that outlives the join from resuming work
+        after a later :meth:`start`.
 
         Returns:
             bool: ``True`` once the dispatcher has stopped, ``False`` when it was not running.
@@ -133,18 +142,26 @@ class Dispatcher:
         with self._mutex:
             return self._running and self._pid == os.getpid()
 
+    def _loop_active(self, generation: int) -> bool:
+        with self._mutex:
+            return (
+                self._running
+                and self._pid == os.getpid()
+                and self._generation == generation
+            )
+
     def _reinit_after_fork(self) -> None:
         self._mutex = threading.Lock()
         self._client._reinit_after_fork()
         self._lease._reinit_after_fork()
 
-    def _dispatch_loop(self) -> None:
-        while self.running():
+    def _dispatch_loop(self, generation: int) -> None:
+        while self._loop_active(generation):
             self._tick()
             time.sleep(1)
 
-    def _worker_loop(self) -> None:
-        while self.running():
+    def _worker_loop(self, generation: int) -> None:
+        while self._loop_active(generation):
             self._worker_tick()
             time.sleep(1)
 
