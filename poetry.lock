@@ -519,18 +519,6 @@ dev = ["pre-commit", "tox"]
 testing = ["coverage", "pytest", "pytest-benchmark"]
 
 [[package]]
-name = "poetry-core"
-version = "1.8.1"
-description = "Poetry PEP 517 Build Backend"
-optional = false
-python-versions = ">=3.8,<4.0"
-groups = ["dev"]
-files = [
-    {file = "poetry_core-1.8.1-py3-none-any.whl", hash = "sha256:194832b24f3283e01c5402eae71a6aae850ecdfe53f50a979c76bf7aa5010ffa"},
-    {file = "poetry_core-1.8.1.tar.gz", hash = "sha256:67a76c671da2a70e55047cddda83566035b701f7e463b32a2abfeac6e2a16376"},
-]
-
-[[package]]
 name = "py"
 version = "1.11.0"
 description = "library with cross-python path, ini-parsing, io, code, log facilities"
@@ -687,25 +675,6 @@ docs = ["pygments-github-lexers (>=0.0.5)", "sphinx (>=2.0.0)", "sphinxcontrib-a
 testing = ["flaky (>=3.4.0)", "freezegun (>=0.3.11)", "pathlib2 (>=2.3.3) ; python_version < \"3.4\"", "psutil (>=5.6.1) ; platform_python_implementation == \"cpython\"", "pytest (>=4.0.0)", "pytest-cov (>=2.5.1)", "pytest-mock (>=1.10.0)", "pytest-randomly (>=1.0.0)"]
 
 [[package]]
-name = "tox-poetry-installer"
-version = "0.10.3"
-description = "A plugin for Tox that lets you install test environment dependencies from the Poetry lockfile"
-optional = false
-python-versions = ">=3.7,<4.0"
-groups = ["dev"]
-files = [
-    {file = "tox_poetry_installer-0.10.3-py3-none-any.whl", hash = "sha256:8580caf05f1ac83a7a938e449cfcb220cadaf6b087e9581ae837d782804ad4bc"},
-    {file = "tox_poetry_installer-0.10.3.tar.gz", hash = "sha256:58af36082293b87e3488184f46ccf6f288c52c90e802066f53d3209c0f1c6226"},
-]
-
-[package.dependencies]
-poetry-core = ">=1.1.0,<2.0.0"
-tox = ">=3.8.0,<4.0.0"
-
-[package.extras]
-poetry = ["cleo (>=1.0,<3.0)", "poetry (>=1.2.0,<1.5.0)"]
-
-[[package]]
 name = "typing-extensions"
 version = "4.15.0"
 description = "Backported and Experimental Type Hints for Python 3.9+"
@@ -781,4 +750,4 @@ watchmedo = ["PyYAML (>=3.10)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<4.0"
-content-hash = "cfa2759a69fea0aed29b524158f25e1dac0a1c2d7ad3cfbd83b5a9d207c3d3e9"
+content-hash = "ed2618b2534fb08050aa0a2e91b830ba343db3b1fdc16396904afa8b90d05edc"
