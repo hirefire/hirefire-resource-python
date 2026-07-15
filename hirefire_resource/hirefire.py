@@ -9,7 +9,7 @@ class HireFire:
     """HireFire singleton entrypoint: configure processes and report metrics.
 
     Attributes:
-        configuration: The process-wide shared configuration (class-level singleton state).
+        configuration: The process-wide shared configuration.
     """
 
     configuration: Configuration = Configuration()

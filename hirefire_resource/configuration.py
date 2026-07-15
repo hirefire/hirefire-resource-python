@@ -58,8 +58,7 @@ class Configuration:
         cpu: CPU collectors declared via :meth:`service` or :meth:`dyno` with
             ``tracking="cpu"``.
         logger: Logger used for HireFire diagnostic messages. Defaults to a stdout logger.
-            Assign a custom logger, or ``None`` (or a logger missing the log methods) to
-            silence diagnostics.
+            Set to ``None`` (or a logger missing the log methods) to silence diagnostics.
         log_queue_metrics: When true, the HTTP middleware prints
             ``[hirefire:router] queue=…ms`` for each sample.
     """
@@ -109,8 +108,7 @@ class Configuration:
         """Declares a service by dyno name.
 
         Like :meth:`service`, but the name "web" (case-insensitive) implies http on its
-        own, and ``"cpu"`` is the only ``tracking`` value ``dyno`` accepts
-        (``tracking="http"`` is rejected: use :meth:`service` for that).
+        own, and ``"cpu"`` is the only ``tracking`` value it accepts.
 
         Resolution: ``tracking="cpu"`` tracks CPU, a sampler tracks job metrics, and the
         name "web" (case-insensitive) tracks http on its own. For an http process under a
@@ -177,9 +175,7 @@ class Configuration:
           typically via a queue macro (e.g. ``job_queue_latency``).
         - ``tracking="cpu"``: this process's CPU utilization.
 
-        :meth:`dyno` is this method plus the convention that the name "web" implies http,
-        with the restriction that ``dyno`` only accepts ``tracking="cpu"`` (not
-        ``"http"``).
+        :meth:`dyno` is this method plus the convention that the name "web" implies http.
 
         Args:
             name (str): The process name. Must be non-empty.
