@@ -98,7 +98,28 @@ jobs:
           python -m pip install --upgrade pip
           pip install poetry
           poetry install
+      - name: Verify tag matches package version
+        run: |
+          expected="v$(poetry version -s)"
+          actual="${{ github.ref_name }}"
+          if [ "$actual" != "$expected" ]; then
+            echo "Tag $actual does not match package version $expected"
+            exit 1
+          fi
       - name: Run build
         run: poetry build
+      - name: Verify wheel ships py.typed
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile
+
+          wheels = list(Path("dist").glob("*.whl"))
+          assert wheels, "no wheel in dist/"
+          with zipfile.ZipFile(wheels[0]) as zf:
+              names = zf.namelist()
+          assert any(n.endswith("hirefire_resource/py.typed") for n in names), names
+          print("py.typed present in", wheels[0].name)
+          PY
       - name: Publish Package
         uses: pypa/gh-action-pypi-publish@release/v1

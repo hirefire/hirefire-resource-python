@@ -15,13 +15,14 @@ def test():
 
 @task
 def check():
-    sh("autoflake --remove-all-unused-imports -r --check .")
-    sh("isort --profile black --check . && poetry run black --check .")
-    sh("black --check .")
+    sh("poetry run autoflake --jobs 1 --remove-all-unused-imports -r --check .")
+    sh("poetry run isort --profile black --check .")
+    sh("poetry run black --check .")
+    sh("poetry run mypy")
 
 
 @task
 def format():
-    sh("autoflake --remove-all-unused-imports -ri .")
-    sh("isort --profile black .")
-    sh("black .")
+    sh("poetry run autoflake --jobs 1 --remove-all-unused-imports -ri .")
+    sh("poetry run isort --profile black .")
+    sh("poetry run black .")
