@@ -6,6 +6,8 @@ from datetime import datetime
 
 import redis
 
+from hirefire_resource.utility import normalize_queues
+
 
 def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
     """Maximum job queue latency across the given RQ queues.
@@ -46,7 +48,7 @@ def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
 
     redis_client = redis.Redis.from_url(redis_url)
 
-    queue_names: set[str] | tuple[str, ...] = queues
+    queue_names = normalize_queues(*queues, allow_empty=True)
     if not queue_names:
         queue_names = _registered_queue_names(redis_client)
 
@@ -158,7 +160,7 @@ def job_queue_size(*queues: str, redis_url: str | None = None) -> int:
 
     redis_client = redis.Redis.from_url(redis_url)
 
-    queue_names: set[str] | tuple[str, ...] = queues
+    queue_names = normalize_queues(*queues, allow_empty=True)
     if not queue_names:
         queue_names = _registered_queue_names(redis_client)
 

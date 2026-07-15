@@ -171,6 +171,23 @@ def test_job_queue_size_with_jobs(celery_app):
     )
 
 
+def test_job_queue_size_dedupes_and_trims_queue_names(celery_app):
+    for _ in range(3):
+        celery_app.send_task("test_task", queue="celery")
+
+    assert (
+        job_queue_size(
+            "celery", " celery ", "celery", broker_url=celery_app.conf.broker_url
+        )
+        == 3
+    )
+
+
+def test_job_queue_size_blank_queue_names_raise():
+    with pytest.raises(MissingQueueError):
+        job_queue_size("  ", "")
+
+
 def test_mitigate_connection_reset_error_decorator():
     """Sanity check: verify the retry decorator works correctly."""
     from hirefire_resource.macro.celery import mitigate_connection_reset_error

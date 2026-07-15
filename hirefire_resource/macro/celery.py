@@ -26,9 +26,10 @@ except ImportError:
     AMQP_AVAILABLE = False
 
 from hirefire_resource.errors import MissingQueueError
+from hirefire_resource.utility import normalize_queues
 
 
-def _get_queue_arguments_from_app(app: Any, queues: tuple[str, ...]) -> dict[str, Any]:
+def _get_queue_arguments_from_app(app: Any, queues: set[str] | tuple[str, ...]) -> dict[str, Any]:
     """
     Extract queue arguments from Celery app configuration for specified queues.
 
@@ -137,8 +138,7 @@ def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
         >>> job_queue_latency("celery", "mailer", broker_url="redis://localhost:6379/0")
         22.918
     """
-    if not queues:
-        raise MissingQueueError()
+    queues = normalize_queues(*queues)
 
     broker_url = (
         broker_url
@@ -299,8 +299,7 @@ def job_queue_size(
         >>> job_queue_size("celery", celery_app=celery_app)
         42
     """
-    if not queues:
-        raise MissingQueueError()
+    queues = normalize_queues(*queues)
 
     if celery_app is not None and broker_url is not None:
         raise ValueError(
@@ -471,12 +470,14 @@ def _job_queue_latency_rabbitmq(channel: Any, queue: str) -> float:
         return 0
 
 
-def _job_queue_size_worker(app: Any, queues: tuple[str, ...]) -> int:
+def _job_queue_size_worker(app: Any, queues: set[str] | tuple[str, ...]) -> int:
     worker_data = _worker_data(app)
     return sum(worker_data.get(queue, 0) for queue in queues)
 
 
-def _job_queue_size_broker(app: Any, channel: Any, queues: tuple[str, ...]) -> int:
+def _job_queue_size_broker(
+    app: Any, channel: Any, queues: set[str] | tuple[str, ...]
+) -> int:
     if hasattr(channel, "_size"):
         return sum(_job_queue_size_redis(channel, queue) for queue in queues)
     else:

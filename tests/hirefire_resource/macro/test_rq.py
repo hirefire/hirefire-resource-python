@@ -155,6 +155,14 @@ def test_job_queue_size_with_colon_in_queue_name():
     assert job_queue_size(redis_url=redis_url) == 2
 
 
+def test_job_queue_size_dedupes_and_trims_queue_names():
+    default = Queue("default", connection=Redis.from_url(redis_url))
+    default.enqueue("my_function")
+    default.enqueue("my_function")
+
+    assert job_queue_size("default", " default ", "default", redis_url=redis_url) == 2
+
+
 def test_job_queue_latency_with_colon_in_queue_name():
     dotted = Queue("tenant:mailer", connection=Redis.from_url(redis_url))
 

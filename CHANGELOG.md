@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Celery and RQ macros trim and de-duplicate queue names before sampling, matching the adapter contract so `job_queue_size("a", "a")` and padded names no longer double-count.
 - RQ all-queues enumeration uses RQ's registered queue set (`SMEMBERS rq:queues`) instead of `KEYS rq:queue:*` / `KEYS rq:scheduled:*`, so each poll is not an O(keyspace) scan and queue names that contain `:` are no longer truncated.
 - Lease renewal re-issues the process identity and drops any inherited grant when the process id changes (for example after a fork when the at-fork reinit did not run), matching Ruby.
 - Dispatcher loop threads bind to a start generation, so a hung loop that outlives `stop()`'s join cannot resume work after a later `start()`.
