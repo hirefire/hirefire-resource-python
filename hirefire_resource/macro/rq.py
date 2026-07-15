@@ -48,8 +48,7 @@ def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
 
     queue_names: set[str] | tuple[str, ...] = queues
     if not queue_names:
-        keys = redis_client.keys("rq:scheduled:*") + redis_client.keys("rq:queue:*")
-        queue_names = set(_as_str(key).split(":")[2] for key in keys)
+        queue_names = _registered_queue_names(redis_client)
 
     pipeline = redis_client.pipeline()
     current_time = time.time()
@@ -161,8 +160,7 @@ def job_queue_size(*queues: str, redis_url: str | None = None) -> int:
 
     queue_names: set[str] | tuple[str, ...] = queues
     if not queue_names:
-        keys = redis_client.keys("rq:scheduled:*") + redis_client.keys("rq:queue:*")
-        queue_names = set(_as_str(key).split(":")[2] for key in keys)
+        queue_names = _registered_queue_names(redis_client)
 
     pipeline = redis_client.pipeline()
     current_time = int(time.time())
@@ -205,6 +203,18 @@ async def async_job_queue_size(*queues: str, redis_url: str | None = None) -> in
     loop = asyncio.get_event_loop()
     func = functools.partial(job_queue_size, *queues, redis_url=redis_url)
     return await loop.run_in_executor(None, func)
+
+
+_QUEUE_KEY_PREFIX = "rq:queue:"
+
+
+def _registered_queue_names(redis_client: redis.Redis) -> set[str]:
+    names: set[str] = set()
+    for key in redis_client.smembers("rq:queues"):
+        key_str = _as_str(key)
+        if key_str.startswith(_QUEUE_KEY_PREFIX):
+            names.add(key_str[len(_QUEUE_KEY_PREFIX) :])
+    return names
 
 
 def _as_str(value: bytes | str) -> str:

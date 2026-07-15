@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- RQ all-queues enumeration uses RQ's registered queue set (`SMEMBERS rq:queues`) instead of `KEYS rq:queue:*` / `KEYS rq:scheduled:*`, so each poll is not an O(keyspace) scan and queue names that contain `:` are no longer truncated.
 - Lease renewal re-issues the process identity and drops any inherited grant when the process id changes (for example after a fork when the at-fork reinit did not run), matching Ruby.
 - Dispatcher loop threads bind to a start generation, so a hung loop that outlives `stop()`'s join cannot resume work after a later `start()`.
 - Celery RabbitMQ latency measurement always requeues the peeked message, even when parsing `run_at` fails, so a bad payload cannot leave a message unacked.

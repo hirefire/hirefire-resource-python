@@ -144,6 +144,29 @@ def test_job_queue_size_with_decode_responses():
     assert job_queue_size("default", redis_url=decode_url) == 1
 
 
+def test_job_queue_size_with_colon_in_queue_name():
+    dotted = Queue("tenant:mailer", connection=Redis.from_url(redis_url))
+    dotted.enqueue("my_function")
+    dotted.enqueue_at(
+        datetime.fromtimestamp(time.time() - 100, timezone.utc), "my_function"
+    )
+
+    assert job_queue_size("tenant:mailer", redis_url=redis_url) == 2
+    assert job_queue_size(redis_url=redis_url) == 2
+
+
+def test_job_queue_latency_with_colon_in_queue_name():
+    dotted = Queue("tenant:mailer", connection=Redis.from_url(redis_url))
+
+    with freeze_time(datetime.fromtimestamp(time.time() - 200, timezone.utc)):
+        dotted.enqueue("my_function")
+
+    assert job_queue_latency("tenant:mailer", redis_url=redis_url) == pytest.approx(
+        200, abs=10
+    )
+    assert job_queue_latency(redis_url=redis_url) == pytest.approx(200, abs=10)
+
+
 def test_job_queue_latency_with_decode_responses():
     default = Queue("default", connection=Redis.from_url(redis_url))
 
