@@ -273,15 +273,6 @@ def setup_priority_queue(priority_celery_app):
 
 
 def test_job_queue_size_priority_queue_with_broker_url(setup_priority_queue):
-    """
-    Test job_queue_size with broker_url on a priority queue.
-
-    Note: In the test environment, this works fine
-    because passive=True declarations don't validate arguments. However, some
-    RabbitMQ versions or configurations may return PRECONDITION_FAILED.
-
-    For guaranteed compatibility with priority queues, use celery_app parameter instead.
-    """
     priority_celery_app = setup_priority_queue
     broker_url = priority_celery_app.conf.broker_url
 
@@ -290,20 +281,12 @@ def test_job_queue_size_priority_queue_with_broker_url(setup_priority_queue):
 
     result = job_queue_size("priority_queue", broker_url=broker_url)
 
-    # In the test environment this works, but may fail in other environments
     assert result == 2
 
 
 def test_job_queue_size_priority_queue_with_celery_app_returns_correct_count(
     setup_priority_queue,
 ):
-    """
-    Test that job_queue_size returns the correct count when passed the Celery app
-    that has the queue configuration with x-max-priority.
-
-    This is the recommended approach for priority queues - passing the celery_app
-    extracts the queue arguments and passes them to queue_declare.
-    """
     priority_celery_app = setup_priority_queue
 
     priority_celery_app.send_task("test_task", queue="priority_queue")
@@ -318,10 +301,6 @@ def test_job_queue_size_priority_queue_with_celery_app_returns_correct_count(
 def test_job_queue_size_raises_error_when_both_broker_url_and_celery_app_provided(
     setup_priority_queue,
 ):
-    """
-    Test that job_queue_size raises ValueError when both broker_url and celery_app
-    are provided, since they are mutually exclusive.
-    """
     priority_celery_app = setup_priority_queue
 
     with pytest.raises(ValueError) as exc_info:
@@ -338,10 +317,6 @@ def test_job_queue_size_raises_error_when_both_broker_url_and_celery_app_provide
 async def test_async_job_queue_size_raises_error_when_both_broker_url_and_celery_app_provided(
     setup_priority_queue,
 ):
-    """
-    Test that async_job_queue_size raises ValueError when both broker_url and celery_app
-    are provided, since they are mutually exclusive.
-    """
     priority_celery_app = setup_priority_queue
 
     with pytest.raises(ValueError) as exc_info:

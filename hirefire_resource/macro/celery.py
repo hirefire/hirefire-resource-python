@@ -18,8 +18,7 @@ try:
 
     AMQP_AVAILABLE = True
 except ImportError:
-    # Fallback so `except ChannelError` still binds when amqp is absent. mypy sees
-    # this as redefining the optional import above, which is the intent.
+
     class ChannelError(Exception):  # type: ignore[no-redef]
         pass
 
@@ -31,16 +30,6 @@ from hirefire_resource.utility import normalize_queues
 def _get_queue_arguments_from_app(
     app: Any, queues: set[str] | tuple[str, ...]
 ) -> dict[str, Any]:
-    """
-    Extract queue arguments from Celery app configuration for specified queues.
-
-    Args:
-        app: Celery app instance with task_queues configuration
-        queues: List of queue names to extract arguments for
-
-    Returns:
-        dict: Mapping of queue name to queue_arguments dict
-    """
     queue_args = {}
     task_queues = getattr(app.conf, "task_queues", None) or []
     for q in task_queues:
@@ -56,16 +45,6 @@ _F = TypeVar("_F", bound=Callable[..., Any])
 def mitigate_connection_reset_error(
     retries: int = 10, delay: int = 1
 ) -> Callable[[_F], _F]:
-    """Internal retry helper for Celery macros on ``ConnectionResetError``.
-
-    Retries the wrapped call up to ``retries`` times with a fixed ``delay`` between
-    attempts, then re-raises. Not part of the supported public API.
-
-    Args:
-        retries (int): Number of retry attempts for connection errors.
-        delay (int): Fixed delay between retry attempts in seconds.
-    """
-
     def decorator(func: _F) -> _F:
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             for attempt in range(retries):
