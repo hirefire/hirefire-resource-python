@@ -30,6 +30,25 @@ def test_configure_does_not_start_dispatcher_without_token():
         mock_start.assert_not_called()
 
 
+def test_configure_does_not_start_dispatcher_with_empty_token(monkeypatch):
+    monkeypatch.setenv("HIREFIRE_TOKEN", "")
+    with patch.object(Dispatcher, "start") as mock_start:
+        with HireFire.configure() as config:
+            config.dyno("web")
+        mock_start.assert_not_called()
+
+
+def test_configure_does_not_start_dispatcher_when_token_is_forced_empty(
+    monkeypatch,
+):
+    monkeypatch.setenv("HIREFIRE_TOKEN", "from-env")
+    with patch.object(Dispatcher, "start") as mock_start:
+        with HireFire.configure() as config:
+            config.token = ""
+            config.dyno("web")
+        mock_start.assert_not_called()
+
+
 def test_reset_stops_dispatcher_and_replaces_configuration():
     configuration = HireFire.configuration
     dispatcher = configuration.dispatcher

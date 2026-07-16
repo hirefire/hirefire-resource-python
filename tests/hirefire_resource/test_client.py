@@ -162,6 +162,15 @@ def test_raises_without_token(client):
     assert "HIREFIRE_TOKEN" in str(exc_info.value)
 
 
+def test_raises_with_empty_token(client, monkeypatch):
+    monkeypatch.setenv("HIREFIRE_TOKEN", "")
+
+    with pytest.raises(RequestError) as exc_info:
+        client.submit_samples("[]")
+
+    assert "HIREFIRE_TOKEN" in str(exc_info.value)
+
+
 @mocketize
 def test_custom_data_url(set_HIREFIRE_TOKEN, monkeypatch):
     monkeypatch.setenv("HIREFIRE_DATA_URL", "https://custom.hirefire.io")

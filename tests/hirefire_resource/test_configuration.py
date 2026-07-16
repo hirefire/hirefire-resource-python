@@ -357,10 +357,15 @@ def test_token_defaults_to_none_without_env(config):
     assert config.token is None
 
 
-def test_token_empty_string_is_not_overridden_by_env(config, monkeypatch):
+def test_token_empty_string_is_treated_as_absent(config, monkeypatch):
     monkeypatch.setenv("HIREFIRE_TOKEN", "from-env")
     config.token = ""
-    assert config.token == ""
+    assert config.token is None
+
+
+def test_token_empty_env_is_treated_as_absent(config, monkeypatch):
+    monkeypatch.setenv("HIREFIRE_TOKEN", "")
+    assert config.token is None
 
 
 def test_token_none_falls_back_to_env(config, monkeypatch):

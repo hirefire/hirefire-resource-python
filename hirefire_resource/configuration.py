@@ -84,15 +84,18 @@ class Configuration:
         """The HireFire API token.
 
         Returns the value assigned in code when it is not ``None``, else the
-        ``HIREFIRE_TOKEN`` environment variable, else ``None``. Assigning ``None``
-        clears the in-code value so the environment variable is consulted again. It
-        does not force the token off when ``HIREFIRE_TOKEN`` is set. A token present
-        when :meth:`HireFire.configure` runs starts the dispatcher and enables
-        reporting.
+        ``HIREFIRE_TOKEN`` environment variable, else ``None``. An empty string (in
+        code or from the env) is treated as absent (``None``), so it neither enables
+        reporting nor is sent on the wire. Assigning ``None`` clears the in-code
+        value so the environment variable is consulted again. Assigning an empty
+        string forces the token off even when ``HIREFIRE_TOKEN`` is set. A non-empty
+        token present when :meth:`HireFire.configure` runs starts the dispatcher and
+        enables reporting.
         """
-        return (
+        value = (
             self._token if self._token is not None else os.environ.get("HIREFIRE_TOKEN")
         )
+        return value if value else None
 
     @token.setter
     def token(self, value: str | None) -> None:
