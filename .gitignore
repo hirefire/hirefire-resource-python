@@ -8,3 +8,6 @@ __pycache__/
 /dist
 CLAUDE.md
 .worktreeinclude
+.claude/settings.local.json
+.cursor/sandbox.json
+.cursorignore
