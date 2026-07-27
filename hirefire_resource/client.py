@@ -15,15 +15,20 @@ class RequestError(Exception):
     """Raised when a HireFire API request cannot complete successfully.
 
     Covers a missing token, transport/timeout failures, 5xx or other unexpected
-    statuses (a 401 is treated as "no grant" and does not raise), and failed lease
-    responses.
+    statuses. A 401 is treated as "no grant" and returns None (does not raise).
+    A 413 returns PAYLOAD_TOO_LARGE (does not raise). Failed lease responses raise.
     """
+
+
+PAYLOAD_TOO_LARGE = "payload_too_large"
+_DEFAULT_BASE_URL = "https://data.hirefire.io"
 
 
 @dataclass
 class Response:
     status: int
     headers: Message
+    body: str = ""
 
 
 STALE_CONNECTION_ERRORS = (
@@ -45,7 +50,7 @@ class Client:
         self._owner_pid: int | None = None
         self._last_used_at: float | None = None
 
-    def submit_samples(self, body: str) -> "Response | None":
+    def submit_samples(self, body: str) -> "Response | None | str":
         token = self._require_token()
         response = self._execute(
             "/metrics/ingest",
@@ -55,12 +60,15 @@ class Client:
                 "HireFire-Token": token,
                 "HireFire-Agent": f"Python-{VERSION}",
             },
+            retain_body=False,
         )
 
         if 200 <= response.status < 300:
             return response
         elif response.status == 401:
             return None
+        elif response.status == 413:
+            return PAYLOAD_TOO_LARGE
         elif response.status >= 500:
             raise RequestError(f"Server responded with {response.status} status.")
         else:
@@ -76,6 +84,7 @@ class Client:
                 "HireFire-Agent": f"Python-{VERSION}",
                 "HireFire-Process-ID": process_id,
             },
+            retain_body=True,
         )
 
     def close(self) -> None:
@@ -88,7 +97,13 @@ class Client:
         self._owner_pid = None
         self._last_used_at = None
 
-    def _execute(self, endpoint: str, body: str, headers: dict[str, str]) -> Response:
+    def _execute(
+        self,
+        endpoint: str,
+        body: str,
+        headers: dict[str, str],
+        retain_body: bool = False,
+    ) -> Response:
         uri = urlparse(self._base_url())
         path = uri.path.rstrip("/") + endpoint
         encoded_body = body.encode("utf-8")
@@ -100,9 +115,10 @@ class Client:
                     connection = self._connection_for(uri)
                     connection.request("POST", path, encoded_body, headers)
                     response = connection.getresponse()
-                    response.read()
+                    raw = response.read()
+                    body_text = raw.decode("utf-8", "replace") if retain_body else ""
                     self._last_used_at = time.monotonic()
-                    return Response(response.status, response.headers)
+                    return Response(response.status, response.headers, body_text)
                 except (socket.timeout, TimeoutError):
                     self._reset_connection()
                     raise RequestError("Request timed out.")
@@ -151,16 +167,25 @@ class Client:
 
     def _reset_connection(self) -> None:
         connection = self._connection
+        owner_pid = self._owner_pid
         self._connection = None
+        self._owner_pid = None
         self._last_used_at = None
-        if connection is not None:
-            try:
-                connection.close()
-            except OSError:
-                pass
+        if connection is None:
+            return
+        if owner_pid != os.getpid():
+            return
+        try:
+            connection.close()
+        except OSError:
+            pass
 
     def _base_url(self) -> str:
-        return os.environ.get("HIREFIRE_DATA_URL", "https://data.hirefire.io")
+        raw = os.environ.get("HIREFIRE_DATA_URL", _DEFAULT_BASE_URL)
+        stripped = str(raw).strip().rstrip("/")
+        if not stripped:
+            return _DEFAULT_BASE_URL
+        return stripped
 
     def _token(self) -> str | None:
         from hirefire_resource.hirefire import HireFire
@@ -173,6 +198,6 @@ class Client:
             return token
 
         raise RequestError(
-            "The HIREFIRE_TOKEN environment variable is not set.\n"
-            "Set it to your HireFire token to enable metric dispatch."
+            "HireFire token is not set.\n"
+            "Set HIREFIRE_TOKEN or config.token to enable metric dispatch."
         )

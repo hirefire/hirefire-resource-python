@@ -2,82 +2,72 @@ import logging
 import os
 import sys
 import threading
-from typing import Literal, cast
 
 from hirefire_resource import identity
 from hirefire_resource._types import Sampler
 from hirefire_resource.buffer import Buffer
 from hirefire_resource.cpu import CPU
 from hirefire_resource.dispatcher import Dispatcher
+from hirefire_resource.errors import DuplicateDynoError, MissingSamplerError
 from hirefire_resource.log import safe_log
 from hirefire_resource.web import Web
 from hirefire_resource.worker import Worker
 from hirefire_resource.workers import Workers
 
-ServiceTracking = Literal["http", "cpu"]
-DynoTracking = Literal["cpu"]
+__all__ = [
+    "Configuration",
+    "DuplicateDynoError",
+    "MissingSamplerError",
+    "MAX_NAME_BYTES",
+]
 
-_UNSET: object = object()
-
-
-class MissingSamplerError(Exception):
-    """Raised when ``service`` or ``dyno`` cannot resolve a collector.
-
-    Neither ``tracking`` nor a sampler was given. Bare ``dyno("web")`` is valid: the
-    ``"web"`` name implies http without either argument.
-    """
-
-
-class UnexpectedSamplerError(Exception):
-    """Raised when a sampler is given alongside ``tracking="http"`` or ``"cpu"``.
-
-    Those collectors gather their values automatically and do not take a sampler.
-    """
-
-
-class UnknownCollectorError(Exception):
-    """Raised when ``tracking`` is given a value the method does not accept."""
-
-
-class DuplicateDynoError(Exception):
-    """Raised when a dyno name was already declared, or a second http process is declared.
-
-    Names are compared case-insensitively. At most one http collector may exist per
-    app process.
-    """
+MAX_NAME_BYTES = 128
 
 
 class Configuration:
-    """Declares what each process tracks (http, job metrics, CPU) and holds shared settings such as
-    the token and logger.
+    """Holds process-wide settings (token, logger) and optional local declarations via :meth:`dyno`.
+
+    Always-on sources (request queue time on the HTTP middleware path, and CPU when process
+    identity resolves) do not require an explicit :meth:`dyno` declaration. Local job-queue
+    sampler callables remain the escape hatch for custom probes.
 
     Attributes:
-        web: The http collector once an http process is declared, otherwise ``None``.
-        workers: Job-metric collectors declared via sampler callables on :meth:`service`
-            or :meth:`dyno`.
-        cpu: CPU collectors declared via :meth:`service` or :meth:`dyno` with
-            ``tracking="cpu"``.
+        http: The explicit HTTP source once declared via ``dyno("web")``, otherwise ``None``.
+            Always-on RQT still reports under :meth:`http_name` when no explicit HTTP source is set.
+        job_queues: Local job-queue sources declared via sampler callables on :meth:`dyno`.
         logger: Logger used for HireFire diagnostic messages. Defaults to a stdout logger.
             Set to ``None`` (or a logger missing the log methods) to silence diagnostics.
         log_queue_metrics: When true, the HTTP middleware prints
             ``[hirefire:router] queue=…ms`` for each sample.
     """
 
-    SERVICE_COLLECTORS = {"http": "http", "cpu": "cpu"}
-    DYNO_COLLECTORS = {"cpu": "cpu"}
-
     def __init__(self) -> None:
-        self.web: Web | None = None
-        self.workers = Workers()
-        self.cpu: list[CPU] = []
+        self.http: Web | None = None
+        self.job_queues = Workers()
         self.logger = self._init_logger()
         self.log_queue_metrics = False
-        self._names: list[str] = []
+        self._sources_by_name: dict[str, list[str]] = {}
         self._buffer: Buffer | None = None
         self._dispatcher: Dispatcher | None = None
         self._token: str | None = None
-        self._identity: str | None | object = _UNSET
         self._mutex = threading.Lock()
+        self._always_on_cpu: CPU | None = None
+        self._always_on_http: Web | None = None
+        self._http_active = False
+        self._heroku_conflict_warned = False
+        self._identity_name_too_long_warned = False
+        self._rqt_unresolved_warned = False
+        self._cpu_unresolved_warned = False
+
+    @property
+    def web(self) -> Web | None:
+        """Alias for :attr:`http` (temporary compatibility until middleware cutover)."""
+        return self.http
+
+    @property
+    def workers(self) -> Workers:
+        """Alias for :attr:`job_queues`."""
+        return self.job_queues
 
     @property
     def token(self) -> str | None:
@@ -89,133 +79,57 @@ class Configuration:
         reporting nor is sent on the wire. Assigning ``None`` clears the in-code
         value so the environment variable is consulted again. Assigning an empty
         string forces the token off even when ``HIREFIRE_TOKEN`` is set. A non-empty
-        token present when :meth:`HireFire.configure` runs starts the dispatcher and
-        enables reporting.
+        token present when :meth:`HireFire.configure` or :meth:`HireFire.boot` runs
+        starts the dispatcher and enables reporting.
         """
         value = (
             self._token if self._token is not None else os.environ.get("HIREFIRE_TOKEN")
         )
-        return value if value else None
+        if value is None:
+            return None
+        stripped = str(value).strip()
+        return stripped if stripped else None
 
     @token.setter
     def token(self, value: str | None) -> None:
         self._token = value
 
-    def dyno(
-        self,
-        name: str,
-        proc: Sampler | None = None,
-        *,
-        tracking: DynoTracking | None = None,
-    ) -> None:
-        """Declares a service by dyno name.
+    def dyno(self, name: str, sampler: Sampler | None = None) -> None:
+        """Declares a process by dyno name (Heroku Procfile-shaped).
 
-        Like :meth:`service`, but the name "web" (case-insensitive) implies http on its
-        own, and ``"cpu"`` is the only ``tracking`` value it accepts.
+        No tracking keyword: CPU is always-on when identity resolves, and RQT is armed by
+        platform web role, middleware traffic, or the ``"web"`` name convention below.
 
-        Resolution: ``tracking="cpu"`` tracks CPU, a sampler tracks job metrics, and the
-        name "web" (case-insensitive) tracks http on its own. For an http process under a
-        non-"web" name, use ``service(name, tracking="http")``.
+        Resolution: a sampler callable tracks job-queue metrics (``jql`` / ``jqs``). The
+        name ``"web"`` (case-insensitive) tracks http on its own. Otherwise a sampler is
+        required.
 
         Args:
-            name (str): The process name. Must be non-empty.
-            proc (callable, optional): A sampler returning the current job-queue
-                metric (a non-negative, finite number).
-            tracking (str, optional): ``"cpu"``, or omit.
+            name: The process name. Must be non-empty.
+            sampler: A sampler returning the current job-queue metric (a non-negative,
+                finite number).
 
         Raises:
-            ValueError: The name is empty.
-            MissingSamplerError: A non-"web" name given with neither ``tracking="cpu"`` nor a sampler.
-            UnexpectedSamplerError: A sampler given alongside ``tracking="cpu"``.
-            UnknownCollectorError: ``tracking`` given anything other than ``"cpu"``.
-            DuplicateDynoError: The name was already declared, or a second http process was declared.
-
-        Examples:
-            >>> config.dyno("web")  # "web" implies http
-            >>> config.dyno("worker", lambda: job_queue_size("default"))
-            >>> config.dyno("encoder", tracking="cpu")
+            ValueError: The name is empty or exceeds 128 UTF-8 bytes.
+            MissingSamplerError: A non-"web" name given without a sampler.
+            DuplicateDynoError: The name was already declared for the same source kind,
+                or a second http process was declared.
         """
         name = self._coerce_name(name)
 
-        if tracking is not None:
-            collector = self.DYNO_COLLECTORS.get(str(tracking))
-            if collector is None:
-                raise UnknownCollectorError(
-                    f"Unknown value {tracking!r} for config.dyno({name!r}, tracking=...). "
-                    "config.dyno only tracks 'cpu'. Pass a sampler callable for job "
-                    "metrics, or use config.service to track 'http' explicitly."
-                )
-        elif proc is not None:
-            collector = "job"
+        if sampler is not None:
+            source = "job_queue"
         elif name.lower() == "web":
-            collector = "http"
+            source = "http"
         else:
             raise MissingSamplerError(
-                f"config.dyno({name!r}) could not be resolved: it needs a sampler callable "
-                "(job metrics) or tracking='cpu'. Only the \"web\" name implies http on its "
-                f"own. Use config.service({name!r}, tracking='http') for an http process "
-                "under another name."
+                f'config.dyno("{name}") could not be resolved: it needs a sampler '
+                '(job-queue metrics). Only the "web" name implies http on its own. '
+                "RQT is always-on via platform web role or middleware traffic; "
+                "CPU is always-on when process identity resolves."
             )
 
-        self._register(name, collector, proc)
-
-    def service(
-        self,
-        name: str,
-        proc: Sampler | None = None,
-        *,
-        tracking: ServiceTracking | None = None,
-    ) -> None:
-        """Declares what a process tracks.
-
-        The name is a label with no implicit meaning, so what to track is always
-        explicit. Pass exactly one of ``tracking`` or a sampler callable:
-
-        - ``tracking="http"``: web request queue-time metrics, sampled from this
-          process's own HTTP traffic by the framework middleware (at most one http
-          process per app process).
-        - a sampler callable returning the current value: job queue metrics,
-          typically via a queue macro (e.g. ``job_queue_latency``).
-        - ``tracking="cpu"``: this process's CPU utilization.
-
-        :meth:`dyno` is this method plus the convention that the name "web" implies http.
-
-        Args:
-            name (str): The process name. Must be non-empty.
-            proc (callable, optional): A sampler returning the current job-queue
-                metric (a non-negative, finite number). Omit when passing ``tracking``.
-            tracking (str, optional): ``"http"`` or ``"cpu"``. Omit when passing a sampler.
-
-        Raises:
-            ValueError: The name is empty.
-            MissingSamplerError: Neither ``tracking`` nor a sampler was given.
-            UnexpectedSamplerError: A sampler given alongside ``tracking="http"`` or ``"cpu"``.
-            UnknownCollectorError: ``tracking`` given an unsupported value.
-            DuplicateDynoError: The name was already declared, or a second http process was declared.
-
-        Examples:
-            >>> config.service("web", tracking="http")
-            >>> config.service("worker", lambda: job_queue_size("default"))
-            >>> config.service("encoder", tracking="cpu")
-        """
-        name = self._coerce_name(name)
-
-        if tracking is not None:
-            collector = self.SERVICE_COLLECTORS.get(str(tracking))
-            if collector is None:
-                raise UnknownCollectorError(
-                    f"Unknown value {tracking!r} for config.service({name!r}, tracking=...). "
-                    "Expected tracking='http' or 'cpu', or a sampler callable for job metrics."
-                )
-        elif proc is not None:
-            collector = "job"
-        else:
-            raise MissingSamplerError(
-                f"config.service({name!r}) could not be resolved: pass tracking='http', "
-                "'cpu', or a sampler callable for job metrics."
-            )
-
-        self._register(name, collector, proc)
+        self._register(name, source, sampler)
 
     @property
     def buffer(self) -> Buffer:
@@ -228,120 +142,229 @@ class Configuration:
 
     @property
     def dispatcher(self) -> Dispatcher:
-        """Periodic reporter that samples workers/CPU and flushes buffered metrics to the API."""
+        """Periodic reporter that samples job queues and CPU and flushes buffered metrics."""
         if self._dispatcher is None:
             with self._mutex:
                 if self._dispatcher is None:
-                    self._dispatcher = Dispatcher(
-                        web=self.web,
-                        workers=self.workers,
-                        cpu=self._active_cpu_collectors(),
-                        web_liveness=self._web_liveness(),
-                    )
+                    self._dispatcher = Dispatcher()
         return self._dispatcher
 
-    def stop_dispatcher(self) -> None:
-        """Stops the dispatcher if one was started."""
+    def stop_dispatcher(self, flush: bool = True) -> None:
+        """Stops the dispatcher if one was started.
+
+        Args:
+            flush: Forwarded to :meth:`Dispatcher.stop`.
+        """
         if self._dispatcher is not None:
-            self._dispatcher.stop()
+            self._dispatcher.stop(flush=flush)
+
+    def http_name(self) -> str | None:
+        """Process name used for request-queue-time metrics.
+
+        Prefer an explicit HTTP source name when declared via :meth:`dyno`. Otherwise the
+        resolved process identity. No invented default (e.g. not ``"web"``).
+        """
+        if self.http is not None:
+            return self.http.name
+        return self.soft_identity()
+
+    def mark_http_active(self) -> None:
+        """Marks this process as serving HTTP (middleware has sampled)."""
+        self._http_active = True
+
+    def rqt_enabled(self) -> bool:
+        """Whether this process should emit the ``rqt`` wire metric."""
+        return bool(self.http or self._http_active or identity.platform_http_role())
+
+    def http_source(self) -> Web | None:
+        """HTTP source used for sampling, creating always-on when name is known."""
+        if self.http is not None:
+            return self.http
+
+        name = self.http_name()
+        if name is None:
+            if self.token and (self._http_active or identity.platform_http_role()):
+                self._warn_rqt_unresolved_once()
+            return None
+
+        if (
+            self._always_on_http is None
+            or self._always_on_http.name.lower() != name.lower()
+        ):
+            self._always_on_http = Web(name)
+        return self._always_on_http
+
+    def rqt_liveness(self) -> bool:
+        """Whether ``rqt`` liveness claims may be synthesized for this process."""
+        if not self.rqt_enabled():
+            return False
+
+        resolved = self.soft_identity()
+        name = self.http_name()
+        if resolved is None or name is None:
+            return False
+
+        return resolved.lower() == name.lower()
+
+    def active_cpu_sources(self) -> list[CPU]:
+        """Always-on CPU source for this process when identity resolves."""
+        resolved = self.soft_identity()
+        if resolved is None:
+            self._warn_cpu_unresolved_once()
+            return []
+
+        if (
+            self._always_on_cpu is None
+            or self._always_on_cpu.name.lower() != resolved.lower()
+        ):
+            self._always_on_cpu = CPU(resolved)
+        return [self._always_on_cpu]
+
+    def reset_after_fork(self) -> None:
+        """Drop process-local always-on source instances after a fork."""
+        self._always_on_cpu = None
+        self._always_on_http = None
+
+    def prefork_web_handoff(self) -> bool:
+        """Whether this process participates in prefork web master → worker handoff."""
+        return self.rqt_enabled()
+
+    def soft_identity(self) -> str | None:
+        """Resolved process identity with soft length gate (re-resolves every call)."""
+        self._warn_heroku_conflict_once()
+        name = identity.resolve()
+        if name is None:
+            return None
+        if len(name.encode("utf-8")) <= MAX_NAME_BYTES:
+            return name
+        self._warn_identity_name_too_long_once(name)
+        return None
 
     def _reinit_after_fork(self) -> None:
         self._mutex = threading.Lock()
         if self._buffer is not None:
-            self._buffer._reinit_after_fork()
+            self._buffer.reinit_after_fork()
         if self._dispatcher is not None:
             self._dispatcher._reinit_after_fork()
+        self.reset_after_fork()
 
-    def _active_cpu_collectors(self) -> list[CPU]:
-        if not self.cpu:
-            return []
+    def _reinit_locks_after_fork(self) -> None:
+        self._mutex = threading.Lock()
+        if self._buffer is not None:
+            self._buffer.reinit_locks_after_fork()
+        if self._dispatcher is not None:
+            self._dispatcher._reinit_locks_after_fork()
 
-        resolved = self._resolved_identity()
+    def _coerce_name(self, name: object | None) -> str:
+        coerced = "" if name is None else str(name).strip()
 
-        if resolved is None:
-            safe_log(
-                self.logger,
-                "error",
-                "[HireFire] CPU metrics are configured but this process's identity "
-                "could not be resolved, so the CPU collector is disabled. Set the "
-                "HIREFIRE_SERVICE_NAME environment variable to this process's dyno name.",
-            )
-            return []
-
-        return [
-            collector
-            for collector in self.cpu
-            if collector.name.lower() == resolved.lower()
-        ]
-
-    def _web_liveness(self) -> bool:
-        if not self.web:
-            return True
-
-        resolved = self._resolved_identity()
-        return resolved is None or resolved.lower() == self.web.name.lower()
-
-    def _resolved_identity(self) -> str | None:
-        if self._identity is not _UNSET:
-            return cast("str | None", self._identity)
-
-        if identity.heroku_conflict():
-            safe_log(
-                self.logger,
-                "warning",
-                f"[HireFire] HIREFIRE_SERVICE_NAME ({identity.explicit()}) does not match "
-                f"the Heroku DYNO prefix ({identity.heroku_dyno()}). Heroku config vars are "
-                "app-wide, so this makes every dyno identify as the same name. Set it inline "
-                "per process in the Procfile, or unset it to use automatic detection.",
-            )
-
-        self._identity = identity.resolve()
-        return self._identity
-
-    def _coerce_name(self, name: str | None) -> str:
-        name = "" if name is None else str(name)
-
-        if name == "":
+        if not coerced:
             raise ValueError(
-                "config.dyno and config.service require a dyno name as their first "
-                f"argument (got {name!r})."
+                f"config.dyno requires a dyno name as its first argument (got {coerced!r})."
             )
 
-        return name
+        byte_len = len(coerced.encode("utf-8"))
+        if byte_len > MAX_NAME_BYTES:
+            raise ValueError(
+                f"config.dyno name exceeds {MAX_NAME_BYTES} bytes (got {byte_len})."
+            )
 
-    def _register(self, name: str, collector: str, proc: Sampler | None) -> None:
-        if any(existing.lower() == name.lower() for existing in self._names):
+        return coerced
+
+    def _register(self, name: str, source: str, sampler: Sampler | None) -> None:
+        key = name.lower()
+        kinds = list(self._sources_by_name.get(key, []))
+
+        if source in kinds:
             raise DuplicateDynoError(
                 f"Duplicate declaration for {name!r}. "
-                "Each dyno name maps to exactly one collector."
+                "Each dyno name maps to at most one source of each kind."
             )
 
-        if collector == "http":
-            self._reject_sampler(name, proc)
-            if self.web:
+        if source == "http":
+            if self.http is not None:
                 raise DuplicateDynoError(
                     f"{name!r} conflicts with the earlier http declaration for "
-                    f"{self.web.name!r}. Request metrics are collected from this process's "
-                    "own http traffic, so only one http collector can be declared, under "
-                    "any name."
+                    f"{self.http.name!r}. Request metrics are collected from this "
+                    "process's own http traffic, so only one HTTP source can be "
+                    "declared, under any name."
                 )
-            self.web = Web(name)
-        elif collector == "job":
-            assert proc is not None
-            self.workers.append(Worker(name, proc))
-        elif collector == "cpu":
-            self._reject_sampler(name, proc)
-            self.cpu.append(CPU(name))
+            self.http = Web(self._canonical_name(name))
+        elif source == "job_queue":
+            assert sampler is not None
+            self.job_queues.append(Worker(self._canonical_name(name), sampler))
 
-        self._names.append(name)
+        self._sources_by_name[key] = kinds + [source]
 
-    def _reject_sampler(self, name: str, proc: Sampler | None) -> None:
-        if proc is None:
+    def _canonical_name(self, name: str) -> str:
+        existing_key = next(
+            (key for key in self._sources_by_name if key.lower() == name.lower()),
+            None,
+        )
+        if existing_key is None:
+            return name
+
+        candidates: list[str] = []
+        if self.http is not None:
+            candidates.append(self.http.name)
+        for worker in self.job_queues:
+            candidates.append(worker.name)
+        for candidate in candidates:
+            if candidate.lower() == name.lower():
+                return candidate
+        return name
+
+    def _warn_identity_name_too_long_once(self, name: str) -> None:
+        if self._identity_name_too_long_warned:
             return
+        self._identity_name_too_long_warned = True
+        byte_len = len(name.encode("utf-8"))
+        safe_log(
+            self.logger,
+            "error",
+            f"[HireFire] Process identity exceeds {MAX_NAME_BYTES} bytes "
+            f"({byte_len}). Metrics under this identity are disabled until the "
+            "name is shortened.",
+        )
 
-        raise UnexpectedSamplerError(
-            f"{name!r} does not take a sampler "
-            "(its values are collected automatically)."
+    def _warn_rqt_unresolved_once(self) -> None:
+        if self._rqt_unresolved_warned:
+            return
+        self._rqt_unresolved_warned = True
+        safe_log(
+            self.logger,
+            "warning",
+            "[HireFire] Request queue time samples dropped: process identity "
+            "is unresolved. Set HIREFIRE_SERVICE_NAME, or rely on DYNO / "
+            "RENDER_SERVICE_NAME where available (or declare config.dyno('web')).",
+        )
+
+    def _warn_heroku_conflict_once(self) -> None:
+        if self._heroku_conflict_warned:
+            return
+        if not identity.heroku_conflict():
+            return
+        self._heroku_conflict_warned = True
+        safe_log(
+            self.logger,
+            "warning",
+            f"[HireFire] HIREFIRE_SERVICE_NAME ({identity.explicit()}) does not "
+            f"match the Heroku DYNO prefix ({identity.heroku_dyno()}). Heroku config "
+            "vars are app-wide, so this makes every dyno identify as the same name. "
+            "Set it inline per process in the Procfile, or unset it to use automatic "
+            "detection.",
+        )
+
+    def _warn_cpu_unresolved_once(self) -> None:
+        if self._cpu_unresolved_warned:
+            return
+        self._cpu_unresolved_warned = True
+        safe_log(
+            self.logger,
+            "warning",
+            "[HireFire] CPU metrics disabled: process identity is unresolved. "
+            "Set HIREFIRE_SERVICE_NAME, or rely on DYNO / RENDER_SERVICE_NAME where "
+            "available.",
         )
 
     def _init_logger(self) -> logging.Logger:

@@ -29,7 +29,8 @@ def test_process_request_queue_time_swallows_metric_path_failures(
         process_request_queue_time(recent_request_start())
 
     assert "Middleware error" in caplog.text
-    assert HireFire.configuration.buffer.flush()["web"]
+    data = HireFire.configuration.buffer.flush()
+    assert "web" in data and "rqt" in data["web"]
 
 
 def test_process_request_queue_time_survives_a_raising_logger(set_HIREFIRE_TOKEN):
@@ -58,7 +59,7 @@ def test_process_request_queue_time_without_a_request_start_is_a_noop(
         process_request_queue_time(None)
         process_request_queue_time("")
 
-    assert HireFire.configuration.buffer.flush()["web"] == {}
+    assert "web" not in HireFire.configuration.buffer.flush()
     start.assert_not_called()
 
 
@@ -70,7 +71,7 @@ def test_process_request_queue_time_ignores_an_unparseable_value(set_HIREFIRE_TO
     with patch.object(Dispatcher, "start") as start:
         process_request_queue_time("garbage")
 
-    assert HireFire.configuration.buffer.flush()["web"] == {}
+    assert "web" not in HireFire.configuration.buffer.flush()
     start.assert_not_called()
 
 
@@ -115,6 +116,16 @@ def test_request_start_from_scope_falls_back_to_x_queue_start():
     assert request_start_from_scope(scope) == "1700000000000"
 
 
+def test_request_start_from_scope_blank_request_start_falls_back_to_queue_start():
+    scope = {
+        "headers": [
+            (b"x-request-start", b"   "),
+            (b"x-queue-start", b"1700000000000"),
+        ]
+    }
+    assert request_start_from_scope(scope) == "1700000000000"
+
+
 def test_request_start_from_scope_prefers_x_request_start():
     scope = {
         "headers": [
@@ -123,6 +134,13 @@ def test_request_start_from_scope_prefers_x_request_start():
         ]
     }
     assert request_start_from_scope(scope) == "1700000000000"
+
+
+def test_process_request_queue_time_extract_failures_are_swallowed(set_HIREFIRE_TOKEN):
+    def boom():
+        raise AttributeError("bad headers")
+
+    process_request_queue_time(extract=boom)
 
 
 def test_request_start_from_environ_falls_back_to_x_queue_start():
@@ -134,6 +152,22 @@ def test_request_start_from_environ_prefers_x_request_start():
     environ = {
         "HTTP_X_REQUEST_START": "1700000000000",
         "HTTP_X_QUEUE_START": "1699999996000",
+    }
+    assert request_start_from_environ(environ) == "1700000000000"
+
+
+def test_request_start_from_environ_blank_request_start_falls_back_to_queue_start():
+    environ = {
+        "HTTP_X_REQUEST_START": "   ",
+        "HTTP_X_QUEUE_START": "1700000000000",
+    }
+    assert request_start_from_environ(environ) == "1700000000000"
+
+
+def test_request_start_from_environ_whitespace_request_start_falls_back_to_queue_start():
+    environ = {
+        "HTTP_X_REQUEST_START": "  \t  ",
+        "HTTP_X_QUEUE_START": "1700000000000",
     }
     assert request_start_from_environ(environ) == "1700000000000"
 
@@ -174,3 +208,46 @@ def test_calculate_request_queue_time_reads_a_folded_duplicate_header():
         assert (
             calculate_request_queue_time("t=1700000000.000, t=1700000000.500") == 1000
         )
+
+
+def test_marks_http_active_for_tokened_request_without_platform_web_role(
+    set_HIREFIRE_TOKEN, monkeypatch
+):
+    monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "api")
+    with patch.object(Dispatcher, "start"), patch.object(
+        Dispatcher, "ensure_job_queue_loop"
+    ):
+        HireFire.boot()
+
+    assert not HireFire.configuration.rqt_enabled()
+    with patch.object(Dispatcher, "start"), patch.object(
+        Dispatcher, "ensure_job_queue_loop"
+    ):
+        process_request_queue_time(str(int(time.time() * 1000) - 1000))
+
+    assert HireFire.configuration.rqt_enabled()
+    data = HireFire.configuration.buffer.flush()
+    assert "api" in data and "rqt" in data["api"]
+
+
+def test_does_not_sample_without_identity_or_explicit_http_name(set_HIREFIRE_TOKEN):
+    with patch.object(Dispatcher, "start"), patch.object(
+        Dispatcher, "ensure_job_queue_loop"
+    ):
+        process_request_queue_time(str(int(time.time() * 1000) - 5))
+    assert HireFire.configuration.buffer.flush() == {}
+
+
+def test_does_not_mark_http_active_without_token(monkeypatch):
+    monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "api")
+    HireFire.boot()
+    process_request_queue_time(str(int(time.time() * 1000) - 5))
+    assert not HireFire.configuration.rqt_enabled()
+    assert HireFire.configuration.buffer.flush() == {}
+
+
+def test_calculate_request_queue_time_ignores_non_finite_headers():
+    assert calculate_request_queue_time("NaN") is None
+    assert calculate_request_queue_time("Infinity") is None
+    assert calculate_request_queue_time("t=Infinity") is None
+    assert calculate_request_queue_time("1e500") is None

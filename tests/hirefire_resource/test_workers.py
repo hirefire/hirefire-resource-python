@@ -9,30 +9,43 @@ def buffer():
     return HireFire.configuration.buffer
 
 
-def test_sample():
+def _strategy_value(data, name, strategy):
+    return list(data[name][strategy].values())[0]
+
+
+def _sample_all(strategy="jql"):
+    workers = HireFire.configuration.job_queues
+    for worker in workers:
+        workers.sample_job_queue(worker, strategy)
+
+
+def test_sample_job_queue_jql():
     with HireFire.configure() as config:
         config.dyno("worker", lambda: 42)
         config.dyno("mailer", lambda: 18)
 
-    HireFire.configuration.workers.sample()
+    _sample_all("jql")
 
     data = buffer().flush()
-    assert data["workers"] == [
-        {"name": "worker", "sample": 42},
-        {"name": "mailer", "sample": 18},
-    ]
+    assert _strategy_value(data, "worker", "jql") == 42
+    assert _strategy_value(data, "mailer", "jql") == 18
 
 
-def test_latest_sample_wins_across_multiple_samples():
-    values = iter([5, 9])
+def test_sample_job_queue_jqs():
     with HireFire.configure() as config:
-        config.dyno("worker", lambda: next(values))
+        config.dyno("worker", lambda: 7)
 
-    HireFire.configuration.workers.sample()
-    HireFire.configuration.workers.sample()
+    _sample_all("jqs")
+    assert _strategy_value(buffer().flush(), "worker", "jqs") == 7
 
-    data = buffer().flush()
-    assert data["workers"] == [{"name": "worker", "sample": 9}]
+
+def test_find_by_name_case_insensitive():
+    with HireFire.configure() as config:
+        config.dyno("Worker", lambda: 1)
+
+    found = HireFire.configuration.job_queues.find_by_name("worker")
+    assert found is not None
+    assert found.name == "Worker"
 
 
 def test_raising_sampler_is_isolated_and_logged(caplog):
@@ -45,10 +58,11 @@ def test_raising_sampler_is_isolated_and_logged(caplog):
         config.dyno("worker", boom)
         config.dyno("mailer", lambda: 18)
 
-    HireFire.configuration.workers.sample()
+    _sample_all()
 
     data = buffer().flush()
-    assert data["workers"] == [{"name": "mailer", "sample": 18}]
+    assert "worker" not in data or "jql" not in data.get("worker", {})
+    assert _strategy_value(data, "mailer", "jql") == 18
     assert "Redis down" in caplog.text
 
 
@@ -59,12 +73,12 @@ def test_invalid_sample_values_are_dropped_and_logged(caplog):
         config.dyno("worker", lambda: next(values))
 
     for _ in range(5):
-        HireFire.configuration.workers.sample()
-    assert buffer().flush()["workers"] == []
+        _sample_all()
+    assert buffer().flush() == {}
     assert "expected a non-negative number" in caplog.text
 
-    HireFire.configuration.workers.sample()
-    assert buffer().flush()["workers"] == [{"name": "worker", "sample": 7}]
+    _sample_all()
+    assert _strategy_value(buffer().flush(), "worker", "jql") == 7
 
 
 def test_a_boolean_sample_is_dropped(caplog):
@@ -72,10 +86,21 @@ def test_a_boolean_sample_is_dropped(caplog):
     with HireFire.configure() as config:
         config.dyno("worker", lambda: True)
 
-    HireFire.configuration.workers.sample()
+    _sample_all()
 
-    assert buffer().flush()["workers"] == []
+    assert buffer().flush() == {}
     assert "expected a non-negative number" in caplog.text
+
+
+def test_unknown_strategy_dropped(caplog):
+    caplog.set_level(logging.ERROR)
+    with HireFire.configure() as config:
+        config.dyno("worker", lambda: 1)
+
+    worker = list(HireFire.configuration.job_queues)[0]
+    HireFire.configuration.job_queues.sample_job_queue(worker, "nope")
+    assert buffer().flush() == {}
+    assert "Unknown job-queue strategy" in caplog.text
 
 
 def test_iteration_and_names():
@@ -99,9 +124,8 @@ def test_zero_sample_is_accepted():
     with HireFire.configure() as config:
         config.dyno("worker", lambda: 0)
 
-    HireFire.configuration.workers.sample()
-
-    assert buffer().flush()["workers"] == [{"name": "worker", "sample": 0}]
+    _sample_all()
+    assert _strategy_value(buffer().flush(), "worker", "jql") == 0
 
 
 def test_a_raising_logger_does_not_escape_sampling():
@@ -113,5 +137,4 @@ def test_a_raising_logger_does_not_escape_sampling():
             raise IOError("closed stream")
 
     HireFire.configuration.logger = RaisingLogger()
-
-    HireFire.configuration.workers.sample()
+    _sample_all()

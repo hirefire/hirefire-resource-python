@@ -20,4 +20,4 @@ def test_sample_buffers_request_queue_time():
         web.sample(25)
 
     data = HireFire.configuration.buffer.flush()
-    assert data["web"] == {100: [25]}
+    assert data["web"]["rqt"][100] == {"sum": 25.0, "count": 1}

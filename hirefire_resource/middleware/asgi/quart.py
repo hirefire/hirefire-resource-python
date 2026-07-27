@@ -14,7 +14,7 @@ class HireFireMiddleware:
 
     Install with ``app.asgi_app = HireFireMiddleware(app)``. Records a queue-time
     sample from ``X-Request-Start`` (or ``X-Queue-Start``) on each HTTP request when
-    an http process and token are configured.
+    a token is present. Explicit http registration is optional.
     """
 
     def __init__(self, app: Any) -> None:
@@ -22,5 +22,5 @@ class HireFireMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http":
-            process_request_queue_time(request_start_from_scope(scope))
+            process_request_queue_time(extract=lambda: request_start_from_scope(scope))
         await self.original_app(scope, receive, send)

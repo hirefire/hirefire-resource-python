@@ -12,4 +12,4 @@ class Web:
         """Records a request queue-time sample (milliseconds) into the buffer."""
         from hirefire_resource.hirefire import HireFire
 
-        HireFire.configuration.buffer.sample_web(request_queue_time)
+        HireFire.configuration.buffer.sample(self.name, "rqt", request_queue_time)

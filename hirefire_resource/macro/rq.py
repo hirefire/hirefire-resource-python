@@ -3,6 +3,7 @@ import functools
 import os
 import time
 from datetime import datetime
+from typing import Any
 
 import redis
 
@@ -230,3 +231,20 @@ def _iso_to_unix(iso_time: str) -> float:
     unix_time = float(dt.timestamp())
 
     return unix_time
+
+
+def plan_options(strategy: object, options: object) -> dict[str, Any]:
+    return {}
+
+
+def plan_connection_options() -> dict[str, Any]:
+    from hirefire_resource.identity import presence
+
+    url = presence(os.environ.get("HIREFIRE_RQ_URL"))
+    return {"redis_url": url} if url else {}
+
+
+def supports_plan_strategy(strategy: object) -> bool:
+    from hirefire_resource import plan
+
+    return plan.known_strategy(strategy)

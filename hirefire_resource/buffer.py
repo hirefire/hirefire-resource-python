@@ -1,72 +1,120 @@
+import math
 import threading
 import time
-from typing import TypedDict
-
-
-class WorkerEntry(TypedDict):
-    name: str
-    sample: float
-
-
-class FlushedBuffer(TypedDict):
-    web: dict[int, list[int]]
-    workers: list[WorkerEntry]
-    cpu: dict[str, dict[int, list[float]]]
+from typing import Any
 
 
 class Buffer:
+    """Nested metric buffer: name → strategy → second → bucket.
+
+    RQT buckets are ``{"sum": float, "count": int}``. Non-RQT buckets are bare numbers
+    (latest-wins).
+    """
+
+    SAMPLE_COUNT_LIMIT = 1_000_000
+
     def __init__(self, ttl: int = 60) -> None:
-        self._web: dict[int, list[int]] = {}
-        self._workers: dict[str, float] = {}
-        self._cpu: dict[str, dict[int, list[float]]] = {}
+        self._metrics: dict[str, dict[str, dict[int, Any]]] = {}
         self._mutex = threading.Lock()
         self._ttl = ttl
 
-    def sample_web(self, sample: int) -> None:
+    def sample(self, name: str, strategy: str, value: float) -> None:
+        """Records a sample. RQT accumulates sum+count. Other strategies latest-wins."""
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return
+        if not math.isfinite(value):
+            return
+
         timestamp = int(time.time())
+        strategy = str(strategy)
         with self._mutex:
-            self._prune(self._web, timestamp)
-            self._web.setdefault(timestamp, []).append(sample)
+            series = self._series_for(name, strategy)
+            self._prune(series, timestamp)
+            if strategy == "rqt":
+                bucket = series.get(timestamp)
+                if bucket is None:
+                    bucket = {"sum": 0.0, "count": 0}
+                    series[timestamp] = bucket
+                if bucket["count"] >= self.SAMPLE_COUNT_LIMIT:
+                    return
+                bucket["sum"] += float(value)
+                bucket["count"] += 1
+            else:
+                series[timestamp] = value
 
-    def sample_worker(self, name: str, sample: float) -> None:
+    def flush(self) -> dict[str, dict[str, dict[int, Any]]]:
         with self._mutex:
-            self._workers[name] = sample
+            metrics = self._metrics
+            self._metrics = {}
+            return metrics
 
-    def sample_cpu(self, name: str, value: float) -> None:
-        timestamp = int(time.time())
+    def discard_inherited(self) -> None:
         with self._mutex:
-            buckets = self._cpu.setdefault(name, {})
-            self._prune(buckets, timestamp)
-            buckets.setdefault(timestamp, []).append(value)
+            self._metrics = {}
 
-    def flush(self) -> FlushedBuffer:
-        with self._mutex:
-            web, workers, cpu = self._web, self._workers, self._cpu
-            self._web, self._workers, self._cpu = {}, {}, {}
+    def reinit_after_fork(self) -> None:
+        self._mutex = threading.Lock()
+        self._metrics = {}
 
-            return {
-                "web": web,
-                "workers": [
-                    {"name": name, "sample": sample} for name, sample in workers.items()
-                ],
-                "cpu": cpu,
-            }
+    def reinit_locks_after_fork(self) -> None:
+        self._mutex = threading.Lock()
 
     def _reinit_after_fork(self) -> None:
-        self._mutex = threading.Lock()
-        self._web = {}
-        self._workers = {}
-        self._cpu = {}
+        self.reinit_after_fork()
 
-    def repopulate_web(self, data: dict[int, list[int]]) -> None:
+    def repopulate(self, name: str, strategy: str, data: dict[int, Any]) -> None:
+        """Merge flushed RQT buckets ``{sum, count}`` back into the live buffer.
+
+        Caps at SAMPLE_COUNT_LIMIT (scales sum to keep mean) so wire weight stays honest.
+        Non-dict buckets are ignored.
+        """
+        strategy = str(strategy)
+        if strategy != "rqt":
+            return
+
         now = int(time.time())
         with self._mutex:
-            for timestamp, samples in data.items():
+            series = None
+            for timestamp, bucket in data.items():
                 if timestamp < now - self._ttl:
                     continue
-                self._web.setdefault(timestamp, []).extend(samples)
+                sum_v, count = self._rqt_parts(bucket)
+                if count <= 0:
+                    continue
+                if series is None:
+                    series = self._series_for(name, strategy)
+                existing = series.get(timestamp)
+                if isinstance(existing, dict):
+                    series[timestamp] = self._clamp_rqt(
+                        existing["sum"] + sum_v, existing["count"] + count
+                    )
+                else:
+                    series[timestamp] = self._clamp_rqt(sum_v, count)
+            if series is not None:
+                self._prune(series, now)
 
-    def _prune(self, buckets: dict[int, list], now: int) -> None:
+    def _series_for(self, name: str, strategy: str) -> dict[int, Any]:
+        by_name = self._metrics.setdefault(name, {})
+        return by_name.setdefault(strategy, {})
+
+    def _clamp_rqt(self, sum_v: float, count: int) -> dict[str, Any]:
+        if count > self.SAMPLE_COUNT_LIMIT:
+            mean = sum_v / count
+            return {
+                "sum": mean * self.SAMPLE_COUNT_LIMIT,
+                "count": self.SAMPLE_COUNT_LIMIT,
+            }
+        return {"sum": sum_v, "count": count}
+
+    @staticmethod
+    def _rqt_parts(bucket: Any) -> tuple[float, int]:
+        if isinstance(bucket, dict):
+            sum_v = bucket["sum"] if "sum" in bucket else 0.0
+            count = bucket["count"] if "count" in bucket else 0
+            return float(sum_v), int(count)
+        return 0.0, 0
+
+    def _prune(self, buckets: dict[int, Any], now: int) -> None:
         if len(buckets) <= self._ttl + 5:
             return
 

@@ -16,9 +16,10 @@ def heroku_dyno() -> str | None:
         return None
 
     if "." in dyno:
-        return dyno.split(".")[0]
+        name = dyno.split(".", 1)[0]
     else:
-        return re.sub(r"-[a-z0-9]+-[a-z0-9]+\Z", "", dyno)
+        name = re.sub(r"-[A-Za-z0-9]+-[A-Za-z0-9]+\Z", "", dyno)
+    return presence(name)
 
 
 def render_service() -> str | None:
@@ -33,5 +34,22 @@ def heroku_conflict() -> bool:
     )
 
 
-def presence(value: str | None) -> str | None:
-    return value if value else None
+def platform_http_role() -> bool:
+    return heroku_web_process() or render_web_service()
+
+
+def heroku_web_process() -> bool:
+    name = heroku_dyno()
+    return name is not None and name.lower() == "web"
+
+
+def render_web_service() -> bool:
+    service_type = presence(os.environ.get("RENDER_SERVICE_TYPE"))
+    return service_type is not None and service_type.lower() == "web"
+
+
+def presence(value: object | None) -> str | None:
+    if value is None:
+        return None
+    stripped = str(value).strip()
+    return stripped if stripped else None

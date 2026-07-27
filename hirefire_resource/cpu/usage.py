@@ -74,7 +74,7 @@ class Usage:
 
         if not counted:
             return None
-        return float(ticks) / cls.clock_ticks()
+        return float(ticks) / cls.positive_clock_ticks()
 
     @classmethod
     def stat_ticks(cls, content: str) -> int | None:
@@ -94,9 +94,14 @@ class Usage:
     @classmethod
     def clock_ticks(cls) -> int:
         try:
-            return os.sysconf("SC_CLK_TCK")
-        except (ValueError, OSError, AttributeError):
+            return int(os.sysconf("SC_CLK_TCK"))
+        except (ValueError, OSError, AttributeError, TypeError):
             return 100
+
+    @classmethod
+    def positive_clock_ticks(cls) -> int:
+        ticks = cls.clock_ticks()
+        return ticks if ticks > 0 else 100
 
     @classmethod
     def process_seconds(cls) -> float:

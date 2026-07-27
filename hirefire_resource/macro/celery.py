@@ -500,48 +500,74 @@ def _worker_data(app: Any) -> dict[str, int]:
     cache_key = id(app)
     now = time.time()
 
-    with _worker_data_cache_lock:
-        if _worker_data_cache_enabled:
+    # Read cache under the lock, then release before inspect I/O so a hung
+    # inspect cannot pin the global lock across JOIN_TIMEOUT abandon + restart.
+    if _worker_data_cache_enabled:
+        with _worker_data_cache_lock:
             cached = _worker_data_cache.get(cache_key)
             if cached is not None and (cached[0] + 5) >= now:
                 return cached[1]
 
-        previous_control = getattr(app.conf, "control_queue_exclusive", False)
-        previous_event = getattr(app.conf, "event_queue_exclusive", False)
-        try:
-            app.conf.control_queue_exclusive = True
-            app.conf.event_queue_exclusive = True
-            i = app.control.inspect()
-            inspect_now = time.time()
-            queue_info: dict[str, int] = {}
+    previous_control = getattr(app.conf, "control_queue_exclusive", False)
+    previous_event = getattr(app.conf, "event_queue_exclusive", False)
+    try:
+        app.conf.control_queue_exclusive = True
+        app.conf.event_queue_exclusive = True
+        i = app.control.inspect()
+        inspect_now = time.time()
+        queue_info: dict[str, int] = {}
 
-            for collection in [i.active(), i.reserved(), i.scheduled()]:
-                if collection is not None:
-                    for worker, tasks in collection.items():
-                        for task in tasks:
-                            task_info = task
+        for collection in [i.active(), i.reserved(), i.scheduled()]:
+            if collection is not None:
+                for worker, tasks in collection.items():
+                    for task in tasks:
+                        task_info = task
 
-                            if task.get("eta"):
-                                eta_string = task.get("eta")
-                                eta_datetime = parser.parse(eta_string)
-                                eta_timestamp = eta_datetime.timestamp()
+                        if task.get("eta"):
+                            eta_string = task.get("eta")
+                            eta_datetime = parser.parse(eta_string)
+                            eta_timestamp = eta_datetime.timestamp()
 
-                                if inspect_now < eta_timestamp:
-                                    continue
+                            if inspect_now < eta_timestamp:
+                                continue
 
-                                task_info = task["request"]
+                            task_info = task["request"]
 
-                            queue = task_info["delivery_info"]["routing_key"]
+                        queue = task_info["delivery_info"]["routing_key"]
 
-                            if queue not in queue_info:
-                                queue_info[queue] = 0
+                        if queue not in queue_info:
+                            queue_info[queue] = 0
 
-                            queue_info[queue] += 1
-        finally:
-            app.conf.control_queue_exclusive = previous_control
-            app.conf.event_queue_exclusive = previous_event
+                        queue_info[queue] += 1
+    finally:
+        app.conf.control_queue_exclusive = previous_control
+        app.conf.event_queue_exclusive = previous_event
 
-        if _worker_data_cache_enabled:
+    if _worker_data_cache_enabled:
+        with _worker_data_cache_lock:
             _worker_data_cache[cache_key] = (time.time(), queue_info)
 
-        return queue_info
+    return queue_info
+
+
+def plan_options(strategy: object, options: object) -> dict[str, Any]:
+    return {}
+
+
+def plan_connection_options() -> dict[str, Any]:
+    from hirefire_resource.identity import presence
+
+    url = presence(os.environ.get("HIREFIRE_CELERY_BROKER_URL"))
+    return {"broker_url": url} if url else {}
+
+
+def supports_plan_strategy(strategy: object) -> bool:
+    from hirefire_resource import plan
+
+    return plan.known_strategy(strategy)
+
+
+def _reinit_after_fork() -> None:
+    global _worker_data_cache_lock, _worker_data_cache
+    _worker_data_cache_lock = threading.Lock()
+    _worker_data_cache = {}

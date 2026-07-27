@@ -53,37 +53,57 @@ async def test_pass_through_without_token(client):
 
 @pytest.mark.asyncio
 @freeze_time("2000-01-01 00:00:00")
-async def test_pass_through_without_web(client, set_HIREFIRE_TOKEN):
-    response = await client.get("/any", headers={"x-request-start": "1700000000000"})
-    assert response.status_code == 200
-    assert response.text == "DEFAULT"
-    assert HireFire.configuration.buffer.flush()["web"] == {}
-
-
-@pytest.mark.asyncio
-@freeze_time("2000-01-01 00:00:00")
-async def test_samples_web_and_starts_dispatcher(client, set_HIREFIRE_TOKEN):
+async def test_samples_without_web_dyno_via_identity(
+    client, set_HIREFIRE_TOKEN, monkeypatch
+):
+    monkeypatch.setenv("DYNO", "web.1")
     with patch.object(Dispatcher, "start") as mock_start:
-        with HireFire.configure() as config:
-            config.dyno("web")
-        response = await client.get(
-            "/any", headers={"x-request-start": str(int(time.time() * 1000 - 5))}
-        )
-        assert response.status_code == 200
-        assert response.text == "DEFAULT"
-        assert HireFire.configuration.buffer.flush()["web"] == {int(time.time()): [5]}
-        mock_start.assert_called()
+        with patch.object(Dispatcher, "ensure_job_queue_loop") as mock_ensure:
+            response = await client.get(
+                "/any", headers={"x-request-start": str(int(time.time() * 1000 - 5))}
+            )
+            assert response.status_code == 200
+            assert response.text == "DEFAULT"
+            _ts = int(time.time())
+            assert HireFire.configuration.buffer.flush()["web"]["rqt"] == {
+                _ts: {"sum": float(5), "count": 1}
+            }
+            mock_start.assert_called()
+            mock_ensure.assert_called()
 
 
 @pytest.mark.asyncio
 @freeze_time("2000-01-01 00:00:00")
-async def test_falls_back_to_x_queue_start(client, set_HIREFIRE_TOKEN):
+async def test_samples_web_and_starts_dispatcher(
+    client, set_HIREFIRE_TOKEN, monkeypatch
+):
+    monkeypatch.setenv("DYNO", "web.1")
+    with patch.object(Dispatcher, "start") as mock_start:
+        with patch.object(Dispatcher, "ensure_job_queue_loop"):
+            response = await client.get(
+                "/any", headers={"x-request-start": str(int(time.time() * 1000 - 5))}
+            )
+            assert response.status_code == 200
+            assert response.text == "DEFAULT"
+            _ts = int(time.time())
+            assert HireFire.configuration.buffer.flush()["web"]["rqt"] == {
+                _ts: {"sum": float(5), "count": 1}
+            }
+            mock_start.assert_called()
+
+
+@pytest.mark.asyncio
+@freeze_time("2000-01-01 00:00:00")
+async def test_falls_back_to_x_queue_start(client, set_HIREFIRE_TOKEN, monkeypatch):
+    monkeypatch.setenv("DYNO", "web.1")
     with patch.object(Dispatcher, "start"):
-        with HireFire.configure() as config:
-            config.dyno("web")
-        response = await client.get(
-            "/any", headers={"x-queue-start": str(int(time.time() * 1000 - 5))}
-        )
-        assert response.status_code == 200
-        assert response.text == "DEFAULT"
-        assert HireFire.configuration.buffer.flush()["web"] == {int(time.time()): [5]}
+        with patch.object(Dispatcher, "ensure_job_queue_loop"):
+            response = await client.get(
+                "/any", headers={"x-queue-start": str(int(time.time() * 1000 - 5))}
+            )
+            assert response.status_code == 200
+            assert response.text == "DEFAULT"
+            _ts = int(time.time())
+            assert HireFire.configuration.buffer.flush()["web"]["rqt"] == {
+                _ts: {"sum": float(5), "count": 1}
+            }

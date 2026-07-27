@@ -13,7 +13,7 @@ from hirefire_resource.client import Client, RequestError
 from hirefire_resource.version import VERSION
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa: F401
 
-PAYLOAD = '[{"name":"web","samples":{"1000":[]}}]'
+PAYLOAD = '[{"name":"web","metrics":{"rqt":{"1000":[]}}}]'
 INGEST_URL = "https://data.hirefire.io/metrics/ingest"
 LEASE_URL = "https://data.hirefire.io/metrics/lease"
 
@@ -84,6 +84,16 @@ def test_submit_samples_sends_payload(client, set_HIREFIRE_TOKEN):
 def test_submit_samples_returns_none_on_unauthorized(client, set_HIREFIRE_TOKEN):
     Entry.single_register(Entry.POST, INGEST_URL, status=401)
     assert client.submit_samples(PAYLOAD) is None
+
+
+@mocketize
+def test_submit_samples_returns_payload_too_large_on_413(client, set_HIREFIRE_TOKEN):
+    from hirefire_resource.client import PAYLOAD_TOO_LARGE
+
+    Entry.single_register(
+        Entry.POST, "https://data.hirefire.io/metrics/ingest", status=413
+    )
+    assert client.submit_samples(PAYLOAD) == PAYLOAD_TOO_LARGE
 
 
 @mocketize
@@ -372,3 +382,44 @@ def test_close_swallows_a_failing_connection_shutdown(client):
     client.close()
 
     assert client._connection is None
+
+
+def test_blank_data_url_falls_back_to_default(monkeypatch):
+    from hirefire_resource.client import Client
+
+    monkeypatch.setenv("HIREFIRE_DATA_URL", "   ")
+    assert Client()._base_url() == "https://data.hirefire.io"
+    monkeypatch.setenv("HIREFIRE_DATA_URL", "///")
+    assert Client()._base_url() == "https://data.hirefire.io"
+    monkeypatch.setenv("HIREFIRE_DATA_URL", " https://example.test/path/ ")
+    assert Client()._base_url() == "https://example.test/path"
+
+
+def test_does_not_retry_twice_on_persistent_stale_errors(
+    client, set_HIREFIRE_TOKEN, fake_connections
+):
+    fake_connections.scripts = [
+        [FakeResponse(200), ConnectionResetError("peer reset")],
+        [ConnectionResetError("peer reset again")],
+    ]
+
+    client.submit_samples("[]")
+
+    with pytest.raises(RequestError):
+        client.submit_samples("[]")
+
+    assert len(fake_connections.created) == 2
+
+
+@mocketize
+def test_request_lease_returns_response_body(client, set_HIREFIRE_TOKEN):
+    body = '{"version":1,"job_queues":[]}'
+    Entry.single_register(
+        Entry.POST,
+        LEASE_URL,
+        status=200,
+        headers={"HireFire-Lease-Granted": "true"},
+        body=body,
+    )
+    response = client.request_lease("pid-1")
+    assert response.body == body

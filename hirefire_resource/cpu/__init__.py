@@ -57,4 +57,4 @@ class CPU:
 
         from hirefire_resource.hirefire import HireFire
 
-        HireFire.configuration.buffer.sample_cpu(self.name, round(percentage, 2))
+        HireFire.configuration.buffer.sample(self.name, "cpu", round(percentage, 2))

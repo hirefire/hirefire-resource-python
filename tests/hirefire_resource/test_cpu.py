@@ -24,7 +24,7 @@ def test_first_sample_only_seeds_the_baseline():
         collector = CPU("clock")
         with freeze_time(at(1000)):
             assert collector.sample() is None
-        assert buffer().flush()["cpu"] == {}
+        assert buffer().flush() == {}
 
 
 def test_second_sample_buffers_normalized_percentage():
@@ -37,7 +37,7 @@ def test_second_sample_buffers_normalized_percentage():
         with freeze_time(at(1001)):
             collector.sample()
 
-        assert buffer().flush()["cpu"] == {"clock": {1001: [50.0]}}
+        assert buffer().flush()["clock"]["cpu"] == {1001: 50.0}
 
 
 def test_normalizes_by_available_cpus():
@@ -50,7 +50,7 @@ def test_normalizes_by_available_cpus():
         with freeze_time(at(1001)):
             collector.sample()
 
-        assert buffer().flush()["cpu"] == {"worker": {1001: [25.0]}}
+        assert buffer().flush()["worker"]["cpu"] == {1001: 25.0}
 
 
 def test_clamps_to_100_percent():
@@ -63,7 +63,7 @@ def test_clamps_to_100_percent():
         with freeze_time(at(1001)):
             collector.sample()
 
-        assert buffer().flush()["cpu"] == {"clock": {1001: [100.0]}}
+        assert buffer().flush()["clock"]["cpu"] == {1001: 100.0}
 
 
 def test_negative_usage_delta_skips_and_reseeds_the_baseline():
@@ -80,7 +80,7 @@ def test_negative_usage_delta_skips_and_reseeds_the_baseline():
         with freeze_time(at(1002)):
             collector.sample()
 
-        assert buffer().flush()["cpu"] == {"clock": {1002: [50.0]}}
+        assert buffer().flush()["clock"]["cpu"] == {1002: 50.0}
 
 
 def test_source_change_skips_and_reseeds_the_baseline():
@@ -97,7 +97,7 @@ def test_source_change_skips_and_reseeds_the_baseline():
         with freeze_time(at(1002)):
             collector.sample()
 
-        assert buffer().flush()["cpu"] == {"clock": {1002: [50.0]}}
+        assert buffer().flush()["clock"]["cpu"] == {1002: 50.0}
 
 
 def test_skips_sample_when_usage_unavailable():
@@ -109,7 +109,7 @@ def test_skips_sample_when_usage_unavailable():
             collector.sample()
         with freeze_time(at(1001)):
             assert collector.sample() is None
-        assert buffer().flush()["cpu"] == {}
+        assert buffer().flush() == {}
 
 
 def test_non_positive_elapsed_delta_skips_the_sample():
@@ -120,7 +120,7 @@ def test_non_positive_elapsed_delta_skips_the_sample():
         with freeze_time(at(1000)):
             collector.sample()
             assert collector.sample() is None
-        assert buffer().flush()["cpu"] == {}
+        assert buffer().flush() == {}
 
 
 def test_elapsed_delta_uses_the_monotonic_clock_not_wall_time():
@@ -132,7 +132,7 @@ def test_elapsed_delta_uses_the_monotonic_clock_not_wall_time():
             collector.sample()
             collector.sample()
 
-        assert buffer().flush()["cpu"] == {"clock": {1000: [50.0]}}
+        assert buffer().flush()["clock"]["cpu"] == {1000: 50.0}
 
 
 def test_skips_sample_when_available_cpus_is_none():
@@ -144,7 +144,7 @@ def test_skips_sample_when_available_cpus_is_none():
             collector.sample()
         with freeze_time(at(1001)):
             assert collector.sample() is None
-        assert buffer().flush()["cpu"] == {}
+        assert buffer().flush() == {}
 
 
 def test_skips_sample_when_available_cpus_is_zero():
@@ -156,7 +156,7 @@ def test_skips_sample_when_available_cpus_is_zero():
             collector.sample()
         with freeze_time(at(1001)):
             assert collector.sample() is None
-        assert buffer().flush()["cpu"] == {}
+        assert buffer().flush() == {}
 
 
 def test_recovers_after_an_initially_unavailable_usage_source():
@@ -173,7 +173,7 @@ def test_recovers_after_an_initially_unavailable_usage_source():
         with freeze_time(at(1002)):
             collector.sample()
 
-        assert buffer().flush()["cpu"] == {"clock": {1002: [50.0]}}
+        assert buffer().flush()["clock"]["cpu"] == {1002: 50.0}
 
 
 def test_total_seconds_prefers_cgroup_v2():

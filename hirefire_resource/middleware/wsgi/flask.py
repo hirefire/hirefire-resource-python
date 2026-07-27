@@ -9,8 +9,8 @@ class HireFireMiddleware:
     """Flask middleware that samples request queue time.
 
     Install with ``app.wsgi_app = HireFireMiddleware(app)``. Records a queue-time
-    sample from ``X-Request-Start`` (or ``X-Queue-Start``) on each request when an
-    http process and token are configured.
+    sample from ``X-Request-Start`` (or ``X-Queue-Start``) on each request when a
+    token is present.
     """
 
     def __init__(self, app: Any) -> None:
@@ -20,5 +20,5 @@ class HireFireMiddleware:
     def __call__(
         self, environ: Mapping[str, Any], start_response: Any
     ) -> Iterable[bytes]:
-        process_request_queue_time(request_start_from_environ(environ))
+        process_request_queue_time(extract=lambda: request_start_from_environ(environ))
         return self.original_wsgi_app(environ, start_response)
