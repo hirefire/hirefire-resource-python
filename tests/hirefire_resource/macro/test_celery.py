@@ -20,7 +20,7 @@ from hirefire_resource.macro.celery import (
 
 _cache_worker_data(False)
 
-redis_url = f"redis://localhost:{os.environ.get('REDIS_PORT', '6379')}/15"
+redis_url = f"redis://localhost:{os.environ.get('REDIS_PORT', '6379')}/0"
 amqp_url = f"amqp://guest:guest@localhost:{os.environ.get('RABBITMQ_PORT', '5672')}"
 broker_urls = [redis_url, amqp_url]
 

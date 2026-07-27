@@ -1,13 +1,15 @@
-[tool.poetry]
+[project]
 name = "hirefire-resource"
 version = "1.1.0"
-description = "HireFire integration library for Python applications"
-authors = ["Michael van Rooijen <support@hirefire.io>"]
+description = "Integrates Python applications with HireFire autoscalers by pushing app metrics."
+authors = [
+    { name = "Michael van Rooijen", email = "support@hirefire.io" },
+]
 license = "MIT"
-repository = "https://github.com/hirefire/hirefire-resource-python"
+license-files = ["LICENSE"]
 readme = "README.md"
-homepage = "https://hirefire.io"
-documentation = "https://github.com/hirefire/hirefire-resource-python#readme"
+requires-python = ">=3.11"
+dependencies = []
 keywords = [
     "hirefire",
     "heroku",
@@ -16,32 +18,38 @@ keywords = [
     "autoscaler",
     "web",
     "worker",
-    "dyno"
+    "dyno",
 ]
-packages = [{include = "hirefire_resource"}]
+dynamic = ["classifiers"]
+
+[project.urls]
+Homepage = "https://hirefire.io"
+Repository = "https://github.com/hirefire/hirefire-resource-python"
+Documentation = "https://github.com/hirefire/hirefire-resource-python#readme"
+"Bug Tracker" = "https://github.com/hirefire/hirefire-resource-python/issues"
+Changelog = "https://github.com/hirefire/hirefire-resource-python/blob/master/CHANGELOG.md"
+
+[tool.poetry]
+packages = [{ include = "hirefire_resource" }]
 include = [
-    "README.md",
-    "CHANGELOG.md",
-    "LICENSE",
-    {path = "hirefire_resource/py.typed", format = ["sdist", "wheel"]}
+    { path = "CHANGELOG.md", format = ["sdist", "wheel"] },
+    { path = "LICENSE", format = ["sdist", "wheel"] },
+    { path = "hirefire_resource/py.typed", format = ["sdist", "wheel"] },
 ]
 classifiers = [
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
-    "Typing :: Typed"
+    "Typing :: Typed",
 ]
 
-[tool.poetry.urls]
-"Bug Tracker" = "https://github.com/hirefire/hirefire-resource-python/issues"
-"Changelog" = "https://github.com/hirefire/hirefire-resource-python/blob/master/CHANGELOG.md"
-
 [tool.poetry.dependencies]
+# Upper bound is for lock resolution only. Package metadata uses requires-python above.
 python = ">=3.11,<4.0"
 
 [tool.poetry.group.dev.dependencies]
@@ -56,7 +64,7 @@ pytest-cov = "^7.0.0"
 mypy = "^1.13.0"
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
+requires = ["poetry-core>=2.2.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.mypy]

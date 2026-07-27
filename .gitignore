@@ -1,10 +1,15 @@
 .coverage
 .pytest_cache/
+.mypy_cache/
 htmlcov/
+coverage.xml
 .DS_Store
 .env
 .tox/
+.venv/
+venv/
 __pycache__/
+*.egg-info/
 /dist
 CLAUDE.md
 .worktreeinclude
