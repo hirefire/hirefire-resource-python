@@ -8,17 +8,13 @@ from kombu import Queue
 
 from hirefire_resource.errors import MissingQueueError
 from hirefire_resource.macro.celery import (
-    _cache_worker_data,
     _job_queue_latency_rabbitmq,
     _job_queue_latency_redis,
-    _worker_data,
     async_job_queue_latency,
     async_job_queue_size,
     job_queue_latency,
     job_queue_size,
 )
-
-_cache_worker_data(False)
 
 redis_url = f"redis://localhost:{os.environ.get('REDIS_PORT', '6379')}/0"
 amqp_url = f"amqp://guest:guest@localhost:{os.environ.get('RABBITMQ_PORT', '5672')}"
@@ -442,64 +438,80 @@ def test_job_queue_latency_rabbitmq_requeues_after_parse_error():
     assert channel.rejected == [(7, True)]
 
 
-def test_worker_data_restores_inspect_queue_settings(celery_app):
-    celery_app.conf.control_queue_exclusive = False
-    celery_app.conf.event_queue_exclusive = False
+def _inflating_inspect_control():
+    """Control/inspect that would inflate old size with active, reserved, and due scheduled."""
+    due_eta = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat()
+    active_task = {
+        "delivery_info": {"routing_key": "celery"},
+        "id": "active-1",
+    }
+    reserved_task = {
+        "delivery_info": {"routing_key": "celery"},
+        "id": "reserved-1",
+    }
+    scheduled_task = {
+        "eta": due_eta,
+        "request": {
+            "delivery_info": {"routing_key": "celery"},
+            "id": "scheduled-1",
+        },
+    }
 
-    class FakeInspect:
+    class InflatingInspect:
         def active(self):
-            return {}
+            return {"worker@host": [active_task, dict(active_task, id="active-2")]}
 
         def reserved(self):
-            return {}
+            return {"worker@host": [reserved_task]}
 
         def scheduled(self):
-            return {}
+            return {"worker@host": [scheduled_task]}
 
-    class FakeControl:
-        def inspect(self):
-            return FakeInspect()
+    class TrackingControl:
+        def __init__(self):
+            self.inspect_calls = 0
 
-    celery_app.control = FakeControl()
-    _cache_worker_data(False)
-    try:
-        assert _worker_data(celery_app) == {}
-        assert celery_app.conf.control_queue_exclusive is False
-        assert celery_app.conf.event_queue_exclusive is False
-    finally:
-        _cache_worker_data(True)
+        def inspect(self, *args, **kwargs):
+            self.inspect_calls += 1
+            return InflatingInspect()
+
+    return TrackingControl()
 
 
-def test_worker_data_cache_is_keyed_per_app(celery_app):
-    class CountingInspect:
-        calls = 0
+def test_job_queue_size_ignores_active_reserved_and_due_scheduled_inspect(
+    celery_app, monkeypatch
+):
+    celery_app.send_task("test_task", queue="celery")
+    celery_app.send_task("test_task", queue="celery")
 
-        def active(self):
-            type(self).calls += 1
-            return {}
+    control = _inflating_inspect_control()
+    monkeypatch.setattr(celery_app, "control", control)
 
-        def reserved(self):
-            return {}
+    # Broker has 2 ready messages. Mock inspect would add active(2)+reserved(1)+due scheduled(1).
+    assert job_queue_size("celery", celery_app=celery_app) == 2
+    assert control.inspect_calls == 0
 
-        def scheduled(self):
-            return {}
 
-    class FakeControl:
-        def inspect(self):
-            return CountingInspect()
+def test_job_queue_size_without_broker_jobs_ignores_worker_inspect(
+    celery_app, monkeypatch
+):
+    control = _inflating_inspect_control()
+    monkeypatch.setattr(celery_app, "control", control)
 
-    app_a = Celery(broker=celery_app.conf.broker_url)
-    app_b = Celery(broker=celery_app.conf.broker_url)
-    app_a.control = FakeControl()
-    app_b.control = FakeControl()
+    # Empty broker: old size would still count inspect-held work. Waiting-only is 0.
+    assert job_queue_size("celery", celery_app=celery_app) == 0
+    assert control.inspect_calls == 0
 
-    _cache_worker_data(True)
-    CountingInspect.calls = 0
-    try:
-        _worker_data(app_a)
-        _worker_data(app_a)
-        _worker_data(app_b)
-        assert CountingInspect.calls == 2
-    finally:
-        _cache_worker_data(False)
-        _cache_worker_data(True)
+
+def test_job_queue_size_mixed_broker_and_inspect_counts_broker_only(
+    celery_app, monkeypatch
+):
+    celery_app.send_task("test_task", queue="celery")
+    celery_app.send_task("test_task", queue="mailer")
+    celery_app.send_task("test_task", queue="mailer")
+
+    control = _inflating_inspect_control()
+    monkeypatch.setattr(celery_app, "control", control)
+
+    assert job_queue_size("celery", "mailer", celery_app=celery_app) == 3
+    assert control.inspect_calls == 0

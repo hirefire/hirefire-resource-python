@@ -106,14 +106,19 @@ def test_after_fork_in_child_does_not_import_celery_macro(monkeypatch):
 
     monkeypatch.setenv("HIREFIRE_TOKEN", "tok")
     HireFire.reset()
-    assert "hirefire_resource.macro.celery" not in sys.modules
-    had_celery = "celery" in sys.modules
-    # Abandon path still must not import the macro (and thus celery) just to reinit.
-    monkeypatch.setattr(HireFire.configuration, "prefork_web_handoff", lambda: False)
-    HireFire.after_fork_in_child()
-    assert "hirefire_resource.macro.celery" not in sys.modules
-    if not had_celery:
-        assert "celery" not in sys.modules
+    # Isolate from other tests that may have imported the Celery macro.
+    celery_macro = sys.modules.pop("hirefire_resource.macro.celery", None)
+    try:
+        assert "hirefire_resource.macro.celery" not in sys.modules
+        had_celery = "celery" in sys.modules
+        monkeypatch.setattr(HireFire.configuration, "prefork_web_handoff", lambda: False)
+        HireFire.after_fork_in_child()
+        assert "hirefire_resource.macro.celery" not in sys.modules
+        if not had_celery:
+            assert "celery" not in sys.modules
+    finally:
+        if celery_macro is not None:
+            sys.modules["hirefire_resource.macro.celery"] = celery_macro
 
 
 def test_after_fork_in_parent_stops_without_flush_for_web(

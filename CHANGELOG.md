@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Local configuration is dyno-only: `config.dyno(name, sampler=None)`. Multi-kind same name is allowed. Soft identity re-resolves every call.
 - Middleware samples with token only (no predeclared web collector). Dispatcher re-reads live configuration each tick and supports `stop(flush=...)`.
 - Nested metric buffer and ingest payload use the compact 32 KB wire format.
+- Celery `job_queue_size` / `async_job_queue_size` count broker-ready messages only (Redis `LLEN` / RabbitMQ `message_count`). Active, reserved, and due scheduled tasks from Celery inspect are no longer included, so size tracks waiting backlog rather than worker load or prefetch.
 
 ### Removed
 
@@ -33,14 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Lease renewal re-issues the process identity and drops any inherited grant when the process id changes (for example after a fork when the at-fork reinit did not run), matching Ruby.
 - Dispatcher loop threads bind to a start generation, so a hung loop that outlives `stop()`'s join cannot resume work after a later `start()`.
 - Celery RabbitMQ latency measurement always requeues the peeked message, even when parsing `run_at` fails, so a bad payload cannot leave a message unacked.
-- Celery worker-size inspect no longer permanently mutates the caller's `control_queue_exclusive` / `event_queue_exclusive` settings, and the 5-second worker-data cache is keyed per Celery app.
 - An empty token (`""` in code or `HIREFIRE_TOKEN=""`) is treated as absent: the dispatcher does not start, middleware does not sample, and no empty `HireFire-Token` is sent. Assigning `config.token = ""` also forces reporting off when the env var is set.
 - RQ and Celery Redis macros no longer call `.decode()` on replies that may already be `str` when the Redis URL sets `decode_responses=true` (or when the client otherwise returns strings). Keys, job ids, `enqueued_at`, and Celery queue payloads are normalized with a `bytes | str` helper first.
 - A zero cgroup v2 CPU quota (`cpu.max` of `0 <period>`) now falls through to the next divisor source instead of reporting zero available CPUs and disabling CPU sampling.
 - Internal dispatch pacing, lease renewal, and the CPU utilization delta now measure elapsed time on a monotonic clock, so a system clock adjustment (e.g. an NTP step) no longer skews the dispatch cadence, lease renewal, or a CPU reading. The metric timestamps themselves stay wall-clock, as the server requires.
 - `X-Request-Start` parsing reads the leading numeric value and ignores any trailing content (matching the Ruby and Node clients), so a request behind a proxy chain that sets the header at two hops (folding it to `"<ts>, <ts>"`) still yields a queue-time sample instead of being dropped.
 - A logger assigned to `config.logger` that raises from its logging method is now caught rather than propagated, so it can no longer escape a dispatcher or worker guard and halt metric reporting, or abort boot from `HireFire.configure()`.
-- `job_queue_size`/`async_job_queue_size` now work against RabbitMQ 4.3+, which denies transient non-exclusive queues by default. The Celery worker inspection sets `control_queue_exclusive` and `event_queue_exclusive` before inspecting (matching Celery 5.7's own default) so the pidbox reply/event queues it relies on are accepted instead of failing with `INTERNAL_ERROR`.
 
 ## [1.0.4] - 2026-01-09
 

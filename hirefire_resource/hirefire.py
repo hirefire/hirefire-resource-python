@@ -1,5 +1,4 @@
 import os
-import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -89,15 +88,6 @@ class HireFire:
         """
         try:
             cls.configuration._reinit_locks_after_fork()
-            # Reinit Celery macro caches only if the macro is already loaded.
-            # Importing hirefire_resource.macro.celery would `import celery` and
-            # poison enter_race / library_loaded for non-worker children.
-            celery_macro = sys.modules.get("hirefire_resource.macro.celery")
-            if celery_macro is not None:
-                try:
-                    celery_macro._reinit_after_fork()
-                except Exception:
-                    pass
 
             if cls.configuration.prefork_web_handoff():
                 if not cls.configuration.token:

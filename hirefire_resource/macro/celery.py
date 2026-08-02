@@ -2,14 +2,12 @@ import asyncio
 import functools
 import json
 import os
-import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable, TypeVar, cast
 
 from celery import Celery
 from celery.signals import before_task_publish
-from dateutil import parser
 from dateutil.parser import parse
 from kombu.exceptions import OperationalError
 
@@ -221,12 +219,13 @@ def job_queue_size(
     broker_url: str | None = None,
     celery_app: "Celery | None" = None,
 ) -> int:
-    """Total job count across the given Celery queues (Redis or RabbitMQ).
+    """Total waiting job count across the given Celery queues (Redis or RabbitMQ).
 
-    Sums broker backlog plus worker-held work for those queues (active, reserved, and
-    due scheduled tasks from Celery inspect). The broker is chosen from ``broker_url``
-    or ``celery_app``, then the standard env vars, then a local default (AMQP when
-    available, otherwise Redis).
+    Counts broker-ready messages only (Redis ``LLEN`` / RabbitMQ ``message_count``).
+    Does not include worker-local active, reserved, or due scheduled tasks from
+    Celery inspect. The broker is chosen from ``broker_url`` or ``celery_app``,
+    then the standard env vars, then a local default (AMQP when available,
+    otherwise Redis).
 
     Note:
         - It is recommended to avoid using the eta and countdown options for tasks in queues that
@@ -258,8 +257,8 @@ def job_queue_size(
             with custom arguments like x-max-priority.
 
     Returns:
-        int: Broker depth plus worker-held tasks across the specified queues. Returns 0
-            on ``OperationalError`` (for example the broker is unreachable).
+        int: Broker-ready message count across the specified queues. Returns 0 on
+            ``OperationalError`` (for example the broker is unreachable).
             ``ConnectionResetError`` is retried then re-raised.
 
     Raises:
@@ -313,11 +312,7 @@ def job_queue_size(
     try:
         with celery_app.connection_or_acquire() as connection:
             with connection.channel() as channel:
-                worker_task_count = _job_queue_size_worker(celery_app, queue_names)
-                broker_task_count = _job_queue_size_broker(
-                    celery_app, channel, queue_names
-                )
-                return worker_task_count + broker_task_count
+                return _job_queue_size_broker(celery_app, channel, queue_names)
 
     except OperationalError:
         return 0
@@ -361,8 +356,8 @@ async def async_job_queue_size(
             queues with custom arguments like x-max-priority.
 
     Returns:
-        int: Broker depth plus worker-held tasks across the specified queues. Returns 0
-            on ``OperationalError`` (for example the broker is unreachable).
+        int: Broker-ready message count across the specified queues. Returns 0 on
+            ``OperationalError`` (for example the broker is unreachable).
             ``ConnectionResetError`` is retried then re-raised.
 
     Raises:
@@ -452,11 +447,6 @@ def _job_queue_latency_rabbitmq(channel: Any, queue: str) -> float:
         return 0
 
 
-def _job_queue_size_worker(app: Any, queues: set[str] | tuple[str, ...]) -> int:
-    worker_data = _worker_data(app)
-    return sum(worker_data.get(queue, 0) for queue in queues)
-
-
 def _job_queue_size_broker(
     app: Any, channel: Any, queues: set[str] | tuple[str, ...]
 ) -> int:
@@ -483,73 +473,6 @@ def _job_queue_size_rabbitmq(channel: Any, queue: str, arguments: Any = None) ->
         return 0
 
 
-_worker_data_cache_enabled = True
-_worker_data_cache: dict[int, tuple[float, dict[str, int]]] = {}
-_worker_data_cache_lock = threading.Lock()
-
-
-def _cache_worker_data(enabled: bool) -> None:
-    global _worker_data_cache_enabled
-    _worker_data_cache_enabled = enabled
-    if not enabled:
-        with _worker_data_cache_lock:
-            _worker_data_cache.clear()
-
-
-def _worker_data(app: Any) -> dict[str, int]:
-    cache_key = id(app)
-    now = time.time()
-
-    # Read cache under the lock, then release before inspect I/O so a hung
-    # inspect cannot pin the global lock across JOIN_TIMEOUT abandon + restart.
-    if _worker_data_cache_enabled:
-        with _worker_data_cache_lock:
-            cached = _worker_data_cache.get(cache_key)
-            if cached is not None and (cached[0] + 5) >= now:
-                return cached[1]
-
-    previous_control = getattr(app.conf, "control_queue_exclusive", False)
-    previous_event = getattr(app.conf, "event_queue_exclusive", False)
-    try:
-        app.conf.control_queue_exclusive = True
-        app.conf.event_queue_exclusive = True
-        i = app.control.inspect()
-        inspect_now = time.time()
-        queue_info: dict[str, int] = {}
-
-        for collection in [i.active(), i.reserved(), i.scheduled()]:
-            if collection is not None:
-                for worker, tasks in collection.items():
-                    for task in tasks:
-                        task_info = task
-
-                        if task.get("eta"):
-                            eta_string = task.get("eta")
-                            eta_datetime = parser.parse(eta_string)
-                            eta_timestamp = eta_datetime.timestamp()
-
-                            if inspect_now < eta_timestamp:
-                                continue
-
-                            task_info = task["request"]
-
-                        queue = task_info["delivery_info"]["routing_key"]
-
-                        if queue not in queue_info:
-                            queue_info[queue] = 0
-
-                        queue_info[queue] += 1
-    finally:
-        app.conf.control_queue_exclusive = previous_control
-        app.conf.event_queue_exclusive = previous_event
-
-    if _worker_data_cache_enabled:
-        with _worker_data_cache_lock:
-            _worker_data_cache[cache_key] = (time.time(), queue_info)
-
-    return queue_info
-
-
 def plan_options(strategy: object, options: object) -> dict[str, Any]:
     return {}
 
@@ -565,9 +488,3 @@ def supports_plan_strategy(strategy: object) -> bool:
     from hirefire_resource import plan
 
     return plan.known_strategy(strategy)
-
-
-def _reinit_after_fork() -> None:
-    global _worker_data_cache_lock, _worker_data_cache
-    _worker_data_cache_lock = threading.Lock()
-    _worker_data_cache = {}
