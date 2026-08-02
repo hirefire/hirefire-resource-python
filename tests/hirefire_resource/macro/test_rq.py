@@ -8,6 +8,7 @@ from redis import Redis
 from rq import Queue
 
 from hirefire_resource.macro.rq import (
+    _is_due_scheduled_score,
     async_job_queue_latency,
     async_job_queue_size,
     job_queue_latency,
@@ -187,4 +188,128 @@ def test_job_queue_latency_with_decode_responses():
     assert job_queue_latency(redis_url=decode_url) == pytest.approx(200, abs=10)
     assert job_queue_latency("default", redis_url=decode_url) == pytest.approx(
         200, abs=10
+    )
+
+
+def test_is_due_scheduled_score_is_inclusive():
+    """Pure residual for the JQL due filter (score ≤ now). Fails under strict `<`."""
+    now = 1_722_600_000.25
+    assert _is_due_scheduled_score(now - 1.0, now) is True
+    assert _is_due_scheduled_score(now, now) is True
+    assert _is_due_scheduled_score(now + 0.001, now) is False
+    # Strict `<` would treat equality as future. This is the lock for that bug.
+    assert _is_due_scheduled_score(now, now) != (now < now)
+
+
+def test_job_queue_size_excludes_wip_and_future_scheduled():
+    """Waiting-only: live + due scheduled. WIP and future schedule are out."""
+    r = Redis.from_url(redis_url)
+    now = time.time()
+
+    r.rpush("rq:queue:default", "live-job-1")
+    r.sadd("rq:queues", "rq:queue:default")
+    r.zadd(
+        "rq:scheduled:default",
+        {
+            "due-job": now - 50,
+            "due-at-now": now,
+            "future-job": now + 120,
+        },
+    )
+    r.zadd("rq:wip:default", {"working-job": now - 10})
+
+    assert job_queue_size("default", redis_url=redis_url) == 3
+    assert job_queue_size(redis_url=redis_url) == 3
+
+
+def test_job_queue_size_includes_scheduled_score_equal_to_now():
+    """JQS ZCOUNT max is inclusive (score ≤ now) at a whole second."""
+    frozen = datetime(2026, 8, 2, 12, 0, 0, tzinfo=timezone.utc)
+    with freeze_time(frozen):
+        now = time.time()
+        r = Redis.from_url(redis_url)
+        r.zadd("rq:scheduled:default", {"edge-due": now})
+        r.sadd("rq:queues", "rq:queue:default")
+
+        assert job_queue_size("default", redis_url=redis_url) == 1
+        assert job_queue_size(redis_url=redis_url) == 1
+
+
+def test_job_queue_size_includes_fractional_second_due_score():
+    """JQS uses float now for ZCOUNT max, not int(time.time()) truncation."""
+    # 12:00:00.750 so int(now) == floor second. Score in (int(now), now] is due.
+    frozen = datetime(2026, 8, 2, 12, 0, 0, 750_000, tzinfo=timezone.utc)
+    with freeze_time(frozen):
+        now = time.time()
+        assert now != int(now)
+        fractional_due = int(now) + 0.5
+        assert int(now) < fractional_due <= now
+
+        r = Redis.from_url(redis_url)
+        r.zadd("rq:scheduled:default", {"fractional-due": fractional_due})
+        r.sadd("rq:queues", "rq:queue:default")
+
+        assert job_queue_size("default", redis_url=redis_url) == 1
+        assert job_queue_size(redis_url=redis_url) == 1
+
+
+def test_job_queue_latency_scheduled_due_age_and_empty_edge():
+    """Scheduled latency is age of earliest due. Exact-now due contributes 0 age."""
+    frozen = datetime(2026, 8, 2, 12, 0, 0, tzinfo=timezone.utc)
+    with freeze_time(frozen):
+        now = time.time()
+        r = Redis.from_url(redis_url)
+        r.zadd("rq:scheduled:default", {"edge-due": now})
+        r.sadd("rq:queues", "rq:queue:default")
+
+        # Age 0 at the sample clock (does not alone prove inclusive filter:
+        # that residual is test_is_due_scheduled_score_is_inclusive).
+        assert job_queue_latency("default", redis_url=redis_url) == 0
+
+        r.zadd("rq:scheduled:default", {"late-due": now - 90})
+        assert job_queue_latency("default", redis_url=redis_url) == pytest.approx(
+            90, abs=0.01
+        )
+        assert job_queue_size("default", redis_url=redis_url) == 2
+
+
+def test_job_queue_latency_excludes_wip_and_future_scheduled():
+    r = Redis.from_url(redis_url)
+    now = time.time()
+
+    r.zadd(
+        "rq:scheduled:default",
+        {
+            "due-job": now - 40,
+            "future-job": now + 200,
+        },
+    )
+    r.zadd("rq:wip:default", {"working-job": now - 500})
+    r.sadd("rq:queues", "rq:queue:default")
+
+    assert job_queue_latency("default", redis_url=redis_url) == pytest.approx(
+        40, abs=1
+    )
+    assert job_queue_latency(redis_url=redis_url) == pytest.approx(40, abs=1)
+
+
+def test_job_queue_size_and_latency_waiting_only_mixed():
+    """Live + due only when WIP and future are also present."""
+    r = Redis.from_url(redis_url)
+    now = time.time()
+
+    r.rpush("rq:queue:default", "live-a", "live-b")
+    r.sadd("rq:queues", "rq:queue:default")
+    r.zadd(
+        "rq:scheduled:default",
+        {
+            "due-a": now - 30,
+            "future-a": now + 60,
+        },
+    )
+    r.zadd("rq:wip:default", {"wip-a": now - 5, "wip-b": now - 1})
+
+    assert job_queue_size("default", redis_url=redis_url) == 3
+    assert job_queue_latency("default", redis_url=redis_url) == pytest.approx(
+        30, abs=1
     )

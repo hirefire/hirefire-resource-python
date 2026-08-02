@@ -11,11 +11,15 @@ from hirefire_resource.utility import normalize_queues
 
 
 def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
-    """Maximum job queue latency across the given RQ queues.
+    """Maximum job queue latency across the given RQ queues (waiting only).
 
-    With no queues, measures latency across every queue present. Includes ready queue
-    jobs and **due** scheduled jobs (score ≤ now). Future scheduled jobs are ignored.
-    Redis is chosen from ``redis_url``, then the standard env vars, then a local default.
+    With no queues, measures latency across every queue present. Waiting is ready
+    queue jobs plus **due** scheduled jobs (``rq:scheduled:{name}`` score ≤ now).
+    Delayed retries with an interval use that same scheduled registry (RQ has no
+    separate retry set). Future scheduled jobs, started/WIP jobs
+    (``rq:wip:{name}``), failed, and deferred jobs are ignored.
+    Redis is chosen from ``redis_url``, then the standard env vars, then a local
+    default.
 
     Args:
         *queues (str): Names of the queues for latency measurement.
@@ -48,48 +52,52 @@ def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
     )
 
     redis_client = redis.Redis.from_url(redis_url)
+    try:
+        queue_names = normalize_queues(*queues, allow_empty=True)
+        if not queue_names:
+            queue_names = _registered_queue_names(redis_client)
 
-    queue_names = normalize_queues(*queues, allow_empty=True)
-    if not queue_names:
-        queue_names = _registered_queue_names(redis_client)
+        pipeline = redis_client.pipeline()
+        current_time = time.time()
 
-    pipeline = redis_client.pipeline()
-    current_time = time.time()
+        for queue in queue_names:
+            pipeline.lindex(f"rq:queue:{queue}", 0)
+            pipeline.zrangebyscore(
+                f"rq:scheduled:{queue}",
+                "-inf",
+                current_time,
+                withscores=True,
+                start=0,
+                num=1,
+            )
 
-    for queue in queue_names:
-        pipeline.lindex(f"rq:queue:{queue}", 0)
-        pipeline.zrangebyscore(
-            f"rq:scheduled:{queue}",
-            "-inf",
-            current_time,
-            withscores=True,
-            start=0,
-            num=1,
-        )
+        job_ids = pipeline.execute()
 
-    job_ids = pipeline.execute()
+        for job_id in job_ids[::2]:
+            if job_id:
+                pipeline.hget(f"rq:job:{_as_str(job_id)}", "enqueued_at")
 
-    for job_id in job_ids[::2]:
-        if job_id:
-            pipeline.hget(f"rq:job:{_as_str(job_id)}", "enqueued_at")
+        enqueued_at_times = pipeline.execute()
 
-    enqueued_at_times = pipeline.execute()
+        max_latency = 0.0
 
-    max_latency = 0.0
-
-    for enqueued_at in enqueued_at_times:
-        if enqueued_at:
-            latency = current_time - _iso_to_unix(_as_str(enqueued_at))
-            max_latency = max(max_latency, latency)
-
-    for job_data in job_ids[1::2]:
-        if job_data:
-            job_id, score = job_data[0]
-            if score < current_time:
-                latency = current_time - score
+        for enqueued_at in enqueued_at_times:
+            if enqueued_at:
+                latency = current_time - _iso_to_unix(_as_str(enqueued_at))
                 max_latency = max(max_latency, latency)
 
-    return max_latency
+        for job_data in job_ids[1::2]:
+            if job_data:
+                _job_id, score = job_data[0]
+                # ZRANGEBYSCORE max is inclusive. Re-check with the shared due
+                # predicate so JQL cannot drift from JQS (score ≤ now).
+                if _is_due_scheduled_score(score, current_time):
+                    latency = current_time - score
+                    max_latency = max(max_latency, latency)
+
+        return max_latency
+    finally:
+        redis_client.close()
 
 
 async def async_job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
@@ -123,11 +131,15 @@ async def async_job_queue_latency(*queues: str, redis_url: str | None = None) ->
 
 
 def job_queue_size(*queues: str, redis_url: str | None = None) -> int:
-    """Total job count across the given RQ queues.
+    """Total waiting job count across the given RQ queues.
 
-    With no queues, measures size across every queue present. Counts ready queue jobs
-    plus **due** scheduled jobs (score ≤ now). Future scheduled jobs are excluded.
-    Redis is chosen from ``redis_url``, then the standard env vars, then a local default.
+    With no queues, measures size across every queue present. Waiting is ready
+    queue jobs plus **due** scheduled jobs (``rq:scheduled:{name}`` score ≤ now).
+    Delayed retries with an interval use that same scheduled registry (RQ has no
+    separate retry set). Future scheduled jobs, started/WIP jobs
+    (``rq:wip:{name}``), failed, and deferred jobs are excluded.
+    Redis is chosen from ``redis_url``, then the standard env vars, then a local
+    default.
 
     Args:
         *queues (str): Names of the queues for size measurement.
@@ -160,22 +172,22 @@ def job_queue_size(*queues: str, redis_url: str | None = None) -> int:
     )
 
     redis_client = redis.Redis.from_url(redis_url)
+    try:
+        queue_names = normalize_queues(*queues, allow_empty=True)
+        if not queue_names:
+            queue_names = _registered_queue_names(redis_client)
 
-    queue_names = normalize_queues(*queues, allow_empty=True)
-    if not queue_names:
-        queue_names = _registered_queue_names(redis_client)
+        pipeline = redis_client.pipeline()
+        current_time = time.time()
 
-    pipeline = redis_client.pipeline()
-    current_time = int(time.time())
+        for queue in queue_names:
+            pipeline.llen(f"rq:queue:{queue}")
+            pipeline.zcount(f"rq:scheduled:{queue}", "-inf", current_time)
 
-    for queue in queue_names:
-        pipeline.llen(f"rq:queue:{queue}")
-        pipeline.zcount(f"rq:scheduled:{queue}", 0, current_time)
-
-    job_counts = pipeline.execute()
-    total_jobs = sum(job_counts)
-
-    return total_jobs
+        job_counts = pipeline.execute()
+        return sum(job_counts)
+    finally:
+        redis_client.close()
 
 
 async def async_job_queue_size(*queues: str, redis_url: str | None = None) -> int:
@@ -209,6 +221,15 @@ async def async_job_queue_size(*queues: str, redis_url: str | None = None) -> in
 
 
 _QUEUE_KEY_PREFIX = "rq:queue:"
+
+
+def _is_due_scheduled_score(score: float, now: float) -> bool:
+    """Return True when a scheduled-registry score is due (score ≤ now).
+
+    Shared product bound for JQL/JQS. Inclusive so a job whose run time equals
+    the sample clock is waiting, not future.
+    """
+    return score <= now
 
 
 def _registered_queue_names(redis_client: redis.Redis) -> set[str]:

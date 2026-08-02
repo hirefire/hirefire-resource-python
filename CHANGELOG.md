@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Middleware samples with token only (no predeclared web collector). Dispatcher re-reads live configuration each tick and supports `stop(flush=...)`.
 - Nested metric buffer and ingest payload use the compact 32 KB wire format.
 - Celery `job_queue_size` / `async_job_queue_size` count broker-ready messages only (Redis `LLEN` / RabbitMQ `message_count`). Active, reserved, and due scheduled tasks from Celery inspect are no longer included, so size tracks waiting backlog rather than worker load or prefetch.
+- RQ `job_queue_size` / `job_queue_latency` (and async variants) are waiting-only: live queue plus due scheduled (`score ≤ now`). Delayed retries share the scheduled registry (no separate retry set). Started/WIP, failed, deferred, and future scheduled jobs are excluded. Scheduled due bound is inclusive on both size and latency. Redis clients opened by the macros are closed after each sample.
 
 ### Removed
 
