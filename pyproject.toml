@@ -88,6 +88,8 @@ module = [
     "celery.*",
     "kombu.*",
     "amqp.*",
-    "dateutil.*"
+    "dateutil.*",
+    "dramatiq.*",
+    "pika.*",
 ]
 ignore_missing_imports = true

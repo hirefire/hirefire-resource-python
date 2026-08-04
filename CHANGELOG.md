@@ -9,9 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Zero-config install: set `HIREFIRE_TOKEN`, mount middleware, and call `HireFire.boot()` (or empty `HireFire.configure()`). Request queue time and CPU report without local declarations. Job queues follow lease collection plans for Celery and RQ.
+- Dramatiq first-party job-queue adapter (`dramatiq` plan wire key): `job_queue_size` / `job_queue_latency` (and async wrappers) for Redis and RabbitMQ. Redis waiting set is live ready list plus due `.DQ` messages (`options.eta ≤ now_ms`). RabbitMQ is main-queue ready only (`.DQ` / `.XQ` not counted in v1). Queues required. Connection via `broker=` XOR `broker_url`, plan `HIREFIRE_DRAMATIQ_URL` / optional `HIREFIRE_DRAMATIQ_NAMESPACE`, then the Celery-family AMQP then Redis env ladder. Working/acks never included (no `do_qsize`).
+- Zero-config install: set `HIREFIRE_TOKEN`, mount middleware, and call `HireFire.boot()` (or empty `HireFire.configure()`). Request queue time and CPU report without local declarations. Job queues follow lease collection plans for Celery, RQ, and Dramatiq.
 - Always-on CPU under resolved process identity. Always-on RQT when platform web role is known (Heroku `DYNO` type `web`, Render `RENDER_SERVICE_TYPE=web`), when middleware sees traffic, or when `config.dyno("web")` is declared.
-- Lease plan body parsing (`job_queues`), hold/refuse with process id rotate, demote with epoch fence, and dispatcher plan sampling (`jql`/`jqs`) for Celery and RQ.
+- Lease plan body parsing (`job_queues`), hold/refuse with process id rotate, demote with epoch fence, and dispatcher plan sampling (`jql`/`jqs`) for Celery, RQ, and Dramatiq.
 - Prefork web handoff via `os.register_at_fork`: parent stops without flush, child starts with token, handoff without token is a no-op, job-only children abandon inherited state.
 - Compact nested ingest wire: RQT as `[mean, n]` or `[]`, bare non-RQT numbers, 32 KB payload limit.
 

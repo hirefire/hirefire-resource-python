@@ -8,11 +8,13 @@ from hirefire_resource.log import safe_log
 ADAPTER_MODULES = {
     "celery": "hirefire_resource.macro.celery",
     "rq": "hirefire_resource.macro.rq",
+    "dramatiq": "hirefire_resource.macro.dramatiq",
 }
 
 LIBRARY_CHECKS = {
     "celery": "celery",
     "rq": "rq",
+    "dramatiq": "dramatiq",
 }
 
 STRATEGIES = {
@@ -93,7 +95,7 @@ def execute(entry: dict[str, Any]) -> None:
     if queues is None:
         return
 
-    if adapter == "celery" and queues == []:
+    if adapter in ("celery", "dramatiq") and queues == []:
         _log(
             "error",
             f"[HireFire] Plan queue list for {name!r} had no valid names. Entry skipped.",

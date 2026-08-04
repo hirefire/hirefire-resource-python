@@ -21,6 +21,7 @@ Job Queue Latency, and Job Queue Size. Set `HIREFIRE_TOKEN` for the library to r
 
 - Celery 5+
 - RQ 1+
+- Dramatiq 2+
 
 The test suite runs against these minimum versions and the current latest release of each runtime and library. Older versions may still work, but are not officially supported.
 
