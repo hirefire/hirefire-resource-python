@@ -483,8 +483,11 @@ def test_lease_denied_skips_worker_collection():
 @mocketize
 def test_dispatches_cpu_as_nested_bare_number(monkeypatch):
     bodies = capture_ingest_bodies()
-    with patch.object(Usage, "available_cpus", return_value=1.0), patch.object(
-        Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (0.5, "cgroup_v2")]
+    with (
+        patch.object(Usage, "available_cpus", return_value=1.0),
+        patch.object(
+            Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (0.5, "cgroup_v2")]
+        ),
     ):
         dispatcher = configure_cpu_only(monkeypatch, "clock")
         with freeze_time(at(1000)):
@@ -501,8 +504,9 @@ def test_dispatches_cpu_as_nested_bare_number(monkeypatch):
 @mocketize
 def test_cpu_first_tick_seeds_baseline_without_dispatching(monkeypatch):
     bodies = capture_ingest_bodies()
-    with patch.object(Usage, "available_cpus", return_value=1.0), patch.object(
-        Usage, "reading", return_value=(0.0, "cgroup_v2")
+    with (
+        patch.object(Usage, "available_cpus", return_value=1.0),
+        patch.object(Usage, "reading", return_value=(0.0, "cgroup_v2")),
     ):
         dispatcher = configure_cpu_only(monkeypatch, "clock")
         with freeze_time(at(1000)):
@@ -514,8 +518,11 @@ def test_cpu_first_tick_seeds_baseline_without_dispatching(monkeypatch):
 @mocketize
 def test_cpu_samples_are_not_repopulated_on_dispatch_failure(monkeypatch):
     Entry.single_register(Entry.POST, INGEST_URL, status=500)
-    with patch.object(Usage, "available_cpus", return_value=1.0), patch.object(
-        Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (0.5, "cgroup_v2")]
+    with (
+        patch.object(Usage, "available_cpus", return_value=1.0),
+        patch.object(
+            Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (0.5, "cgroup_v2")]
+        ),
     ):
         dispatcher = configure_cpu_only(monkeypatch, "clock")
         with freeze_time(at(1000)):
@@ -758,9 +765,10 @@ def test_stop_closes_the_persistent_connections():
     dispatcher._running = True
     dispatcher._pid = os.getpid()
 
-    with patch.object(dispatcher._client, "close") as client_close, patch.object(
-        dispatcher._lease, "close"
-    ) as lease_close:
+    with (
+        patch.object(dispatcher._client, "close") as client_close,
+        patch.object(dispatcher._lease, "close") as lease_close,
+    ):
         dispatcher.stop()
 
     client_close.assert_called_once()
@@ -1947,8 +1955,9 @@ def test_fork_resets_dispatch_pacing_and_watermark():
     child_pid = dispatcher._pid + 1
     with patch("os.getpid", return_value=child_pid):
         # Suppress ticks so a live loop cannot re-arm pacing before assertions.
-        with patch.object(dispatcher, "_tick"), patch.object(
-            dispatcher, "_job_queue_tick"
+        with (
+            patch.object(dispatcher, "_tick"),
+            patch.object(dispatcher, "_job_queue_tick"),
         ):
             assert dispatcher.start()
             assert dispatcher._next_dispatch_at is None
@@ -2023,8 +2032,11 @@ def test_jql_not_repopulated_on_dispatch_failure(caplog):
 def test_nested_payload_merges_rqt_and_cpu_under_one_name(monkeypatch):
     monkeypatch.setenv("DYNO", "web.1")
     bodies = capture_ingest_bodies()
-    with patch.object(Usage, "available_cpus", return_value=1.0), patch.object(
-        Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (0.5, "cgroup_v2")]
+    with (
+        patch.object(Usage, "available_cpus", return_value=1.0),
+        patch.object(
+            Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (0.5, "cgroup_v2")]
+        ),
     ):
         HireFire.configuration.dyno("web")
         dispatcher = HireFire.configuration.dispatcher
@@ -2067,3 +2079,86 @@ def test_wire_payload_nested_multi_strategy_shape(monkeypatch):
     for entry in payload:
         assert sorted(entry.keys()) == ["metrics", "name"]
         assert all(isinstance(k, str) for k in entry["metrics"].keys())
+
+
+@mocketize
+def test_sample_job_queues_runs_plan_inside_around_job_queue_sample():
+    from contextlib import contextmanager
+
+    from hirefire_resource import plan
+
+    order: list[str] = []
+    executed: list[str] = []
+
+    @contextmanager
+    def fake_around():
+        order.append("around-enter")
+        yield
+        order.append("around-exit")
+
+    def fake_execute(entry):
+        order.append("execute")
+        executed.append(entry["adapter"])
+        assert entry["strategy"] in ("jql", "jqs")
+
+    dispatcher = configure_web_only()
+    dispatcher._lease.job_queues = [
+        {
+            "name": "worker",
+            "adapter": "celery",
+            "strategy": "jql",
+            "queues": ["default"],
+        },
+        {
+            "name": "mailer",
+            "adapter": "rq",
+            "strategy": "jqs",
+            "queues": ["mail"],
+        },
+    ]
+
+    with (
+        patch.object(plan, "around_job_queue_sample", fake_around),
+        patch.object(plan, "execute", side_effect=fake_execute),
+        patch.object(plan, "executable", return_value=True),
+        patch.object(plan, "supports_strategy", return_value=True),
+        patch.object(plan, "known_adapter", return_value=True),
+    ):
+        dispatcher._sample_job_queues()
+
+    assert order == ["around-enter", "execute", "execute", "around-exit"]
+    assert executed == ["celery", "rq"]
+
+
+@mocketize
+def test_abandon_inherited_state_calls_reinit_macros_after_fork():
+    from hirefire_resource import plan
+
+    dispatcher = configure_web_only()
+    with patch.object(plan, "reinit_macros_after_fork") as reinit:
+        dispatcher.abandon_inherited_state()
+        reinit.assert_called_once_with()
+
+
+@mocketize
+def test_start_after_fork_calls_reinit_macros_after_fork():
+    from hirefire_resource import plan
+
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+
+    dispatcher = configure_web_only()
+    assert dispatcher.start()
+    child_pid = dispatcher._pid + 1
+
+    try:
+        with (
+            patch("os.getpid", return_value=child_pid),
+            patch.object(plan, "reinit_macros_after_fork") as reinit,
+            patch.object(dispatcher, "_tick"),
+            patch.object(dispatcher, "_job_queue_tick"),
+        ):
+            assert dispatcher.start()
+            reinit.assert_called_once_with()
+    finally:
+        dispatcher.stop()

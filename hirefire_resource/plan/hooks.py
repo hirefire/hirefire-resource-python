@@ -18,6 +18,31 @@ def supports_plan_strategy(strategy: object) -> bool:
     return plan.known_strategy(strategy)
 
 
+def before_sample_job_queues() -> object | None:
+    """Open process-local state for one Dispatcher job-queue sample wave.
+
+    Default is a no-op. Adapters with sample-scoped caches override and may
+    return an opaque token for :func:`after_sample_job_queues`.
+    """
+    return None
+
+
+def after_sample_job_queues(token: object = None) -> None:
+    """Close process-local sample-wave state from :func:`before_sample_job_queues`.
+
+    Default is a no-op. Called from ``finally`` even when a sampler raises.
+    """
+    return None
+
+
+def reinit_after_fork() -> None:
+    """Reset process-local macro state after fork or abandoned inherited state.
+
+    Default is a no-op. Called next to buffer reinit on the same dispatcher sites.
+    """
+    return None
+
+
 def extract_plan_options(
     strategy: object,
     options: object,

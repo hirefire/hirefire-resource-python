@@ -81,6 +81,9 @@ class Dispatcher:
                 after_fork = self._pid is not None and self._pid != os.getpid()
                 if after_fork:
                     self._buffer().reinit_after_fork()
+                    from hirefire_resource import plan
+
+                    plan.reinit_macros_after_fork()
                     self._reset_dispatch_state_after_fork()
                 else:
                     self._reset_dispatch_state_for_restart()
@@ -241,6 +244,9 @@ class Dispatcher:
                 self._pid = None
                 self._generation += 1
             self._buffer().reinit_after_fork()
+            from hirefire_resource import plan
+
+            plan.reinit_macros_after_fork()
             self._lease.demote()
             self._client.close()
             self._lease.close()
@@ -364,12 +370,15 @@ class Dispatcher:
         return False
 
     def _sample_job_queues(self) -> None:
-        local_job_queues = self._configuration().job_queues
-        for entry in self._lease.job_queues:
-            if self._adapter_present(entry):
-                self._sample_plan_adapter(entry, local_job_queues)
-            else:
-                self._sample_strategy_only(entry, local_job_queues)
+        from hirefire_resource import plan
+
+        with plan.around_job_queue_sample():
+            local_job_queues = self._configuration().job_queues
+            for entry in self._lease.job_queues:
+                if self._adapter_present(entry):
+                    self._sample_plan_adapter(entry, local_job_queues)
+                else:
+                    self._sample_strategy_only(entry, local_job_queues)
 
     def _sample_plan_adapter(
         self, entry: dict[str, Any], local_job_queues: Any

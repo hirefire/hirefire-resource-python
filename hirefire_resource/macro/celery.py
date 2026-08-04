@@ -22,7 +22,12 @@ except ImportError:
 
     AMQP_AVAILABLE = False
 
+from hirefire_resource.plan import hooks as _plan_hooks
 from hirefire_resource.utility import normalize_queues
+
+before_sample_job_queues = _plan_hooks.before_sample_job_queues
+after_sample_job_queues = _plan_hooks.after_sample_job_queues
+reinit_after_fork = _plan_hooks.reinit_after_fork
 
 
 def _get_queue_arguments_from_app(

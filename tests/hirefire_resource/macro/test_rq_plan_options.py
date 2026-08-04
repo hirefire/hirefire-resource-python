@@ -22,3 +22,14 @@ def test_plan_connection_options_ignore_blank(monkeypatch):
 def test_supports_plan_strategy():
     assert rq_macro.supports_plan_strategy("jql")
     assert rq_macro.supports_plan_strategy("jqs")
+
+
+def test_sample_wave_hooks_default_to_noops():
+    from hirefire_resource.plan import hooks
+
+    assert rq_macro.before_sample_job_queues is hooks.before_sample_job_queues
+    assert rq_macro.after_sample_job_queues is hooks.after_sample_job_queues
+    assert rq_macro.reinit_after_fork is hooks.reinit_after_fork
+    assert rq_macro.before_sample_job_queues() is None
+    assert rq_macro.after_sample_job_queues("token") is None
+    assert rq_macro.reinit_after_fork() is None

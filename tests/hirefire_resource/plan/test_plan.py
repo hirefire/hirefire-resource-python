@@ -443,3 +443,361 @@ def test_execute_dramatiq_jql_passes_connection_options():
     }
     data = HireFire.configuration.buffer.flush()
     assert list(data["worker"]["jql"].values())[0] == 12.5
+
+
+def test_around_job_queue_sample_calls_before_and_after_on_every_adapter():
+    events: list[object] = []
+
+    class MacroA:
+        @staticmethod
+        def before_sample_job_queues():
+            events.append(("before", "a"))
+            return "token_a"
+
+        @staticmethod
+        def after_sample_job_queues(token):
+            events.append(("after", "a", token))
+
+    class MacroB:
+        @staticmethod
+        def before_sample_job_queues():
+            events.append(("before", "b"))
+            return "token_b"
+
+        @staticmethod
+        def after_sample_job_queues(token):
+            events.append(("after", "b", token))
+
+    macros = {"a": MacroA, "b": MacroB}
+
+    def load(name):
+        return macros.get(str(name))
+
+    with (
+        patch.object(plan, "ADAPTER_MODULES", {"a": "mod.a", "b": "mod.b"}),
+        patch.object(plan, "_load_macro", side_effect=load),
+    ):
+        with plan.around_job_queue_sample():
+            events.append("body")
+
+    assert events == [
+        ("before", "a"),
+        ("before", "b"),
+        "body",
+        ("after", "a", "token_a"),
+        ("after", "b", "token_b"),
+    ]
+
+
+def test_around_job_queue_sample_runs_after_when_body_raises():
+    after_tokens: list[object] = []
+
+    class Macro:
+        @staticmethod
+        def before_sample_job_queues():
+            return "wave"
+
+        @staticmethod
+        def after_sample_job_queues(token):
+            after_tokens.append(token)
+
+    with (
+        patch.object(plan, "ADAPTER_MODULES", {"x": "mod.x"}),
+        patch.object(plan, "_load_macro", return_value=Macro),
+    ):
+        try:
+            with plan.around_job_queue_sample():
+                raise RuntimeError("boom")
+        except RuntimeError as error:
+            assert str(error) == "boom"
+
+    assert after_tokens == ["wave"]
+
+
+def test_reinit_macros_after_fork_notifies_every_adapter():
+    called: list[str] = []
+
+    class MacroA:
+        @staticmethod
+        def reinit_after_fork():
+            called.append("a")
+
+    class MacroB:
+        @staticmethod
+        def reinit_after_fork():
+            called.append("b")
+
+    macros = {"a": MacroA, "b": MacroB}
+
+    def load(name):
+        return macros.get(str(name))
+
+    with (
+        patch.object(plan, "ADAPTER_MODULES", {"a": "mod.a", "b": "mod.b"}),
+        patch.object(plan, "_load_macro", side_effect=load),
+    ):
+        plan.reinit_macros_after_fork()
+
+    assert called == ["a", "b"]
+
+
+def test_around_job_queue_sample_continues_when_before_raises_and_skips_its_after(
+    caplog,
+):
+    import logging
+
+    caplog.set_level(logging.ERROR)
+    events: list[object] = []
+
+    class MacroA:
+        @staticmethod
+        def before_sample_job_queues():
+            events.append(("before", "a"))
+            raise RuntimeError("before-a")
+
+        @staticmethod
+        def after_sample_job_queues(token):
+            events.append(("after", "a", token))
+
+    class MacroB:
+        @staticmethod
+        def before_sample_job_queues():
+            events.append(("before", "b"))
+            return "token_b"
+
+        @staticmethod
+        def after_sample_job_queues(token):
+            events.append(("after", "b", token))
+
+    macros = {"a": MacroA, "b": MacroB}
+
+    def load(name):
+        return macros.get(str(name))
+
+    with (
+        patch.object(plan, "ADAPTER_MODULES", {"a": "mod.a", "b": "mod.b"}),
+        patch.object(plan, "_load_macro", side_effect=load),
+    ):
+        with plan.around_job_queue_sample():
+            events.append("body")
+
+    assert events == [
+        ("before", "a"),
+        ("before", "b"),
+        "body",
+        ("after", "b", "token_b"),
+    ]
+    assert "before_sample_job_queues for 'a' raised" in caplog.text
+    assert "before-a" in caplog.text
+
+
+def test_around_job_queue_sample_continues_remaining_afters_when_one_after_raises(
+    caplog,
+):
+    import logging
+
+    caplog.set_level(logging.ERROR)
+    events: list[object] = []
+
+    class MacroA:
+        @staticmethod
+        def before_sample_job_queues():
+            return "token_a"
+
+        @staticmethod
+        def after_sample_job_queues(token):
+            events.append(("after", "a"))
+            raise RuntimeError("after-a")
+
+    class MacroB:
+        @staticmethod
+        def before_sample_job_queues():
+            return "token_b"
+
+        @staticmethod
+        def after_sample_job_queues(token):
+            events.append(("after", "b", token))
+
+    macros = {"a": MacroA, "b": MacroB}
+
+    def load(name):
+        return macros.get(str(name))
+
+    with (
+        patch.object(plan, "ADAPTER_MODULES", {"a": "mod.a", "b": "mod.b"}),
+        patch.object(plan, "_load_macro", side_effect=load),
+    ):
+        with plan.around_job_queue_sample():
+            events.append("body")
+
+    assert events == [
+        "body",
+        ("after", "a"),
+        ("after", "b", "token_b"),
+    ]
+    assert "after_sample_job_queues for 'a' raised" in caplog.text
+    assert "after-a" in caplog.text
+
+
+def test_reinit_macros_after_fork_continues_when_one_adapter_raises(caplog):
+    import logging
+
+    caplog.set_level(logging.ERROR)
+    called: list[str] = []
+
+    class MacroA:
+        @staticmethod
+        def reinit_after_fork():
+            called.append("a")
+            raise RuntimeError("reinit-a")
+
+    class MacroB:
+        @staticmethod
+        def reinit_after_fork():
+            called.append("b")
+
+    macros = {"a": MacroA, "b": MacroB}
+
+    def load(name):
+        return macros.get(str(name))
+
+    with (
+        patch.object(plan, "ADAPTER_MODULES", {"a": "mod.a", "b": "mod.b"}),
+        patch.object(plan, "_load_macro", side_effect=load),
+    ):
+        plan.reinit_macros_after_fork()
+
+    assert called == ["a", "b"]
+    assert "reinit_after_fork for 'a' raised" in caplog.text
+    assert "reinit-a" in caplog.text
+
+
+def test_around_job_queue_sample_soft_skips_missing_macro_without_logging(caplog):
+    import logging
+
+    caplog.set_level(logging.ERROR)
+    events: list[object] = []
+
+    class MacroPresent:
+        @staticmethod
+        def before_sample_job_queues():
+            events.append("before-present")
+            return "tok"
+
+        @staticmethod
+        def after_sample_job_queues(token):
+            events.append(("after-present", token))
+
+    def load(name):
+        if str(name) == "missing":
+            return None
+        return MacroPresent
+
+    with (
+        patch.object(
+            plan, "ADAPTER_MODULES", {"missing": "mod.missing", "present": "mod.p"}
+        ),
+        patch.object(plan, "_load_macro", side_effect=load),
+    ):
+        with plan.around_job_queue_sample():
+            events.append("body")
+
+    assert events == ["before-present", "body", ("after-present", "tok")]
+    assert "before_sample_job_queues" not in caplog.text
+    assert "after_sample_job_queues" not in caplog.text
+
+
+def test_load_macro_import_error_returns_none_without_raising():
+    with patch.object(
+        plan, "ADAPTER_MODULES", {"celery": "hirefire_resource.macro.no_such_module"}
+    ):
+        assert plan._load_macro("celery") is None
+        assert plan._load_macro("unknown") is None
+
+
+def test_allowlisted_macros_reexport_sample_wave_hooks_as_noops():
+    import importlib
+
+    from hirefire_resource.plan import hooks
+
+    results: dict[str, str] = {}
+    for name, module_name in plan.ADAPTER_MODULES.items():
+        try:
+            macro = importlib.import_module(module_name)
+        except ImportError:
+            results[name] = "skip"
+            continue
+        # Same callables as plan.hooks defaults (not copies / unrelated stubs).
+        assert macro.before_sample_job_queues is hooks.before_sample_job_queues
+        assert macro.after_sample_job_queues is hooks.after_sample_job_queues
+        assert macro.reinit_after_fork is hooks.reinit_after_fork
+        assert macro.before_sample_job_queues() is None
+        assert macro.after_sample_job_queues("token") is None
+        assert macro.reinit_after_fork() is None
+        results[name] = "ok"
+
+    # Dramatiq has no hard third-party import at module top, so it always loads
+    # in the core test cell. Celery/RQ load only when their deps are installed.
+    assert results.get("dramatiq") == "ok"
+    for name, status in results.items():
+        assert status in ("ok", "skip"), name
+
+
+def test_around_job_queue_sample_calls_after_with_successful_none_token():
+    after_tokens: list[object] = []
+
+    class Macro:
+        @staticmethod
+        def before_sample_job_queues():
+            return None
+
+        @staticmethod
+        def after_sample_job_queues(token):
+            after_tokens.append(token)
+
+    with (
+        patch.object(plan, "ADAPTER_MODULES", {"x": "mod.x"}),
+        patch.object(plan, "_load_macro", return_value=Macro),
+    ):
+        with plan.around_job_queue_sample():
+            pass
+
+    assert after_tokens == [None]
+
+
+def test_around_job_queue_sample_with_empty_adapters_still_runs_body():
+    events: list[object] = []
+
+    with patch.object(plan, "ADAPTER_MODULES", {}):
+        with plan.around_job_queue_sample():
+            events.append("body")
+
+    assert events == ["body"]
+
+
+def test_execute_known_adapter_unloadable_logs_distinct_from_unknown(caplog):
+    import logging
+
+    caplog.set_level(logging.ERROR)
+
+    with patch.object(plan, "_load_macro", return_value=None):
+        plan.execute(
+            {
+                "name": "worker",
+                "adapter": "celery",
+                "strategy": "jql",
+                "queues": ["default"],
+            }
+        )
+        plan.execute(
+            {
+                "name": "worker",
+                "adapter": "nope",
+                "strategy": "jql",
+                "queues": ["default"],
+            }
+        )
+
+    assert "could not be loaded" in caplog.text
+    assert "Unknown plan adapter" in caplog.text
+    assert HireFire.configuration.buffer.flush() == {}

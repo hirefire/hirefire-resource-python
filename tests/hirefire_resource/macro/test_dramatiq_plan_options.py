@@ -51,3 +51,14 @@ def test_supports_plan_strategy():
     assert not dramatiq_macro.supports_plan_strategy("rpm")
     assert not dramatiq_macro.supports_plan_strategy("jql ")
     assert not dramatiq_macro.supports_plan_strategy(None)
+
+
+def test_sample_wave_hooks_default_to_noops():
+    from hirefire_resource.plan import hooks
+
+    assert dramatiq_macro.before_sample_job_queues is hooks.before_sample_job_queues
+    assert dramatiq_macro.after_sample_job_queues is hooks.after_sample_job_queues
+    assert dramatiq_macro.reinit_after_fork is hooks.reinit_after_fork
+    assert dramatiq_macro.before_sample_job_queues() is None
+    assert dramatiq_macro.after_sample_job_queues("token") is None
+    assert dramatiq_macro.reinit_after_fork() is None

@@ -1,6 +1,8 @@
 import importlib
 import math
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from hirefire_resource.log import safe_log
@@ -61,6 +63,69 @@ def supports_strategy(adapter: object, strategy: object) -> bool:
     return bool(supports(strategy))
 
 
+@contextmanager
+def around_job_queue_sample() -> Iterator[None]:
+    """Run the body as one job-queue sample wave.
+
+    Every allowlisted macro receives ``before_sample_job_queues`` /
+    ``after_sample_job_queues`` (defaults no-op). Dispatcher must not know
+    adapter cache details.
+    """
+    # Only adapters whose before completed are recorded. If before raises,
+    # after is skipped for that adapter (Ruby Plan.around_job_queue_sample).
+    # Soft-skipped optional backends (ImportError → None) leave no token.
+    tokens: dict[str, object] = {}
+    for name in ADAPTER_MODULES:
+        try:
+            macro = _load_macro(name)
+            if macro is None:
+                continue
+            before = getattr(macro, "before_sample_job_queues", None)
+            tokens[name] = before() if callable(before) else None
+        except Exception as error:
+            _log(
+                "error",
+                f"[HireFire] before_sample_job_queues for {name!r} raised "
+                f"{type(error).__name__}: {error}",
+            )
+
+    try:
+        yield
+    finally:
+        for name, token in tokens.items():
+            try:
+                macro = _load_macro(name)
+                if macro is None:
+                    continue
+                after = getattr(macro, "after_sample_job_queues", None)
+                if callable(after):
+                    after(token)
+            except Exception as error:
+                _log(
+                    "error",
+                    f"[HireFire] after_sample_job_queues for {name!r} raised "
+                    f"{type(error).__name__}: {error}",
+                )
+
+
+def reinit_macros_after_fork() -> None:
+    """Notify every allowlisted macro after fork / abandoned inherited state."""
+    for name in ADAPTER_MODULES:
+        try:
+            macro = _load_macro(name)
+            if macro is None:
+                continue
+            reinit = getattr(macro, "reinit_after_fork", None)
+            if callable(reinit):
+                reinit()
+        except Exception as error:
+            _log(
+                "error",
+                f"[HireFire] reinit_after_fork for {name!r} raised "
+                f"{type(error).__name__}: {error}",
+            )
+
+
 def execute(entry: dict[str, Any]) -> None:
     adapter = str(entry.get("adapter", "")).strip()
     strategy = str(entry.get("strategy", "")).strip()
@@ -74,11 +139,20 @@ def execute(entry: dict[str, Any]) -> None:
         )
         return
 
-    macro = _load_macro(adapter)
-    if macro is None:
+    if not known_adapter(adapter):
         _log(
             "error",
             f"[HireFire] Unknown plan adapter {adapter!r} for {name!r}. Entry skipped.",
+        )
+        return
+
+    macro = _load_macro(adapter)
+    if macro is None:
+        # Known adapter but optional deps failed to import (or soft-skip).
+        _log(
+            "error",
+            f"[HireFire] Plan adapter {adapter!r} could not be loaded for "
+            f"{name!r}. Entry skipped.",
         )
         return
 
@@ -171,7 +245,13 @@ def _load_macro(adapter: object) -> Any | None:
     module_name = ADAPTER_MODULES.get(str(adapter))
     if module_name is None:
         return None
-    return importlib.import_module(module_name)
+    try:
+        return importlib.import_module(module_name)
+    except ImportError:
+        # Optional backend deps (celery, redis, dramatiq, …) may be absent in
+        # this process. Wave fan-out skips without logging. `execute` logs
+        # known-but-unloadable when it hits this path.
+        return None
 
 
 def _valid_sample(value: object) -> bool:

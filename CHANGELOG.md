@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Plan sample-wave lifecycle aligned with Ruby: `plan.around_job_queue_sample` brackets each dispatcher job-queue sample, every allowlisted macro exposes no-op `before_sample_job_queues` / `after_sample_job_queues` / `reinit_after_fork`, and `plan.reinit_macros_after_fork` runs next to buffer reinit on fork and abandon-inherited paths.
 - Dramatiq first-party job-queue adapter (`dramatiq` plan wire key): `job_queue_size` / `job_queue_latency` (and async wrappers) for Redis and RabbitMQ. Redis waiting set is live ready list plus due `.DQ` messages (`options.eta ≤ now_ms`). RabbitMQ is main-queue ready only (`.DQ` / `.XQ` not counted in v1). Queues required. Connection via `broker=` XOR `broker_url`, plan `HIREFIRE_DRAMATIQ_URL` / optional `HIREFIRE_DRAMATIQ_NAMESPACE`, then the Celery-family AMQP then Redis env ladder. Working/acks never included (no `do_qsize`).
 - Zero-config install: set `HIREFIRE_TOKEN`, mount middleware, and call `HireFire.boot()` (or empty `HireFire.configure()`). Request queue time and CPU report without local declarations. Job queues follow lease collection plans for Celery, RQ, and Dramatiq.
 - Always-on CPU under resolved process identity. Always-on RQT when platform web role is known (Heroku `DYNO` type `web`, Render `RENDER_SERVICE_TYPE=web`), when middleware sees traffic, or when `config.dyno("web")` is declared.
@@ -31,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Sample-wave token fencing on the lifecycle ports above: a raised `before_sample_job_queues` skips that adapter's `after_sample_job_queues` (successful `None` still gets after). Hook errors log and do not abort the wave. Soft-missing optional macros (`ImportError` → skip) leave no token and do not log as hook failures. Known adapters that fail to load log as unloadable rather than "unknown".
 - Celery and RQ macros trim and de-duplicate queue names before sampling, matching the adapter contract so `job_queue_size("a", "a")` and padded names no longer double-count.
 - RQ all-queues enumeration uses RQ's registered queue set (`SMEMBERS rq:queues`) instead of `KEYS rq:queue:*` / `KEYS rq:scheduled:*`, so each poll is not an O(keyspace) scan and queue names that contain `:` are no longer truncated.
 - Lease renewal re-issues the process identity and drops any inherited grant when the process id changes (for example after a fork when the at-fork reinit did not run), matching Ruby.

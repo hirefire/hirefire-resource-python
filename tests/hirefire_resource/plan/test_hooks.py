@@ -15,6 +15,12 @@ def test_supports_known_strategies():
     assert not hooks.supports_plan_strategy("cpu")
 
 
+def test_sample_wave_defaults_are_noops():
+    assert hooks.before_sample_job_queues() is None
+    assert hooks.after_sample_job_queues("anything") is None
+    assert hooks.reinit_after_fork() is None
+
+
 def test_extract_plan_options_schema():
     schema = {
         "jql": {"flag": "boolean", "n": "non_negative_integer"},
