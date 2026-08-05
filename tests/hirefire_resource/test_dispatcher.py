@@ -520,7 +520,9 @@ def test_dispatches_jqs_and_wrk_as_sibling_bare_numbers():
     assert wrk_leaf == 3
     assert isinstance(jqs_leaf, (int, float))
     assert isinstance(wrk_leaf, (int, float))
-    assert not isinstance(wrk_leaf, list), "wrk must be bare number like jqs, not rqt [v,n]"
+    assert not isinstance(
+        wrk_leaf, list
+    ), "wrk must be bare number like jqs, not rqt [v,n]"
 
 
 @mocketize

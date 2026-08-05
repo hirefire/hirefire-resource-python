@@ -16,7 +16,7 @@ try:
     import redis
     from redis.exceptions import RedisError
 except ImportError:  # pragma: no cover - optional dep for type checkers / bare core
-    redis = None  # type: ignore[assignment]
+    redis = None
 
     class RedisError(Exception):  # type: ignore[no-redef]
         pass
@@ -28,7 +28,7 @@ try:
 
     PIKA_AVAILABLE = True
 except ImportError:
-    pika = None  # type: ignore[assignment]
+    pika = None
 
     class AMQPConnectionError(Exception):  # type: ignore[no-redef]
         pass

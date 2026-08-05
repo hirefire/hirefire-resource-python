@@ -290,9 +290,7 @@ def test_job_queue_latency_excludes_wip_and_future_scheduled():
     r.zadd("rq:wip:default", {"working-job": now - 500})
     r.sadd("rq:queues", "rq:queue:default")
 
-    assert job_queue_latency("default", redis_url=redis_url) == pytest.approx(
-        40, abs=1
-    )
+    assert job_queue_latency("default", redis_url=redis_url) == pytest.approx(40, abs=1)
     assert job_queue_latency(redis_url=redis_url) == pytest.approx(40, abs=1)
 
 
@@ -313,9 +311,7 @@ def test_job_queue_size_and_latency_waiting_only_mixed():
     r.zadd("rq:wip:default", {"wip-a": now - 5, "wip-b": now - 1})
 
     assert job_queue_size("default", redis_url=redis_url) == 3
-    assert job_queue_latency("default", redis_url=redis_url) == pytest.approx(
-        30, abs=1
-    )
+    assert job_queue_latency("default", redis_url=redis_url) == pytest.approx(30, abs=1)
 
 
 def test_job_queue_working_idle_is_zero():

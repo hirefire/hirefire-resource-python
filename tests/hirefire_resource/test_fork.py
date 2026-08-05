@@ -111,7 +111,9 @@ def test_after_fork_in_child_does_not_import_celery_macro(monkeypatch):
     try:
         assert "hirefire_resource.macro.celery" not in sys.modules
         had_celery = "celery" in sys.modules
-        monkeypatch.setattr(HireFire.configuration, "prefork_web_handoff", lambda: False)
+        monkeypatch.setattr(
+            HireFire.configuration, "prefork_web_handoff", lambda: False
+        )
         HireFire.after_fork_in_child()
         assert "hirefire_resource.macro.celery" not in sys.modules
         if not had_celery:

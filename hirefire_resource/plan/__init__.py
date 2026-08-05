@@ -177,12 +177,16 @@ def execute(entry: dict[str, Any]) -> None:
         return
 
     try:
-        plan_options = getattr(macro, "plan_options", lambda _s, _o: {})(
-            strategy, entry.get("options")
-        )
-        connection_options = getattr(macro, "plan_connection_options", lambda: {})()
+        plan_options: dict[str, Any] = getattr(
+            macro, "plan_options", lambda _s, _o: {}
+        )(strategy, entry.get("options"))
+        connection_options: dict[str, Any] = getattr(
+            macro, "plan_connection_options", lambda: {}
+        )()
         options = {**plan_options, **connection_options}
-        if not _sample_job_strategy(macro, name, strategy, method_name, queues, options):
+        if not _sample_job_strategy(
+            macro, name, strategy, method_name, queues, options
+        ):
             return
         if hasattr(macro, "job_queue_working"):
             _sample_working(macro, name, queues, options)
