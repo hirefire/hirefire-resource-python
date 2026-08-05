@@ -7,12 +7,15 @@ from freezegun import freeze_time
 from redis import Redis
 from rq import Queue
 
+from hirefire_resource import HireFire, plan
 from hirefire_resource.macro.rq import (
     _is_due_scheduled_score,
     async_job_queue_latency,
     async_job_queue_size,
+    async_job_queue_working,
     job_queue_latency,
     job_queue_size,
+    job_queue_working,
 )
 
 redis_url = f"redis://localhost:{os.environ.get('REDIS_PORT', '6379')}/0"
@@ -313,3 +316,113 @@ def test_job_queue_size_and_latency_waiting_only_mixed():
     assert job_queue_latency("default", redis_url=redis_url) == pytest.approx(
         30, abs=1
     )
+
+
+def test_job_queue_working_idle_is_zero():
+    assert job_queue_working(redis_url=redis_url) == 0
+    assert job_queue_working("default", redis_url=redis_url) == 0
+
+
+def test_job_queue_working_counts_in_flight_and_filters_queues():
+    r = Redis.from_url(redis_url)
+    now = time.time()
+    r.sadd("rq:queues", "rq:queue:default", "rq:queue:mailer", "rq:queue:critical")
+    r.zadd("rq:wip:default", {"w1": now - 1})
+    r.zadd("rq:wip:mailer", {"w2": now - 2, "w3": now - 3})
+    r.rpush("rq:queue:default", "live-1")
+
+    assert job_queue_working(redis_url=redis_url) == 3
+    assert job_queue_working("default", redis_url=redis_url) == 1
+    assert job_queue_working("mailer", redis_url=redis_url) == 2
+    assert job_queue_working("critical", redis_url=redis_url) == 0
+    assert job_queue_working("default", "mailer", redis_url=redis_url) == 3
+    assert job_queue_size("default", redis_url=redis_url) == 1
+    assert job_queue_size("mailer", redis_url=redis_url) == 0
+
+
+@pytest.mark.asyncio
+async def test_async_job_queue_working():
+    r = Redis.from_url(redis_url)
+    r.sadd("rq:queues", "rq:queue:default")
+    r.zadd("rq:wip:default", {"w1": time.time()})
+    assert await async_job_queue_working(redis_url=redis_url) == 1
+    assert await async_job_queue_working("default", redis_url=redis_url) == 1
+    assert await async_job_queue_working("critical", redis_url=redis_url) == 0
+
+
+def test_plan_execute_rq_jqs_also_samples_wrk(monkeypatch):
+    monkeypatch.setenv("HIREFIRE_RQ_URL", redis_url)
+    r = Redis.from_url(redis_url)
+    now = time.time()
+    r.sadd("rq:queues", "rq:queue:default")
+    r.rpush("rq:queue:default", "live-1")
+    r.zadd("rq:wip:default", {"w1": now - 1, "w2": now - 2})
+
+    HireFire.configuration.buffer.flush()
+    plan.execute(
+        {
+            "name": "worker",
+            "adapter": "rq",
+            "strategy": "jqs",
+            "queues": ["default"],
+            "options": {},
+        }
+    )
+
+    flushed = HireFire.configuration.buffer.flush()
+    assert "worker" in flushed
+    assert "jqs" in flushed["worker"]
+    assert "wrk" in flushed["worker"]
+    jqs_value = list(flushed["worker"]["jqs"].values())[-1]
+    wrk_value = list(flushed["worker"]["wrk"].values())[-1]
+    assert jqs_value == job_queue_size("default", redis_url=redis_url)
+    assert wrk_value == job_queue_working("default", redis_url=redis_url)
+    assert wrk_value == 2
+    assert jqs_value == 1
+
+
+def test_plan_execute_rq_jql_also_samples_wrk(monkeypatch):
+    monkeypatch.setenv("HIREFIRE_RQ_URL", redis_url)
+    r = Redis.from_url(redis_url)
+    r.sadd("rq:queues", "rq:queue:default")
+    r.zadd("rq:wip:default", {"w1": time.time()})
+
+    HireFire.configuration.buffer.flush()
+    plan.execute(
+        {
+            "name": "worker",
+            "adapter": "rq",
+            "strategy": "jql",
+            "queues": ["default"],
+            "options": {},
+        }
+    )
+
+    flushed = HireFire.configuration.buffer.flush()
+    assert "jql" in flushed["worker"]
+    assert list(flushed["worker"]["wrk"].values())[-1] == 1
+
+
+def test_plan_execute_rq_empty_queues_samples_all_wrk(monkeypatch):
+    monkeypatch.setenv("HIREFIRE_RQ_URL", redis_url)
+    r = Redis.from_url(redis_url)
+    now = time.time()
+    r.sadd("rq:queues", "rq:queue:default", "rq:queue:mailer")
+    r.zadd("rq:wip:default", {"w1": now})
+    r.zadd("rq:wip:mailer", {"w2": now})
+
+    HireFire.configuration.buffer.flush()
+    plan.execute(
+        {
+            "name": "worker",
+            "adapter": "rq",
+            "strategy": "jqs",
+            "queues": [],
+            "options": {},
+        }
+    )
+
+    flushed = HireFire.configuration.buffer.flush()
+    wrk_value = list(flushed["worker"]["wrk"].values())[-1]
+    assert wrk_value == 2
+    assert wrk_value == job_queue_working(redis_url=redis_url)

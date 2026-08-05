@@ -182,27 +182,78 @@ def execute(entry: dict[str, Any]) -> None:
         )
         connection_options = getattr(macro, "plan_connection_options", lambda: {})()
         options = {**plan_options, **connection_options}
-        method = getattr(macro, method_name)
-        value = method(*queues, **options)
-
-        if not _valid_sample(value):
-            _log(
-                "error",
-                f"[HireFire] Plan sampler for {name!r} returned "
-                f"{_format_sample_value(value)}, expected a non-negative number. "
-                "Sample dropped.",
-            )
+        if not _sample_job_strategy(macro, name, strategy, method_name, queues, options):
             return
-
-        from hirefire_resource.hirefire import HireFire
-
-        HireFire.configuration.buffer.sample(name, strategy, _coerce_sample(value))
+        if hasattr(macro, "job_queue_working"):
+            _sample_working(macro, name, queues, options)
     except Exception as error:
         _log(
             "error",
             f"[HireFire] Plan sampler for {name!r} raised "
             f"{type(error).__name__}: {error}",
         )
+
+
+def _sample_job_strategy(
+    macro: Any,
+    name: str,
+    strategy: str,
+    method_name: str,
+    queues: list[str],
+    options: dict[str, Any],
+) -> bool:
+    """Primary jql/jqs sample. Returns True when a value was buffered."""
+    method = getattr(macro, method_name)
+    value = method(*queues, **options)
+
+    if not _valid_sample(value):
+        _log(
+            "error",
+            f"[HireFire] Plan sampler for {name!r} returned "
+            f"{_format_sample_value(value)}, expected a non-negative number. "
+            "Sample dropped.",
+        )
+        return False
+
+    _record_sample(name, strategy, value)
+    return True
+
+
+def _sample_working(
+    macro: Any,
+    name: str,
+    queues: list[str],
+    options: dict[str, Any],
+) -> None:
+    """Companion in-flight series for adapters that implement job_queue_working.
+
+    Same queues and connection options as the jql/jqs sample. Unconditional
+    (not gated on hold). Failures are logged and do not drop the job strategy sample.
+    """
+    try:
+        method = getattr(macro, "job_queue_working")
+        wrk = method(*queues, **options)
+        if not _valid_sample(wrk):
+            _log(
+                "error",
+                f"[HireFire] Plan working sampler for {name!r} returned "
+                f"{_format_sample_value(wrk)}, expected a non-negative number. "
+                "wrk sample dropped.",
+            )
+            return
+        _record_sample(name, "wrk", wrk)
+    except Exception as error:
+        _log(
+            "error",
+            f"[HireFire] Plan working sampler for {name!r} raised "
+            f"{type(error).__name__}: {error}",
+        )
+
+
+def _record_sample(name: str, strategy: str, value: int | float) -> None:
+    from hirefire_resource.hirefire import HireFire
+
+    HireFire.configuration.buffer.sample(name, strategy, _coerce_sample(value))
 
 
 def normalize_queues(queues: object, name: str) -> list[str] | None:

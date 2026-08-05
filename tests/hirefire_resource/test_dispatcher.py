@@ -502,6 +502,28 @@ def test_dispatches_cpu_as_nested_bare_number(monkeypatch):
 
 
 @mocketize
+def test_dispatches_jqs_and_wrk_as_sibling_bare_numbers():
+    stub_lease()
+    bodies = capture_ingest_bodies()
+    dispatcher = configure_workers_only()
+
+    with freeze_time(at(2500)):
+        HireFire.configuration.buffer.sample("worker", "jqs", 12)
+        HireFire.configuration.buffer.sample("worker", "wrk", 3)
+        dispatcher._dispatch()
+
+    assert len(bodies) >= 1
+    entry = next(e for e in bodies[-1] if e["name"] == "worker")
+    jqs_leaf = entry["metrics"]["jqs"]["2500"]
+    wrk_leaf = entry["metrics"]["wrk"]["2500"]
+    assert jqs_leaf == 12
+    assert wrk_leaf == 3
+    assert isinstance(jqs_leaf, (int, float))
+    assert isinstance(wrk_leaf, (int, float))
+    assert not isinstance(wrk_leaf, list), "wrk must be bare number like jqs, not rqt [v,n]"
+
+
+@mocketize
 def test_cpu_first_tick_seeds_baseline_without_dispatching(monkeypatch):
     bodies = capture_ingest_bodies()
     with (

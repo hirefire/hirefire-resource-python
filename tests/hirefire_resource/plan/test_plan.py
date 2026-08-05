@@ -801,3 +801,159 @@ def test_execute_known_adapter_unloadable_logs_distinct_from_unknown(caplog):
     assert "could not be loaded" in caplog.text
     assert "Unknown plan adapter" in caplog.text
     assert HireFire.configuration.buffer.flush() == {}
+
+
+def test_execute_samples_wrk_when_macro_implements_job_queue_working():
+    class Macro:
+        @staticmethod
+        def supports_plan_strategy(strategy):
+            return True
+
+        @staticmethod
+        def plan_options(strategy, options):
+            return {}
+
+        @staticmethod
+        def plan_connection_options():
+            return {}
+
+        @staticmethod
+        def job_queue_size(*queues, **options):
+            return 7
+
+        @staticmethod
+        def job_queue_working(*queues, **options):
+            assert list(queues) == ["default"]
+            return 3
+
+    with patch.object(plan, "_load_macro", return_value=Macro):
+        plan.execute(
+            {
+                "name": "worker",
+                "adapter": "rq",
+                "strategy": "jqs",
+                "queues": ["default"],
+            }
+        )
+
+    data = HireFire.configuration.buffer.flush()
+    assert list(data["worker"]["jqs"].values())[0] == 7
+    assert list(data["worker"]["wrk"].values())[0] == 3
+
+
+def test_execute_skips_wrk_when_macro_lacks_job_queue_working():
+    class Macro:
+        @staticmethod
+        def supports_plan_strategy(strategy):
+            return True
+
+        @staticmethod
+        def plan_options(strategy, options):
+            return {}
+
+        @staticmethod
+        def plan_connection_options():
+            return {}
+
+        @staticmethod
+        def job_queue_size(*queues, **options):
+            return 5
+
+    with patch.object(plan, "_load_macro", return_value=Macro):
+        plan.execute(
+            {
+                "name": "worker",
+                "adapter": "celery",
+                "strategy": "jqs",
+                "queues": ["default"],
+            }
+        )
+
+    data = HireFire.configuration.buffer.flush()
+    assert list(data["worker"]["jqs"].values())[0] == 5
+    assert "wrk" not in data["worker"]
+
+
+def test_execute_keeps_jqs_when_job_queue_working_raises(caplog):
+    import logging
+
+    caplog.set_level(logging.ERROR)
+
+    class Macro:
+        @staticmethod
+        def supports_plan_strategy(strategy):
+            return True
+
+        @staticmethod
+        def plan_options(strategy, options):
+            return {}
+
+        @staticmethod
+        def plan_connection_options():
+            return {}
+
+        @staticmethod
+        def job_queue_size(*queues, **options):
+            return 9
+
+        @staticmethod
+        def job_queue_working(*queues, **options):
+            raise RuntimeError("wrk boom")
+
+    with patch.object(plan, "_load_macro", return_value=Macro):
+        plan.execute(
+            {
+                "name": "worker",
+                "adapter": "rq",
+                "strategy": "jqs",
+                "queues": ["default"],
+            }
+        )
+
+    data = HireFire.configuration.buffer.flush()
+    assert list(data["worker"]["jqs"].values())[0] == 9
+    assert "wrk" not in data.get("worker", {})
+    assert "Plan working sampler" in caplog.text
+    assert "wrk boom" in caplog.text
+
+
+def test_execute_drops_invalid_wrk_keeps_jqs(caplog):
+    import logging
+
+    caplog.set_level(logging.ERROR)
+
+    class Macro:
+        @staticmethod
+        def supports_plan_strategy(strategy):
+            return True
+
+        @staticmethod
+        def plan_options(strategy, options):
+            return {}
+
+        @staticmethod
+        def plan_connection_options():
+            return {}
+
+        @staticmethod
+        def job_queue_size(*queues, **options):
+            return 4
+
+        @staticmethod
+        def job_queue_working(*queues, **options):
+            return -2
+
+    with patch.object(plan, "_load_macro", return_value=Macro):
+        plan.execute(
+            {
+                "name": "worker",
+                "adapter": "rq",
+                "strategy": "jqs",
+                "queues": ["default"],
+            }
+        )
+
+    data = HireFire.configuration.buffer.flush()
+    assert list(data["worker"]["jqs"].values())[0] == 4
+    assert "wrk" not in data.get("worker", {})
+    assert "wrk sample dropped" in caplog.text

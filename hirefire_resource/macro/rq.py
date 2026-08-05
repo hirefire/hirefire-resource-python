@@ -225,6 +225,63 @@ async def async_job_queue_size(*queues: str, redis_url: str | None = None) -> in
     return await loop.run_in_executor(None, func)
 
 
+def job_queue_working(*queues: str, redis_url: str | None = None) -> int:
+    """In-flight (working) job count across the given RQ queues.
+
+    Counts members of ``rq:wip:{name}`` (ZCARD). Empty queue list measures every
+    queue present in ``rq:queues``. Never folded into JQL/JQS waiting samples.
+    Plan path records this under nested strategy ``wrk``.
+
+    Args:
+        *queues (str): Names of the queues for the working count.
+        redis_url (str, optional): The Redis URL. Defaults in the following order:
+            - Passed argument `redis_url`.
+            - Environment variables `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
+            - "redis://localhost:6379/0".
+
+    Returns:
+        int: Cumulative in-flight job count across the specified queues.
+
+    Examples:
+        >>> job_queue_working()
+        3
+        >>> job_queue_working("default")
+        1
+        >>> job_queue_working("default", "mailer")
+        3
+    """
+    redis_url = (
+        redis_url
+        or os.getenv("REDIS_TLS_URL")
+        or os.getenv("REDIS_URL")
+        or os.getenv("REDISTOGO_URL")
+        or os.getenv("REDISCLOUD_URL")
+        or os.getenv("OPENREDIS_URL")
+        or "redis://localhost:6379/0"
+    )
+
+    redis_client = redis.Redis.from_url(redis_url)
+    try:
+        queue_names = normalize_queues(*queues, allow_empty=True)
+        if not queue_names:
+            queue_names = _registered_queue_names(redis_client)
+
+        pipeline = redis_client.pipeline()
+        for queue in queue_names:
+            pipeline.zcard(f"rq:wip:{queue}")
+
+        return sum(pipeline.execute())
+    finally:
+        redis_client.close()
+
+
+async def async_job_queue_working(*queues: str, redis_url: str | None = None) -> int:
+    """Async wrapper for :func:`job_queue_working`."""
+    loop = asyncio.get_event_loop()
+    func = functools.partial(job_queue_working, *queues, redis_url=redis_url)
+    return await loop.run_in_executor(None, func)
+
+
 _QUEUE_KEY_PREFIX = "rq:queue:"
 
 
