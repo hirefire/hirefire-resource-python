@@ -1,6 +1,6 @@
 [project]
 name = "hirefire-resource"
-version = "1.1.0"
+version = "2.0.0"
 description = "Integrates Python applications with HireFire autoscalers by pushing app metrics."
 authors = [
     { name = "Michael van Rooijen", email = "support@hirefire.io" },
