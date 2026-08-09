@@ -64,6 +64,29 @@ def test_dyno_bare_web_warns_once(config, caplog):
     assert "You can remove" in caplog.text
 
 
+def test_log_queue_metrics_defaults_to_false(config):
+    assert config.log_queue_metrics is False
+
+
+def test_log_queue_metrics_can_be_set(config):
+    config.log_queue_metrics = True
+    assert config.log_queue_metrics is True
+
+
+def test_log_queue_metrics_true_warns_once(config, caplog):
+    caplog.set_level(logging.WARNING)
+    config.log_queue_metrics = True
+    config.log_queue_metrics = True
+    assert caplog.text.count("config.log_queue_metrics is ignored") == 1
+    assert "You can remove" in caplog.text
+
+
+def test_log_queue_metrics_false_is_silent(config, caplog):
+    caplog.set_level(logging.WARNING)
+    config.log_queue_metrics = False
+    assert "log_queue_metrics" not in caplog.text
+
+
 def test_dyno_with_a_sampler_configures_a_job_queue(config):
     config.dyno("worker", lambda: 1.23)
     config.dyno("mailer", lambda: 2.46)

@@ -80,7 +80,9 @@ def test_process_request_queue_time_ignores_an_unparseable_value(
     start.assert_not_called()
 
 
-def test_logs_queue_metrics_when_enabled(set_HIREFIRE_TOKEN, capsys, monkeypatch):
+def test_log_queue_metrics_does_not_emit_router_line(
+    set_HIREFIRE_TOKEN, capsys, monkeypatch
+):
     monkeypatch.setenv("DYNO", "web.1")
     with patch.object(Dispatcher, "start"):
         with HireFire.configure() as config:
@@ -91,7 +93,7 @@ def test_logs_queue_metrics_when_enabled(set_HIREFIRE_TOKEN, capsys, monkeypatch
     ):
         process_request_queue_time("1700000000000")
 
-    assert "[hirefire:router] queue=1000ms" in capsys.readouterr().out
+    assert "[hirefire:router]" not in capsys.readouterr().out
 
 
 def test_silent_without_log_queue_metrics(set_HIREFIRE_TOKEN, capsys, monkeypatch):

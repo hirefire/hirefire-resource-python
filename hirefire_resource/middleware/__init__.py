@@ -26,10 +26,10 @@ def process_request_queue_time(
     """Parse a request-start header and record a queue-time sample when configured.
 
     When a token is present, records a queue-time sample (milliseconds) under the process
-    HTTP name and starts the dispatcher. Explicit http registration is optional. When
-    ``log_queue_metrics`` is true, also prints ``[hirefire:router] queue=…ms``.
-    Failures in this path (including header extract when ``extract`` is used) are logged
-    and swallowed so the host app is unaffected.
+    HTTP name and starts the dispatcher. Explicit http registration is optional.
+    ``log_queue_metrics`` does not emit log lines (once-warn no-op on the configuration
+    setter). Failures in this path (including header extract when ``extract`` is used) are
+    logged and swallowed so the host app is unaffected.
     """
     try:
         if extract is not None:
@@ -51,19 +51,12 @@ def process_request_queue_time(
                 source.sample(request_queue_time)
             configuration.dispatcher.start()
             configuration.dispatcher.ensure_job_queue_loop()
-
-        if configuration.log_queue_metrics:
-            log_request_queue_time(request_queue_time)
     except Exception as error:
         safe_log(
             HireFire.configuration.logger,
             "error",
             f"[HireFire] Middleware error: {error}",
         )
-
-
-def log_request_queue_time(request_queue_time: int) -> None:
-    print(f"[hirefire:router] queue={request_queue_time}ms")
 
 
 def calculate_request_queue_time(request_start: str) -> int | None:

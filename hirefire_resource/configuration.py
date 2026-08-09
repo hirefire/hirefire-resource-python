@@ -37,15 +37,17 @@ class Configuration:
         job_queues: Local job-queue sources declared via sampler callables on :meth:`dyno`.
         logger: Logger used for HireFire diagnostic messages. Defaults to a stdout logger.
             Set to ``None`` (or a logger missing the log methods) to silence diagnostics.
-        log_queue_metrics: When true, the HTTP middleware prints
-            ``[hirefire:router] queue=…ms`` for each sample.
+        log_queue_metrics: Legacy 1.x flag for ``[hirefire:router]`` stdout lines.
+            On 2.x this is a no-op: setting true warns once that the setting is ignored
+            and can be removed. Web RQT is push-only.
     """
 
     def __init__(self) -> None:
         self.http: Web | None = None
         self.job_queues = Workers()
         self.logger = self._init_logger()
-        self.log_queue_metrics = False
+        self._log_queue_metrics = False
+        self._log_queue_metrics_warned = False
         self._sources_by_name: dict[str, list[str]] = {}
         self._buffer: Buffer | None = None
         self._dispatcher: Dispatcher | None = None
@@ -94,6 +96,17 @@ class Configuration:
     @token.setter
     def token(self, value: str | None) -> None:
         self._token = value
+
+    @property
+    def log_queue_metrics(self) -> bool:
+        """Legacy flag. Setting true is a once-warn no-op (no ``[hirefire:router]`` emit)."""
+        return self._log_queue_metrics
+
+    @log_queue_metrics.setter
+    def log_queue_metrics(self, value: bool) -> None:
+        self._log_queue_metrics = bool(value)
+        if self._log_queue_metrics:
+            self._warn_log_queue_metrics_once()
 
     def dyno(self, name: str, sampler: Sampler | None = None) -> None:
         """Declares a process by dyno name (Heroku Procfile-shaped).
@@ -322,6 +335,19 @@ class Configuration:
             "necessary. Request queue time is armed by platform web identity "
             "(for example DYNO type web or RENDER_SERVICE_TYPE=web) and by HTTP "
             "middleware traffic. You can remove this line.",
+        )
+
+    def _warn_log_queue_metrics_once(self) -> None:
+        if self._log_queue_metrics_warned:
+            return
+        self._log_queue_metrics_warned = True
+        safe_log(
+            self.logger,
+            "warning",
+            "[HireFire] config.log_queue_metrics is ignored. Request queue "
+            "time is pushed to data.hirefire.io when the HTTP middleware path "
+            "is armed. The [hirefire:router] log line is no longer emitted. "
+            "You can remove this setting.",
         )
 
     def _warn_rqt_unresolved_once(self) -> None:

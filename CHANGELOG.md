@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- `config.log_queue_metrics = True` no longer prints `[hirefire:router] queue=…ms`. The flag is a once-warn no-op: web request queue time is pushed to `data.hirefire.io` when the HTTP middleware path is armed. You can remove the setting.
 - Local configuration is dyno-only: `config.dyno(name, sampler=None)`. Multi-kind same name is allowed. Soft identity re-resolves every call.
 - Middleware samples with token only (no predeclared web collector). Dispatcher re-reads live configuration each tick and supports `stop(flush=...)`.
 - Nested metric buffer and ingest payload use the compact 32 KB wire format.
