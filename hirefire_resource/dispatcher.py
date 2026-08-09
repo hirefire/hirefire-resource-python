@@ -434,9 +434,10 @@ class Dispatcher:
         self._plan_override_warned[name] = True
         safe_log(
             self._logger(),
-            "info",
-            f"[HireFire] Lease plan overrides the local sampler for {name!r}. "
-            "The local sampler is ignored for this name.",
+            "warning",
+            f"[HireFire] A HireFire UI adapter is configured for {name!r}, so "
+            f"config.dyno({name!r}) with a local sampler is ignored. You can remove "
+            "that local configuration; the UI adapter is used instead.",
         )
 
     def _warn_unknown_adapter_once(self, name: str, adapter: object) -> None:

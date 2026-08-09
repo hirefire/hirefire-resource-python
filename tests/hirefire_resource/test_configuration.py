@@ -43,16 +43,25 @@ def test_job_queues_default_to_empty(config):
     assert not config.workers.any()
 
 
-def test_dyno_web_configures_http(config):
+def test_dyno_bare_web_is_noop(config):
     config.dyno("web")
-    assert isinstance(config.http, Web)
-    assert config.http.name == "web"
+    assert config.http is None
+    assert not config.rqt_enabled()
+    assert not config.job_queues.any()
 
 
-def test_dyno_web_is_case_insensitive_for_http(config):
+def test_dyno_bare_web_is_case_insensitive_noop(config):
     config.dyno("Web")
-    assert isinstance(config.http, Web)
-    assert config.http.name == "Web"
+    assert config.http is None
+    assert not config.rqt_enabled()
+
+
+def test_dyno_bare_web_warns_once(config, caplog):
+    caplog.set_level(logging.WARNING)
+    config.dyno("web")
+    config.dyno("Web")
+    assert caplog.text.count('config.dyno("web") without a sampler is no longer') == 1
+    assert "You can remove" in caplog.text
 
 
 def test_dyno_with_a_sampler_configures_a_job_queue(config):
@@ -78,17 +87,17 @@ def test_dyno_rejects_tracking_keyword(config):
         config.dyno("web", tracking="cpu")  # type: ignore[call-arg]
 
 
-def test_multi_kind_same_name_allowed(config):
+def test_bare_web_then_job_queue_under_web(config):
     config.dyno("web")
     config.dyno("web", lambda: 1)
-    assert config.http is not None
+    assert config.http is None
     assert config.job_queues.any()
 
 
-def test_duplicate_http_rejected(config):
-    config.dyno("web")
+def test_duplicate_job_queue_rejected_case_insensitive(config):
+    config.dyno("worker", lambda: 1)
     with pytest.raises(DuplicateDynoError):
-        config.dyno("Web")
+        config.dyno("Worker", lambda: 2)
 
 
 def test_duplicate_job_queue_rejected(config):
@@ -117,8 +126,8 @@ def test_name_max_bytes(config):
 
 
 def test_name_strips(config):
-    config.dyno("  web  ")
-    assert config.http.name == "web"
+    config.dyno("  worker  ", lambda: 1)
+    assert list(config.job_queues)[0].name == "worker"
 
 
 def test_token_from_env(config, monkeypatch):
@@ -195,9 +204,9 @@ def test_rqt_not_armed_by_service_name_alone(config, monkeypatch):
     assert not config.rqt_enabled()
 
 
-def test_rqt_enabled_explicit_http(config):
+def test_rqt_not_enabled_by_bare_web(config):
     config.dyno("web")
-    assert config.rqt_enabled()
+    assert not config.rqt_enabled()
     assert not config.rqt_liveness()
 
 
@@ -211,15 +220,14 @@ def test_rqt_enabled_mark_http_active(config, monkeypatch):
 
 def test_rqt_liveness_requires_identity_match(config, monkeypatch):
     monkeypatch.setenv("DYNO", "web.1")
-    config.dyno("web")
     assert config.rqt_liveness()
 
 
 def test_rqt_liveness_false_when_identity_unresolved(config):
-    config.dyno("web")
+    config.mark_http_active()
     assert config.rqt_enabled()
     assert not config.rqt_liveness()
-    assert config.http_source() is not None
+    assert config.http_source() is None
 
 
 def test_http_source_always_on_rebuilds_on_name_change(config, monkeypatch):
@@ -281,10 +289,10 @@ def test_stop_dispatcher_flush_forwarded(config):
     assert called["flush"] is False
 
 
-def test_rqt_liveness_denied_when_identity_differs(config, monkeypatch):
+def test_rqt_liveness_when_identity_and_traffic_match(config, monkeypatch):
     monkeypatch.setenv("DYNO", "worker.1")
-    config.dyno("web")
-    assert not config.rqt_liveness()
+    config.mark_http_active()
+    assert config.rqt_liveness()
 
 
 def test_rqt_liveness_false_when_armed_but_identity_unresolved(config):
@@ -295,11 +303,9 @@ def test_rqt_liveness_false_when_armed_but_identity_unresolved(config):
 
 
 def test_canonical_name_preserves_first_seen_casing(config):
-    config.dyno("Web")
-    config.dyno("web", lambda: 1)
-    assert config.http is not None
-    assert config.http.name == "Web"
+    config.dyno("Web", lambda: 1)
     assert config.job_queues.find_by_name("Web") is not None
+    assert list(config.job_queues)[0].name == "Web"
 
 
 def test_rqt_not_enabled_for_render_worker_without_traffic(config, monkeypatch):
@@ -310,7 +316,6 @@ def test_rqt_not_enabled_for_render_worker_without_traffic(config, monkeypatch):
 
 def test_rqt_liveness_matches_case_insensitively(config, monkeypatch):
     monkeypatch.setenv("DYNO", "Web.1")
-    config.dyno("web")
     assert config.rqt_liveness()
 
 

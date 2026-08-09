@@ -78,13 +78,12 @@ def capture_ingest_bodies(status=200):
 
 def configure_web_and_workers(monkeypatch=None):
     if monkeypatch is not None:
-        monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "web")
+        monkeypatch.setenv("DYNO", "web.1")
     else:
         import os
 
-        os.environ["HIREFIRE_SERVICE_NAME"] = "web"
+        os.environ["DYNO"] = "web.1"
     config = HireFire.configuration
-    config.dyno("web")
     config.dyno("worker", lambda: 42)
     config.dyno("mailer", lambda: 18)
     return config.dispatcher
@@ -110,13 +109,12 @@ def inject_oversized_series(name="web", strategy="rqt"):
 
 def configure_web_only(monkeypatch=None):
     if monkeypatch is not None:
-        monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "web")
+        monkeypatch.setenv("DYNO", "web.1")
     else:
         import os
 
-        os.environ["HIREFIRE_SERVICE_NAME"] = "web"
+        os.environ["DYNO"] = "web.1"
     config = HireFire.configuration
-    config.dyno("web")
     return config.dispatcher
 
 
@@ -622,14 +620,17 @@ def test_always_on_cpu_uses_soft_identity_not_unrelated_name(monkeypatch):
     stub_lease()
     bodies = capture_ingest_bodies()
     monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "web")
-    HireFire.configuration.dyno("web")
     dispatcher = HireFire.configuration.dispatcher
 
+    # First tick establishes the CPU baseline (no sample). Second tick dispatches cpu.
     with freeze_time(at(1000)):
         dispatcher._tick()
+    with freeze_time(at(1001)):
+        dispatcher._tick()
 
-    names = [entry["name"] for entry in bodies[0]]
+    names = [entry["name"] for entry in bodies[-1]]
     assert names == ["web"]
+    assert bodies[-1][0].get("metrics", {}).get("cpu") is not None
 
 
 @mocketize
@@ -675,13 +676,13 @@ def test_tick_dispatches_when_a_sampler_raises(caplog, monkeypatch):
     caplog.set_level(logging.ERROR)
     stub_lease(granted=True)
     bodies = capture_ingest_bodies()
-    monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "web")
+    # Platform web role arms RQT (bare dyno("web") is a no-op).
+    monkeypatch.setenv("DYNO", "web.1")
 
     def boom():
         raise RuntimeError("Redis down")
 
     with freeze_time(at(1000)):
-        HireFire.configuration.dyno("web")
         HireFire.configuration.dyno("worker", boom)
         dispatcher = HireFire.configuration.dispatcher
         dispatcher._job_queue_tick()
@@ -1547,6 +1548,65 @@ def test_executable_plan_without_local_dyno_holds_lease_and_samples():
 
     entry = next(e for e in bodies[0] if e["name"] == "worker")
     assert list(entry["metrics"]["jql"].values())[0] == 4.2
+
+
+@mocketize
+def test_plan_adapter_warns_once_when_local_dyno_overridden(caplog):
+    from hirefire_resource import plan
+
+    with HireFire.configure() as config:
+        config.dyno("worker", lambda: 99)
+    dispatcher = HireFire.configuration.dispatcher
+    dispatcher._lease.job_queues = [
+        {
+            "name": "worker",
+            "adapter": "celery",
+            "strategy": "jql",
+            "queues": [],
+            "options": {},
+        }
+    ]
+    caplog.set_level(logging.WARNING)
+    with (
+        patch.object(plan, "executable", return_value=True),
+        patch.object(plan, "supports_strategy", return_value=True),
+        patch.object(plan, "execute", return_value=None),
+    ):
+        dispatcher._sample_job_queues()
+        dispatcher._sample_job_queues()
+
+    assert caplog.text.count("UI adapter is configured") == 1
+    assert "config.dyno" in caplog.text
+    assert "You can remove" in caplog.text
+
+
+@mocketize
+def test_strategy_only_plan_uses_local_sampler_without_override_warn(caplog):
+    import logging
+
+    caplog.set_level(logging.WARNING)
+    plan = {
+        "version": 1,
+        "job_queues": [
+            {
+                "name": "worker",
+                "strategy": "jqs",
+                "adapter": None,
+                "queues": [],
+                "options": {},
+            }
+        ],
+    }
+    stub_lease(granted=True, plan=plan)
+    bodies = capture_ingest_bodies()
+    HireFire.configuration.dyno("worker", lambda: 7)
+    dispatcher = HireFire.configuration.dispatcher
+    dispatcher._job_queue_tick()
+    dispatcher._tick()
+
+    entry = next(e for e in bodies[0] if e["name"] == "worker")
+    assert list(entry["metrics"]["jqs"].values())[0] == 7
+    assert "UI adapter is configured" not in caplog.text
 
 
 @mocketize

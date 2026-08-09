@@ -32,8 +32,8 @@ class Configuration:
     sampler callables remain the escape hatch for custom probes.
 
     Attributes:
-        http: The explicit HTTP source once declared via ``dyno("web")``, otherwise ``None``.
-            Always-on RQT still reports under :meth:`http_name` when no explicit HTTP source is set.
+        http: Always ``None``. Kept for readers that still check ``configuration.http``.
+            Request queue time uses always-on sources under :meth:`http_name` (process identity).
         job_queues: Local job-queue sources declared via sampler callables on :meth:`dyno`.
         logger: Logger used for HireFire diagnostic messages. Defaults to a stdout logger.
             Set to ``None`` (or a logger missing the log methods) to silence diagnostics.
@@ -58,6 +58,7 @@ class Configuration:
         self._identity_name_too_long_warned = False
         self._rqt_unresolved_warned = False
         self._cpu_unresolved_warned = False
+        self._bare_web_dyno_warned = False
 
     @property
     def web(self) -> Web | None:
@@ -97,12 +98,15 @@ class Configuration:
     def dyno(self, name: str, sampler: Sampler | None = None) -> None:
         """Declares a process by dyno name (Heroku Procfile-shaped).
 
-        No tracking keyword: CPU is always-on when identity resolves, and RQT is armed by
-        platform web role, middleware traffic, or the ``"web"`` name convention below.
+        A sampler callable registers a local job-queue source. Prefer zero-config for
+        request queue time and CPU, and lease plan adapters in the HireFire UI for managed
+        job queues.
 
-        Resolution: a sampler callable tracks job-queue metrics (``jql`` / ``jqs``). The
-        name ``"web"`` (case-insensitive) tracks http on its own. Otherwise a sampler is
-        required.
+        Bare ``dyno("web")`` (no sampler, name ``"web"`` case-insensitive) is accepted for
+        1.x backwards compatibility but does nothing: RQT is armed only by platform web
+        role and middleware traffic. A once-per-process warning explains that the line can
+        be removed. ``dyno("web", sampler)`` still registers a job-queue sampler under
+        ``"web"``.
 
         Args:
             name: The process name. Must be non-empty.
@@ -111,25 +115,25 @@ class Configuration:
 
         Raises:
             ValueError: The name is empty or exceeds 128 UTF-8 bytes.
-            MissingSamplerError: A non-"web" name given without a sampler.
-            DuplicateDynoError: The name was already declared for the same source kind,
-                or a second http process was declared.
+            MissingSamplerError: A name other than ``"web"`` given without a sampler.
+            DuplicateDynoError: The name was already declared for the same source kind.
         """
         name = self._coerce_name(name)
 
         if sampler is not None:
-            source = "job_queue"
-        elif name.lower() == "web":
-            source = "http"
-        else:
-            raise MissingSamplerError(
-                f'config.dyno("{name}") could not be resolved: it needs a sampler '
-                '(job-queue metrics). Only the "web" name implies http on its own. '
-                "RQT is always-on via platform web role or middleware traffic; "
-                "CPU is always-on when process identity resolves."
-            )
+            self._register(name, "job_queue", sampler)
+            return
 
-        self._register(name, source, sampler)
+        if name.lower() == "web":
+            self._warn_bare_web_dyno_once()
+            return
+
+        raise MissingSamplerError(
+            f'config.dyno("{name}") could not be resolved: it needs a sampler '
+            "(job-queue metrics). Request queue time is always-on via platform web role "
+            "or middleware traffic; CPU is always-on when process identity resolves. "
+            'Bare config.dyno("web") is a no-op and can be removed.'
+        )
 
     @property
     def buffer(self) -> Buffer:
@@ -161,11 +165,8 @@ class Configuration:
     def http_name(self) -> str | None:
         """Process name used for request-queue-time metrics.
 
-        Prefer an explicit HTTP source name when declared via :meth:`dyno`. Otherwise the
-        resolved process identity. No invented default (e.g. not ``"web"``).
+        Resolved process identity only. No invented default (e.g. not ``"web"``).
         """
-        if self.http is not None:
-            return self.http.name
         return self.soft_identity()
 
     def mark_http_active(self) -> None:
@@ -174,13 +175,10 @@ class Configuration:
 
     def rqt_enabled(self) -> bool:
         """Whether this process should emit the ``rqt`` wire metric."""
-        return bool(self.http or self._http_active or identity.platform_http_role())
+        return bool(self._http_active or identity.platform_http_role())
 
     def http_source(self) -> Web | None:
         """HTTP source used for sampling, creating always-on when name is known."""
-        if self.http is not None:
-            return self.http
-
         name = self.http_name()
         if name is None:
             if self.token and (self._http_active or identity.platform_http_role()):
@@ -281,16 +279,7 @@ class Configuration:
                 "Each dyno name maps to at most one source of each kind."
             )
 
-        if source == "http":
-            if self.http is not None:
-                raise DuplicateDynoError(
-                    f"{name!r} conflicts with the earlier http declaration for "
-                    f"{self.http.name!r}. Request metrics are collected from this "
-                    "process's own http traffic, so only one HTTP source can be "
-                    "declared, under any name."
-                )
-            self.http = Web(self._canonical_name(name))
-        elif source == "job_queue":
+        if source == "job_queue":
             assert sampler is not None
             self.job_queues.append(Worker(self._canonical_name(name), sampler))
 
@@ -304,14 +293,9 @@ class Configuration:
         if existing_key is None:
             return name
 
-        candidates: list[str] = []
-        if self.http is not None:
-            candidates.append(self.http.name)
         for worker in self.job_queues:
-            candidates.append(worker.name)
-        for candidate in candidates:
-            if candidate.lower() == name.lower():
-                return candidate
+            if worker.name.lower() == name.lower():
+                return worker.name
         return name
 
     def _warn_identity_name_too_long_once(self, name: str) -> None:
@@ -327,6 +311,19 @@ class Configuration:
             "name is shortened.",
         )
 
+    def _warn_bare_web_dyno_once(self) -> None:
+        if self._bare_web_dyno_warned:
+            return
+        self._bare_web_dyno_warned = True
+        safe_log(
+            self.logger,
+            "warning",
+            '[HireFire] config.dyno("web") without a sampler is no longer '
+            "necessary. Request queue time is armed by platform web identity "
+            "(for example DYNO type web or RENDER_SERVICE_TYPE=web) and by HTTP "
+            "middleware traffic. You can remove this line.",
+        )
+
     def _warn_rqt_unresolved_once(self) -> None:
         if self._rqt_unresolved_warned:
             return
@@ -336,7 +333,7 @@ class Configuration:
             "warning",
             "[HireFire] Request queue time samples dropped: process identity "
             "is unresolved. Set HIREFIRE_SERVICE_NAME, or rely on DYNO / "
-            "RENDER_SERVICE_NAME where available (or declare config.dyno('web')).",
+            "RENDER_SERVICE_NAME where available.",
         )
 
     def _warn_heroku_conflict_once(self) -> None:

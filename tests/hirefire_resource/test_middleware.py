@@ -18,12 +18,13 @@ def recent_request_start():
 
 
 def test_process_request_queue_time_swallows_metric_path_failures(
-    set_HIREFIRE_TOKEN, caplog
+    set_HIREFIRE_TOKEN, caplog, monkeypatch
 ):
+    # Bare dyno("web") is a no-op; identity supplies the report name.
+    monkeypatch.setenv("DYNO", "web.1")
     caplog.set_level(logging.ERROR)
     with patch.object(Dispatcher, "start"):
-        with HireFire.configure() as config:
-            config.dyno("web")
+        HireFire.boot()
 
     with patch.object(Dispatcher, "start", side_effect=RuntimeError("no threads")):
         process_request_queue_time(recent_request_start())
@@ -33,10 +34,12 @@ def test_process_request_queue_time_swallows_metric_path_failures(
     assert "web" in data and "rqt" in data["web"]
 
 
-def test_process_request_queue_time_survives_a_raising_logger(set_HIREFIRE_TOKEN):
+def test_process_request_queue_time_survives_a_raising_logger(
+    set_HIREFIRE_TOKEN, monkeypatch
+):
+    monkeypatch.setenv("DYNO", "web.1")
     with patch.object(Dispatcher, "start"):
-        with HireFire.configure() as config:
-            config.dyno("web")
+        HireFire.boot()
 
     class RaisingLogger:
         def error(self, message):
@@ -49,11 +52,11 @@ def test_process_request_queue_time_survives_a_raising_logger(set_HIREFIRE_TOKEN
 
 
 def test_process_request_queue_time_without_a_request_start_is_a_noop(
-    set_HIREFIRE_TOKEN,
+    set_HIREFIRE_TOKEN, monkeypatch
 ):
+    monkeypatch.setenv("DYNO", "web.1")
     with patch.object(Dispatcher, "start"):
-        with HireFire.configure() as config:
-            config.dyno("web")
+        HireFire.boot()
 
     with patch.object(Dispatcher, "start") as start:
         process_request_queue_time(None)
@@ -63,10 +66,12 @@ def test_process_request_queue_time_without_a_request_start_is_a_noop(
     start.assert_not_called()
 
 
-def test_process_request_queue_time_ignores_an_unparseable_value(set_HIREFIRE_TOKEN):
+def test_process_request_queue_time_ignores_an_unparseable_value(
+    set_HIREFIRE_TOKEN, monkeypatch
+):
+    monkeypatch.setenv("DYNO", "web.1")
     with patch.object(Dispatcher, "start"):
-        with HireFire.configure() as config:
-            config.dyno("web")
+        HireFire.boot()
 
     with patch.object(Dispatcher, "start") as start:
         process_request_queue_time("garbage")
@@ -75,10 +80,10 @@ def test_process_request_queue_time_ignores_an_unparseable_value(set_HIREFIRE_TO
     start.assert_not_called()
 
 
-def test_logs_queue_metrics_when_enabled(set_HIREFIRE_TOKEN, capsys):
+def test_logs_queue_metrics_when_enabled(set_HIREFIRE_TOKEN, capsys, monkeypatch):
+    monkeypatch.setenv("DYNO", "web.1")
     with patch.object(Dispatcher, "start"):
         with HireFire.configure() as config:
-            config.dyno("web")
             config.log_queue_metrics = True
 
     with patch.object(Dispatcher, "start"), patch(
@@ -89,10 +94,10 @@ def test_logs_queue_metrics_when_enabled(set_HIREFIRE_TOKEN, capsys):
     assert "[hirefire:router] queue=1000ms" in capsys.readouterr().out
 
 
-def test_silent_without_log_queue_metrics(set_HIREFIRE_TOKEN, capsys):
+def test_silent_without_log_queue_metrics(set_HIREFIRE_TOKEN, capsys, monkeypatch):
+    monkeypatch.setenv("DYNO", "web.1")
     with patch.object(Dispatcher, "start"):
-        with HireFire.configure() as config:
-            config.dyno("web")
+        HireFire.boot()
 
     with patch.object(Dispatcher, "start"), patch(
         "time.time", return_value=1_700_000_001
