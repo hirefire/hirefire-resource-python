@@ -37,9 +37,10 @@ class Configuration:
         job_queues: Local job-queue sources declared via sampler callables on :meth:`dyno`.
         logger: Logger used for HireFire diagnostic messages. Defaults to a stdout logger.
             Set to ``None`` (or a logger missing the log methods) to silence diagnostics.
-        log_queue_metrics: Legacy 1.x flag for ``[hirefire:router]`` stdout lines.
-            On 2.x this is a no-op: setting true warns once that the setting is ignored
-            and can be removed. Web RQT is push-only.
+        log_queue_metrics: Legacy flag: when true, middleware still prints
+            ``[hirefire:router] queue=…ms`` to stdout (Logplex QueueTime BC). Setting
+            true once-warns to migrate to HireFire Request Queue Time with
+            ``HIREFIRE_TOKEN``. Preferred web RQT is push to data.hirefire.io.
     """
 
     def __init__(self) -> None:
@@ -99,7 +100,7 @@ class Configuration:
 
     @property
     def log_queue_metrics(self) -> bool:
-        """Legacy flag. Setting true is a once-warn no-op (no ``[hirefire:router]`` emit)."""
+        """Legacy flag. When true, middleware prints ``[hirefire:router]`` stdout lines."""
         return self._log_queue_metrics
 
     @log_queue_metrics.setter
@@ -344,10 +345,10 @@ class Configuration:
         safe_log(
             self.logger,
             "warning",
-            "[HireFire] config.log_queue_metrics is ignored. Request queue "
-            "time is pushed to data.hirefire.io when the HTTP middleware path "
-            "is armed. The [hirefire:router] log line is no longer emitted. "
-            "You can remove this setting.",
+            "[HireFire] config.log_queue_metrics is deprecated. Prefer the "
+            "HireFire Request Queue Time strategy, set HIREFIRE_TOKEN, then "
+            "remove this log_queue_metrics = true line. Stdout [hirefire:router] "
+            "lines still emit while this flag is set.",
         )
 
     def _warn_rqt_unresolved_once(self) -> None:

@@ -80,33 +80,28 @@ def test_process_request_queue_time_ignores_an_unparseable_value(
     start.assert_not_called()
 
 
-def test_log_queue_metrics_does_not_emit_router_line(
-    set_HIREFIRE_TOKEN, capsys, monkeypatch
-):
-    monkeypatch.setenv("DYNO", "web.1")
-    with patch.object(Dispatcher, "start"):
-        with HireFire.configure() as config:
-            config.log_queue_metrics = True
+def test_log_queue_metrics_emits_router_line_without_token(capsys, monkeypatch):
+    monkeypatch.delenv("HIREFIRE_TOKEN", raising=False)
+    with HireFire.configure() as config:
+        config.token = None
+        config.log_queue_metrics = True
 
-    with patch.object(Dispatcher, "start"), patch(
-        "time.time", return_value=1_700_000_001
-    ):
+    with patch("time.time", return_value=1_700_000_001):
+        process_request_queue_time("1700000000000")
+
+    assert "[hirefire:router] queue=1000ms" in capsys.readouterr().out
+
+
+def test_silent_without_log_queue_metrics(capsys, monkeypatch):
+    monkeypatch.delenv("HIREFIRE_TOKEN", raising=False)
+    with HireFire.configure() as config:
+        config.token = None
+        config.log_queue_metrics = False
+
+    with patch("time.time", return_value=1_700_000_001):
         process_request_queue_time("1700000000000")
 
     assert "[hirefire:router]" not in capsys.readouterr().out
-
-
-def test_silent_without_log_queue_metrics(set_HIREFIRE_TOKEN, capsys, monkeypatch):
-    monkeypatch.setenv("DYNO", "web.1")
-    with patch.object(Dispatcher, "start"):
-        HireFire.boot()
-
-    with patch.object(Dispatcher, "start"), patch(
-        "time.time", return_value=1_700_000_001
-    ):
-        process_request_queue_time("1700000000000")
-
-    assert capsys.readouterr().out == ""
 
 
 def test_request_start_from_scope_handles_non_utf8_bytes():

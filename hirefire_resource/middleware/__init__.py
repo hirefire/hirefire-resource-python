@@ -27,9 +27,10 @@ def process_request_queue_time(
 
     When a token is present, records a queue-time sample (milliseconds) under the process
     HTTP name and starts the dispatcher. Explicit http registration is optional.
-    ``log_queue_metrics`` does not emit log lines (once-warn no-op on the configuration
-    setter). Failures in this path (including header extract when ``extract`` is used) are
-    logged and swallowed so the host app is unaffected.
+    When ``log_queue_metrics`` is true, also prints a 1.x-compatible
+    ``[hirefire:router] queue=<ms>ms`` line to stdout (no token required; Logplex
+    QueueTime BC). Failures in this path (including header extract when ``extract``
+    is used) are logged and swallowed so the host app is unaffected.
     """
     try:
         if extract is not None:
@@ -44,6 +45,10 @@ def process_request_queue_time(
 
         configuration = HireFire.configuration
 
+        # Legacy Logplex QueueTime path: no token required (1.x parity).
+        if configuration.log_queue_metrics:
+            log_request_queue_time(request_queue_time)
+
         if configuration.token:
             configuration.mark_http_active()
             source = configuration.http_source()
@@ -57,6 +62,11 @@ def process_request_queue_time(
             "error",
             f"[HireFire] Middleware error: {error}",
         )
+
+
+def log_request_queue_time(request_queue_time: int) -> None:
+    """Exact 1.x shape for logdrain app-router parser."""
+    print(f"[hirefire:router] queue={request_queue_time}ms")
 
 
 def calculate_request_queue_time(request_start: str) -> int | None:
