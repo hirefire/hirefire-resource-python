@@ -3,10 +3,24 @@ import os
 import time
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from hirefire_resource.client import Client, RequestError
 from hirefire_resource.log import safe_log
+
+
+@dataclass(frozen=True)
+class GrantBody:
+    """Parsed lease grant JSON: plan entries plus optional sample-trace arm."""
+
+    job_queues: list[dict[str, Any]]
+    trace: bool = False
+
+
+def empty_grant_body(*, trace: bool = False) -> GrantBody:
+    # Fresh job_queues list so callers cannot mutate a shared empty.
+    return GrantBody(job_queues=[], trace=trace)
 
 
 class Lease:
@@ -21,6 +35,7 @@ class Lease:
         self._client = Client()
         self._ttl = 15
         self._granted = False
+        self._trace = False
         self._expires_at = time.monotonic()
         self._next_sample_at = time.monotonic()
         self.sample_frequency = 15
@@ -31,6 +46,10 @@ class Lease:
     def granted(self) -> bool:
         return self._granted
 
+    def trace(self) -> bool:
+        """Whether the current grant asked the client to ship sample_trace on ingest."""
+        return self._trace
+
     def demote(self) -> None:
         """Drop local grant state without closing the transport.
 
@@ -39,6 +58,7 @@ class Lease:
         """
         self._epoch += 1
         self._granted = False
+        self._trace = False
         self.job_queues = []
         self._expires_at = time.monotonic()
         self._next_sample_at = time.monotonic()
@@ -67,6 +87,7 @@ class Lease:
             if self._epoch != epoch:
                 return
             self._granted = False
+            self._trace = False
             self.job_queues = []
             raise
 
@@ -75,11 +96,13 @@ class Lease:
 
         if response.status == 401:
             self._granted = False
+            self._trace = False
             self.job_queues = []
             return
 
         if not (200 <= response.status < 300):
             self._granted = False
+            self._trace = False
             self.job_queues = []
             raise RequestError(f"Lease request failed with {response.status} status.")
 
@@ -104,12 +127,14 @@ class Lease:
             next_expires_at = time.monotonic() + next_ttl
 
         granted = response.headers.get("HireFire-Lease-Granted") == "true"
-        parsed_queues = self._parse_job_queues(response.body) if granted else []
+        grant_body = (
+            self._parse_grant_body(response.body) if granted else empty_grant_body()
+        )
 
         if self._epoch != epoch:
             return
 
-        hold_ok = (not granted) or hold(parsed_queues)
+        hold_ok = (not granted) or hold(grant_body.job_queues)
 
         if self._epoch != epoch:
             return
@@ -121,6 +146,7 @@ class Lease:
 
         if granted and not hold_ok:
             self._granted = False
+            self._trace = False
             self.job_queues = []
             self.process_id = str(uuid.uuid4())
             from hirefire_resource.hirefire import HireFire
@@ -134,7 +160,8 @@ class Lease:
         else:
             was_granted = self._granted
             self._granted = granted
-            self.job_queues = parsed_queues
+            self._trace = granted and grant_body.trace
+            self.job_queues = grant_body.job_queues
             if granted and not was_granted:
                 self._next_sample_at = time.monotonic()
 
@@ -149,14 +176,15 @@ class Lease:
         self._epoch += 1
         self.process_id = str(uuid.uuid4())
         self._granted = False
+        self._trace = False
         self.job_queues = []
         self._expires_at = time.monotonic()
         self._next_sample_at = time.monotonic()
         self._owner_pid = os.getpid()
 
-    def _parse_job_queues(self, body: str | None) -> list[dict[str, Any]]:
+    def _parse_grant_body(self, body: str | None) -> GrantBody:
         if body is None or body == "":
-            return []
+            return empty_grant_body()
 
         body_bytes = body.encode("utf-8") if isinstance(body, str) else body
         if len(body_bytes) > self.MAX_BODY_BYTES:
@@ -164,7 +192,7 @@ class Lease:
                 f"[HireFire] Lease grant body exceeded {self.MAX_BODY_BYTES} bytes. "
                 "Plan ignored."
             )
-            return []
+            return empty_grant_body()
 
         try:
             payload = json.loads(body)
@@ -172,20 +200,21 @@ class Lease:
             self._log_error(
                 "[HireFire] Lease grant body was not valid JSON. Plan ignored."
             )
-            return []
+            return empty_grant_body()
 
         if not isinstance(payload, dict):
             self._log_error(
                 "[HireFire] Lease grant body was not a JSON object. Plan ignored."
             )
-            return []
+            return empty_grant_body()
 
+        trace = payload.get("trace") is True
         entries = payload.get("job_queues")
         if not isinstance(entries, list):
             self._log_error(
                 "[HireFire] Lease grant body job_queues was not an array. Plan ignored."
             )
-            return []
+            return empty_grant_body(trace=trace)
 
         accepted: list[dict[str, Any]] = []
         skipped = 0
@@ -229,7 +258,7 @@ class Lease:
                 f"[HireFire] Lease plan skipped {skipped} invalid job queue {label}."
             )
 
-        return accepted
+        return GrantBody(job_queues=accepted, trace=trace)
 
     def _log_error(self, message: str) -> None:
         from hirefire_resource.hirefire import HireFire

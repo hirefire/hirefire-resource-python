@@ -9,6 +9,7 @@ from hirefire_resource.buffer import Buffer
 from hirefire_resource.client import PAYLOAD_TOO_LARGE, Client, Response
 from hirefire_resource.lease import Lease
 from hirefire_resource.log import safe_log
+from hirefire_resource.sample_trace_wave import SampleTraceWave
 
 if TYPE_CHECKING:
     import logging
@@ -39,6 +40,7 @@ class Dispatcher:
         self._last_rqt_second: int | None = None
         self._dispatch_frequency = self.DEFAULT_DISPATCH_FREQUENCY
         self._next_dispatch_at: float | None = None
+        self._pending_sample_trace: dict[str, Any] | None = None
         self._unloaded_adapter_warned: dict[str, bool] = {}
         self._plan_override_warned: dict[str, bool] = {}
         self._unknown_adapter_warned: dict[str, bool] = {}
@@ -340,6 +342,7 @@ class Dispatcher:
         self._next_dispatch_at = None
         self._last_rqt_second = None
         self._dispatch_frequency = self.DEFAULT_DISPATCH_FREQUENCY
+        self._pending_sample_trace = None
         self._unloaded_adapter_warned = {}
         self._plan_override_warned = {}
         self._unknown_adapter_warned = {}
@@ -372,13 +375,29 @@ class Dispatcher:
     def _sample_job_queues(self) -> None:
         from hirefire_resource import plan
 
+        wave = SampleTraceWave.start()
         with plan.around_job_queue_sample():
             local_job_queues = self._configuration().job_queues
             for entry in self._lease.job_queues:
-                if self._adapter_present(entry):
-                    self._sample_plan_adapter(entry, local_job_queues)
-                else:
-                    self._sample_strategy_only(entry, local_job_queues)
+
+                def _sample(entry: dict[str, Any] = entry) -> None:
+                    if self._adapter_present(entry):
+                        self._sample_plan_adapter(entry, local_job_queues)
+                    else:
+                        self._sample_strategy_only(entry, local_job_queues)
+
+                wave.measure(entry, _sample)
+        payload = wave.finish()
+        if self._verbose():
+            wave.log_to(self._logger())
+        if self._lease.trace():
+            self._pending_sample_trace = payload
+
+    def _verbose(self) -> bool:
+        value = os.environ.get("HIREFIRE_VERBOSE", "")
+        if not value:
+            return False
+        return value.lower() not in ("0", "false", "no")
 
     def _sample_plan_adapter(
         self, entry: dict[str, Any], local_job_queues: Any
@@ -530,7 +549,7 @@ class Dispatcher:
                     self._repopulate_rqt(data)
                 return
 
-            if os.environ.get("HIREFIRE_VERBOSE"):
+            if self._verbose():
                 safe_log(
                     self._logger(),
                     "info",
@@ -549,6 +568,7 @@ class Dispatcher:
             )
             if watermark is not None:
                 self._last_rqt_second = watermark
+            self._pending_sample_trace = None
         except Exception as error:
             if data is not None and (
                 generation is None
@@ -642,7 +662,17 @@ class Dispatcher:
             if encoded:
                 entries.append({"name": name, "metrics": encoded})
 
+        self._attach_sample_trace(entries)
         return entries, watermark
+
+    def _attach_sample_trace(self, entries: list[Any]) -> None:
+        if (
+            self._pending_sample_trace is None
+            or not entries
+            or not self._lease.trace()
+        ):
+            return
+        entries[0]["sample_trace"] = self._pending_sample_trace
 
     def _append_http_rqt(
         self,

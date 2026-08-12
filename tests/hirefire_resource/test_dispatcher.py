@@ -25,7 +25,7 @@ def with_token(set_HIREFIRE_TOKEN):
     pass
 
 
-def stub_lease(granted=False, plan=None):
+def stub_lease(granted=False, plan=None, trace=False):
     headers = {
         "HireFire-Lease-Granted": str(granted).lower(),
         "HireFire-Sample-Frequency": "15",
@@ -40,6 +40,9 @@ def stub_lease(granted=False, plan=None):
                     {"name": "mailer", "strategy": "jql"},
                 ],
             }
+        if trace:
+            plan = dict(plan)
+            plan["trace"] = True
         body = json.dumps(plan)
     Entry.single_register(
         Entry.POST,
@@ -464,6 +467,58 @@ def test_lease_granted_dispatches_workers():
         entry["name"] == "worker" and entry.get("metrics", {}).get("jql")
         for entry in bodies[0]
     )
+
+
+@mocketize
+def test_sample_trace_attached_when_grant_trace_true():
+    stub_lease(granted=True, trace=True)
+    bodies = capture_ingest_bodies()
+
+    dispatcher = configure_workers_only()
+    dispatcher._job_queue_tick()
+    dispatcher._tick()
+
+    assert len(bodies) == 1
+    entry = bodies[0][0]
+    assert "sample_trace" in entry, "sample_trace attaches to first process report"
+    assert "wave_ms" in entry["sample_trace"]
+    assert isinstance(entry["sample_trace"]["ops"], list)
+    assert (
+        len(entry["sample_trace"]["ops"]) == 2
+    ), "one op per plan job_queue entry"
+    assert all(
+        op.get("strategy") == "jql" and "ms" in op
+        for op in entry["sample_trace"]["ops"]
+    )
+    for other in bodies[0][1:]:
+        assert "sample_trace" not in other
+
+
+@mocketize
+def test_sample_trace_absent_without_grant_trace():
+    stub_lease(granted=True, trace=False)
+    bodies = capture_ingest_bodies()
+
+    dispatcher = configure_workers_only()
+    dispatcher._job_queue_tick()
+    dispatcher._tick()
+
+    assert bodies
+    for entry in bodies[0]:
+        assert "sample_trace" not in entry
+
+
+@mocketize
+def test_verbose_logs_sample_timings_without_server_trace(monkeypatch, caplog):
+    monkeypatch.setenv("HIREFIRE_VERBOSE", "1")
+    caplog.set_level(logging.INFO)
+    stub_lease(granted=True, trace=False)
+
+    dispatcher = configure_workers_only()
+    dispatcher._job_queue_tick()
+
+    assert "sample_job_queues wave_ms=" in caplog.text
+    assert "sample adapter=" in caplog.text
 
 
 @mocketize

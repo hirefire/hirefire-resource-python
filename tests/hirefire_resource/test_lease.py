@@ -904,3 +904,52 @@ def test_hold_receives_parsed_job_queues():
     assert len(received) == 1
     assert received[0]["name"] == "worker"
     assert received[0]["adapter"] == "celery"
+    assert lease.trace() is False
+
+
+@mocketize
+def test_parses_grant_trace_true():
+    Entry.single_register(
+        Entry.POST,
+        LEASE_URL,
+        status=200,
+        headers={
+            "HireFire-Lease-Granted": "true",
+            "HireFire-Sample-Frequency": "15",
+        },
+        body=json.dumps(
+            {
+                "version": 1,
+                "trace": True,
+                "job_queues": [{"name": "worker", "strategy": "jql"}],
+            }
+        ),
+    )
+    lease = Lease()
+    lease.request_if_due(hold=lambda _plan: True)
+    assert lease.granted()
+    assert lease.trace() is True
+
+
+@mocketize
+def test_trace_false_for_string_or_missing():
+    Entry.single_register(
+        Entry.POST,
+        LEASE_URL,
+        status=200,
+        headers={
+            "HireFire-Lease-Granted": "true",
+            "HireFire-Sample-Frequency": "15",
+        },
+        body=json.dumps(
+            {
+                "version": 1,
+                "trace": "true",
+                "job_queues": [],
+            }
+        ),
+    )
+    lease = Lease()
+    lease.request_if_due(hold=lambda _plan: True)
+    assert lease.granted()
+    assert lease.trace() is False
