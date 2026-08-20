@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+"""Assert sdist and wheel ship PEP 561 types (py.typed) plus LICENSE, README, CHANGELOG.
+
+Run after `poetry build`. Used by GitHub Actions `check` and `publish`.
+Selects artifacts for the version in pyproject.toml so leftover dist/ files
+from older versions are ignored.
+"""
+import sys
+import tarfile
+import zipfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+DIST = ROOT / "dist"
+
+
+def has_suffix(names, suffix):
+    return any(n.endswith(suffix) for n in names)
+
+
+def has_name(names, name):
+    return any(n.split("/")[-1] == name for n in names)
+
+
+def project_version():
+    for line in (ROOT / "pyproject.toml").read_text().splitlines():
+        if line.startswith("version ="):
+            return line.split("=", 1)[1].strip().strip("\"'")
+    sys.exit("could not read version from pyproject.toml")
+
+
+def newest(paths):
+    return max(paths, key=lambda path: path.stat().st_mtime)
+
+
+def main():
+    if not DIST.is_dir():
+        sys.exit("no dist/; run poetry build first")
+
+    version = project_version()
+    sdists = list(DIST.glob(f"*{version}*.tar.gz"))
+    if not sdists:
+        sys.exit(f"no sdist for {version} in dist/")
+    sdist = newest(sdists)
+    with tarfile.open(sdist, "r:gz") as tf:
+        sdist_names = tf.getnames()
+    assert has_name(sdist_names, "CHANGELOG.md"), sdist_names
+    assert has_name(sdist_names, "LICENSE"), sdist_names
+    assert has_name(sdist_names, "README.md"), sdist_names
+    assert has_suffix(sdist_names, "hirefire_resource/py.typed"), sdist_names
+    print("sdist ok:", sdist.name)
+
+    wheels = list(DIST.glob(f"*{version}*.whl"))
+    if not wheels:
+        sys.exit(f"no wheel for {version} in dist/")
+    wheel = newest(wheels)
+    with zipfile.ZipFile(wheel) as zf:
+        wheel_names = zf.namelist()
+    assert has_suffix(wheel_names, "hirefire_resource/py.typed"), wheel_names
+    assert has_name(wheel_names, "README.md"), wheel_names
+    assert has_name(wheel_names, "CHANGELOG.md"), wheel_names
+    assert has_name(wheel_names, "LICENSE") or any(
+        "LICENSE" in n for n in wheel_names
+    ), wheel_names
+    print("wheel ok:", wheel.name)
+
+
+if __name__ == "__main__":
+    main()

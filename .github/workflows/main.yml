@@ -52,6 +52,8 @@ jobs:
         run: poetry run paver check
       - name: Run build
         run: poetry build
+      - name: Verify package artifacts
+        run: python bin/verify-package
 
   validate:
     needs: matrix
@@ -132,38 +134,6 @@ jobs:
       - name: Run build
         run: poetry build
       - name: Verify package artifacts
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import tarfile
-          import zipfile
-
-          def has_suffix(names, suffix):
-              return any(n.endswith(suffix) for n in names)
-
-          def has_name(names, name):
-              return any(n.split("/")[-1] == name for n in names)
-
-          sdists = list(Path("dist").glob("*.tar.gz"))
-          assert sdists, "no sdist in dist/"
-          with tarfile.open(sdists[0], "r:gz") as tf:
-              sdist_names = tf.getnames()
-          assert has_name(sdist_names, "CHANGELOG.md"), sdist_names
-          assert has_name(sdist_names, "LICENSE"), sdist_names
-          assert has_name(sdist_names, "README.md"), sdist_names
-          assert has_suffix(sdist_names, "hirefire_resource/py.typed"), sdist_names
-          print("sdist ok:", sdists[0].name)
-
-          wheels = list(Path("dist").glob("*.whl"))
-          assert wheels, "no wheel in dist/"
-          with zipfile.ZipFile(wheels[0]) as zf:
-              wheel_names = zf.namelist()
-          assert has_suffix(wheel_names, "hirefire_resource/py.typed"), wheel_names
-          assert has_name(wheel_names, "CHANGELOG.md"), wheel_names
-          assert has_name(wheel_names, "LICENSE") or any(
-              "LICENSE" in n for n in wheel_names
-          ), wheel_names
-          print("wheel ok:", wheels[0].name)
-          PY
+        run: python bin/verify-package
       - name: Publish package
         uses: pypa/gh-action-pypi-publish@v1.14.1

@@ -45,11 +45,11 @@ Learn more at the [home page][HireFire].
 
 ## Development
 
-Requires [Docker](https://www.docker.com/) and [mise](https://mise.jdx.dev/). Redis and RabbitMQ for the macro tests run in containers, and mise installs the pinned Python versions (3.11 through 3.14) from `.tool-versions`. `bin/services up` starts them on Docker-assigned free host ports recorded in a git-ignored `.env` (read by the test suite). `bin/services down` stops them and removes `.env`. Because the ports are assigned fresh at startup, multiple worktrees can run side by side without conflicting with each other or with any system-wide Redis/RabbitMQ.
+Requires [Docker](https://www.docker.com/) and [mise](https://mise.jdx.dev/). Redis and RabbitMQ for the macro tests run in containers, and mise installs the pinned Python versions from `.tool-versions`. `bin/services up` starts them on Docker-assigned free host ports recorded in a git-ignored `.env` (read by the test suite). `bin/services down` stops them and removes `.env`. Because the ports are assigned fresh at startup, multiple worktrees can run side by side without conflicting with each other or with any system-wide Redis/RabbitMQ.
 
 - Run `bin/setup` to prepare the environment.
-- Run `bin/services up` / `bin/services down` to start / stop the containers.
-- See `poetry run paver -h` for common tasks (`format`, `check`, `test`), or `poetry run tox` for the full version matrix.
+- Run `bin/services up` / `bin/services down` to start / stop Redis and RabbitMQ.
+- See `poetry run paver -h` for common tasks (`paver check`, `paver format`, `paver test`), or `poetry run tox` for the full version matrix.
 
 ## Release
 

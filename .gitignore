@@ -4,6 +4,7 @@
 htmlcov/
 coverage.xml
 .DS_Store
+*.log
 .env
 .tox/
 .venv/
