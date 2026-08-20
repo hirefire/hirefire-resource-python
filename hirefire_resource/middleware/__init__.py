@@ -45,7 +45,6 @@ def process_request_queue_time(
 
         configuration = HireFire.configuration
 
-        # Legacy Logplex QueueTime path: no token required (1.x parity).
         if configuration.log_queue_metrics:
             log_request_queue_time(request_queue_time)
 

@@ -44,7 +44,6 @@ def test_plan_options_empty_for_v1():
 
 
 def test_supports_plan_strategy():
-    # Not size-only: both jql and jqs.
     assert dramatiq_macro.supports_plan_strategy("jql")
     assert dramatiq_macro.supports_plan_strategy("jqs")
     assert not dramatiq_macro.supports_plan_strategy("cpu")

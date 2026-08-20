@@ -374,10 +374,7 @@ def test_job_queue_size_with_mismatched_priority_arguments(celery_app):
             Queue(queue_name, queue_arguments={"x-max-priority": 10}),  # Wrong!
         ]
 
-        # In strict RabbitMQ versions, this triggers PRECONDITION_FAILED (returns 0)
-        # In lenient versions (like the test environment), it still works (returns 2)
         result_wrong = job_queue_size(queue_name, celery_app=wrong_app)
-        # Both outcomes are acceptable - the test just verifies it doesn't crash
         assert result_wrong in [0, 2]
 
         correct_app = Celery(broker=broker_url)
@@ -487,7 +484,6 @@ def test_job_queue_size_ignores_active_reserved_and_due_scheduled_inspect(
     control = _inflating_inspect_control()
     monkeypatch.setattr(celery_app, "control", control)
 
-    # Broker has 2 ready messages. Mock inspect would add active(2)+reserved(1)+due scheduled(1).
     assert job_queue_size("celery", celery_app=celery_app) == 2
     assert control.inspect_calls == 0
 
@@ -498,7 +494,6 @@ def test_job_queue_size_without_broker_jobs_ignores_worker_inspect(
     control = _inflating_inspect_control()
     monkeypatch.setattr(celery_app, "control", control)
 
-    # Empty broker: old size would still count inspect-held work. Waiting-only is 0.
     assert job_queue_size("celery", celery_app=celery_app) == 0
     assert control.inspect_calls == 0
 

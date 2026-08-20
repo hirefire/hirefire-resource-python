@@ -1,4 +1,4 @@
-"""Closed-world platform goldens for hirefire_resource.cpu.usage.Usage.
+"""Closed-world platform goldens for hirefire_resource.source.cpu.usage.Usage.
 
 Fixture bodies are verbatim extracts from hirefire-resource/cpu-platform-samples.md
 (capture date 2026-07-27). Do not invent platform samples here.
@@ -10,20 +10,14 @@ import os
 from contextlib import contextmanager
 from unittest.mock import patch
 
-from hirefire_resource.cpu.usage import Usage
+from hirefire_resource.source.cpu.usage import Usage
 
 FIXTURE_ROOT = os.path.abspath(
     os.path.join(os.path.dirname(__file__), os.pardir, "fixtures", "cpu")
 )
 
-# Loud default so host os.cpu_count never becomes a silent entitlement.
-# Capture-meta nproc values (shared 8, Perf 2/8/4/8/16, Fir 48/96, Render 8/32)
-# are documented in comments only; tests that care pass an explicit nproc=.
 NPROC_SENTINEL = 97
 
-# Cedar Performance / Private / Shield non-fingerprint sizes. Limits are real
-# capture bodies (2026-07-27). Live nproc was M=2, L=8, L-RAM=4, XL=8, 2XL=16;
-# tests stub NPROC_SENTINEL so a missed fingerprint still proves map-miss fallthrough.
 CEDAR_DEDICATED = (
     "performance_m",
     "performance_l",
@@ -89,7 +83,7 @@ def closed_world(
 
     with (
         patch.object(Usage, "read", side_effect=fake_read) as read_mock,
-        patch("hirefire_resource.cpu.usage.glob.glob", return_value=paths),
+        patch("hirefire_resource.source.cpu.usage.glob.glob", return_value=paths),
         patch.object(Usage, "clock_ticks", return_value=clock_ticks),
         patch.object(Usage, "processor_count", return_value=nproc),
         patch.object(Usage, "process_seconds", return_value=None),
@@ -97,12 +91,8 @@ def closed_world(
         yield read_mock
 
 
-# --- Cedar (Heroku classic): entitlement ---
-
-
 def test_cedar_basic_1x_fingerprint_not_host_nproc(monkeypatch):
     monkeypatch.setenv("DYNO", "web.1")
-    # Capture nproc on shared Basic/1X was 8 (host). Fingerprint must win.
     with closed_world(
         reads={Usage.CEDAR_MEMORY_LIMIT: fixture("cedar/memory_limit_basic.txt")},
         nproc=8,
@@ -120,10 +110,6 @@ def test_cedar_standard_2x_fingerprint_not_host_nproc(monkeypatch):
 
 
 def test_cedar_performance_dedicated_fingerprint_miss_falls_to_nproc(monkeypatch):
-    # Real limits from Performance (and matching Private/Shield) captures.
-    # Expects prove CEDAR_MEMORY_LIMIT is read (fixture applied). NPROC_SENTINEL
-    # proves the body is not in CEDAR_SHARED_ENTITLEMENTS (map miss → fallthrough).
-    # Unread limit alone would also fall through to 97 without the expects.
     for name in CEDAR_DEDICATED:
         monkeypatch.setenv("DYNO", "web.1")
         body = fixture(f"cedar/memory_limit_{name}.txt")
@@ -141,7 +127,6 @@ def test_cedar_private_s_and_shield_s_one_gib_fingerprint_no_space_special_case(
     monkeypatch,
 ):
     monkeypatch.setenv("DYNO", "run.8256")
-    # High nproc so only fingerprint yields 2.0 (live Private/Shield-S nproc is 2).
     with closed_world(
         reads={Usage.CEDAR_MEMORY_LIMIT: fixture("cedar/memory_limit_standard_2x.txt")},
         nproc=8,
@@ -150,15 +135,11 @@ def test_cedar_private_s_and_shield_s_one_gib_fingerprint_no_space_special_case(
 
 
 def test_cedar_dyno_unset_ignores_memory_fingerprint():
-    # DYNO cleared by conftest. Shared 512 MiB limit must not fingerprint.
     with closed_world(
         reads={Usage.CEDAR_MEMORY_LIMIT: fixture("cedar/memory_limit_basic.txt")},
         nproc=8,
     ):
         assert abs(Usage.available_cpus() - 8.0) < DELTA
-
-
-# --- Cedar: /proc usage ---
 
 
 def test_cedar_basic_formation_puma_master_and_worker_proc_sum():
@@ -174,7 +155,6 @@ def test_cedar_basic_formation_puma_master_and_worker_proc_sum():
         proc_paths=paths,
         clock_ticks=100,
     ):
-        # PID2: 3793+1400=5193, PID50: 80+15=95 → 5288 ticks / 100 = 52.88
         seconds, source = Usage.reading()
         assert source == "proc"
         assert abs(seconds - 52.88) < DELTA
@@ -187,14 +167,10 @@ def test_cedar_oneoff_zero_tick_ps_run_stays_on_proc():
         proc_paths=["/proc/1/stat"],
         clock_ticks=100,
     ):
-        # closed_world nulls process_seconds; re-stub high to prove no fallthrough.
         with patch.object(Usage, "process_seconds", return_value=99.0):
             seconds, source = Usage.reading()
             assert source == "proc"
             assert abs(seconds - 0.0) < DELTA
-
-
-# --- Fir (Heroku CNB) ---
 
 
 def test_fir_dyno_1c_0_5gb_cpu_stat_usage():
@@ -210,7 +186,6 @@ def test_fir_dyno_1c_0_5gb_cpu_stat_usage():
 
 def test_fir_cpu_max_beats_host_nproc(monkeypatch):
     monkeypatch.setenv("DYNO", "run-nss86zptrv-7fpx8")
-    # Capture host nproc was 96; trap with that value.
     with closed_world(
         reads={
             Usage.CGROUP_V2_QUOTA: fixture("fir/dyno_1c_0_5gb_cpu_max.txt"),
@@ -234,7 +209,6 @@ def test_fir_parametric_unique_entitlements(monkeypatch):
 
 def test_fir_dyno_set_with_cpu_max_does_not_use_cedar_memory_limit(monkeypatch):
     monkeypatch.setenv("DYNO", "run-nss86zptrv-7fpx8")
-    # Live Fir has no memory.limit_in_bytes path. Closed world leaves it nil.
     with closed_world(
         reads={
             Usage.CGROUP_V2_QUOTA: fixture("fir/dyno_1c_0_5gb_cpu_max.txt"),
@@ -243,9 +217,6 @@ def test_fir_dyno_set_with_cpu_max_does_not_use_cedar_memory_limit(monkeypatch):
     ):
         assert Usage.read(Usage.CEDAR_MEMORY_LIMIT) is None
         assert abs(Usage.available_cpus() - 0.9) < DELTA
-
-
-# --- Render ---
 
 
 def test_render_starter_cpu_stat_usage():
@@ -259,7 +230,6 @@ def test_render_starter_cpu_stat_usage():
 
 def test_render_free_cpu_max_beats_marketing_0_1_env(monkeypatch):
     monkeypatch.setenv("RENDER", "true")
-    # Marketing/docs say 0.1; live Free cpu.max is 0.15. Env must not win.
     monkeypatch.setenv("RENDER_CPU_COUNT", "0.1")
     with closed_world(
         reads={Usage.CGROUP_V2_QUOTA: fixture("render/free_cpu_max.txt")},
@@ -277,7 +247,6 @@ def test_render_free_render_cpu_count_without_cgroup(monkeypatch):
 
 def test_render_full_plan_matrix_cpu_max(monkeypatch):
     monkeypatch.setenv("RENDER", "true")
-    # RENDER_CPU_COUNT left unset so only cpu.max can supply entitlement.
     for file, expected in RENDER_PLAN_MATRIX:
         with closed_world(
             reads={Usage.CGROUP_V2_QUOTA: fixture(f"render/{file}")},
@@ -320,7 +289,6 @@ def test_render_quota_beats_misleading_render_cpu_count_high(monkeypatch):
 
 def test_render_pro_ultra_cpu_max_beats_host_nproc_32(monkeypatch):
     monkeypatch.setenv("RENDER", "true")
-    # RENDER_CPU_COUNT unset: only cpu.max can yield 8.0 against nproc trap 32.
     with closed_world(
         reads={Usage.CGROUP_V2_QUOTA: fixture("render/pro_ultra_cpu_max.txt")},
         nproc=32,

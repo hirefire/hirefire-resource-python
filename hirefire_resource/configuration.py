@@ -6,13 +6,13 @@ import threading
 from hirefire_resource import identity
 from hirefire_resource._types import Sampler
 from hirefire_resource.buffer import Buffer
-from hirefire_resource.cpu import CPU
 from hirefire_resource.dispatcher import Dispatcher
 from hirefire_resource.errors import DuplicateDynoError, MissingSamplerError
 from hirefire_resource.log import safe_log
-from hirefire_resource.web import Web
-from hirefire_resource.worker import Worker
-from hirefire_resource.workers import Workers
+from hirefire_resource.source.cpu import CPU
+from hirefire_resource.source.http import HTTP
+from hirefire_resource.source.job_queue import JobQueue
+from hirefire_resource.source.job_queues import JobQueues
 
 __all__ = [
     "Configuration",
@@ -44,8 +44,8 @@ class Configuration:
     """
 
     def __init__(self) -> None:
-        self.http: Web | None = None
-        self.job_queues = Workers()
+        self.http: HTTP | None = None
+        self.job_queues = JobQueues(self)
         self.logger = self._init_logger()
         self._log_queue_metrics = False
         self._log_queue_metrics_warned = False
@@ -55,23 +55,13 @@ class Configuration:
         self._token: str | None = None
         self._mutex = threading.Lock()
         self._always_on_cpu: CPU | None = None
-        self._always_on_http: Web | None = None
+        self._always_on_http: HTTP | None = None
         self._http_active = False
         self._heroku_conflict_warned = False
         self._identity_name_too_long_warned = False
         self._rqt_unresolved_warned = False
         self._cpu_unresolved_warned = False
         self._bare_web_dyno_warned = False
-
-    @property
-    def web(self) -> Web | None:
-        """Alias for :attr:`http` (temporary compatibility until middleware cutover)."""
-        return self.http
-
-    @property
-    def workers(self) -> Workers:
-        """Alias for :attr:`job_queues`."""
-        return self.job_queues
 
     @property
     def token(self) -> str | None:
@@ -112,9 +102,11 @@ class Configuration:
     def dyno(self, name: str, sampler: Sampler | None = None) -> None:
         """Declares a process by dyno name (Heroku Procfile-shaped).
 
-        A sampler callable registers a local job-queue source. Prefer zero-config for
-        request queue time and CPU, and lease plan adapters in the HireFire UI for managed
-        job queues.
+        A sampler callable registers a local job-queue source (``jql`` / ``jqs`` under the
+        lease plan strategy). Prefer zero-config (:meth:`HireFire.boot` + token) for request
+        queue time and CPU, and lease plan adapters in the HireFire UI for managed job
+        queues. Use :meth:`dyno` with a sampler for custom probes or strategy-only (custom
+        configuration) plan entries.
 
         Bare ``dyno("web")`` (no sampler, name ``"web"`` case-insensitive) is accepted for
         1.x backwards compatibility but does nothing: RQT is armed only by platform web
@@ -191,7 +183,7 @@ class Configuration:
         """Whether this process should emit the ``rqt`` wire metric."""
         return bool(self._http_active or identity.platform_http_role())
 
-    def http_source(self) -> Web | None:
+    def http_source(self) -> HTTP | None:
         """HTTP source used for sampling, creating always-on when name is known."""
         name = self.http_name()
         if name is None:
@@ -203,7 +195,7 @@ class Configuration:
             self._always_on_http is None
             or self._always_on_http.name.lower() != name.lower()
         ):
-            self._always_on_http = Web(name)
+            self._always_on_http = HTTP(name)
         return self._always_on_http
 
     def rqt_liveness(self) -> bool:
@@ -295,7 +287,7 @@ class Configuration:
 
         if source == "job_queue":
             assert sampler is not None
-            self.job_queues.append(Worker(self._canonical_name(name), sampler))
+            self.job_queues.append(JobQueue(self._canonical_name(name), sampler))
 
         self._sources_by_name[key] = kinds + [source]
 

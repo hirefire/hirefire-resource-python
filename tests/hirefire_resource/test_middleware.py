@@ -20,7 +20,6 @@ def recent_request_start():
 def test_process_request_queue_time_swallows_metric_path_failures(
     set_HIREFIRE_TOKEN, caplog, monkeypatch
 ):
-    # Bare dyno("web") is a no-op; identity supplies the report name.
     monkeypatch.setenv("DYNO", "web.1")
     caplog.set_level(logging.ERROR)
     with patch.object(Dispatcher, "start"):

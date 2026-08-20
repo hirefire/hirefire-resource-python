@@ -16,18 +16,15 @@ def test_known_adapters_and_strategies():
 
 def test_library_loaded_uses_sys_modules_only():
     assert not plan.library_loaded("celery") or "celery" in sys.modules
-    # Installing is not enough: only already-imported modules count.
     with patch.dict(sys.modules, {"celery": object()}, clear=False):
         assert plan.library_loaded("celery")
         assert plan.any_allowlisted_job_queue_library_loaded()
 
 
 def test_library_loaded_detects_dramatiq_from_sys_modules():
-    # Presence in sys.modules is the detect signal (LIBRARY_CHECKS["dramatiq"]).
     with patch.dict(sys.modules, {"dramatiq": object()}, clear=False):
         assert plan.library_loaded("dramatiq")
         assert plan.executable("dramatiq")
-    # Without the module name in sys.modules, detect is false even if adapter known.
     without = {k: v for k, v in sys.modules.items() if k != "dramatiq"}
     with patch.dict(sys.modules, without, clear=True):
         assert plan.known_adapter("dramatiq")
@@ -39,7 +36,6 @@ def test_normalize_queues_rules():
     assert plan.normalize_queues(["a", "b"], name="worker") == ["a", "b"]
     assert plan.normalize_queues("nope", name="worker") is None
     assert plan.normalize_queues(["", "  "], name="worker") is None
-    # JSON null list elements must not become the literal queue name "None".
     assert plan.normalize_queues([None, "ok", None], name="worker") == ["ok"]
     assert plan.normalize_queues([None, None], name="worker") is None
     long_name = "q" * 200
@@ -115,7 +111,6 @@ def test_execute_rejects_bool_sample(caplog):
 
 
 def test_plan_import_does_not_load_celery_rq_dramatiq():
-    # Importing plan must not pull optional backends into sys.modules.
     mods = set(sys.modules)
     import importlib
 
@@ -727,7 +722,6 @@ def test_allowlisted_macros_reexport_sample_wave_hooks_as_noops():
         except ImportError:
             results[name] = "skip"
             continue
-        # Same callables as plan.hooks defaults (not copies / unrelated stubs).
         assert macro.before_sample_job_queues is hooks.before_sample_job_queues
         assert macro.after_sample_job_queues is hooks.after_sample_job_queues
         assert macro.reinit_after_fork is hooks.reinit_after_fork
@@ -736,8 +730,6 @@ def test_allowlisted_macros_reexport_sample_wave_hooks_as_noops():
         assert macro.reinit_after_fork() is None
         results[name] = "ok"
 
-    # Dramatiq has no hard third-party import at module top, so it always loads
-    # in the core test cell. Celery/RQ load only when their deps are installed.
     assert results.get("dramatiq") == "ok"
     for name, status in results.items():
         assert status in ("ok", "skip"), name
@@ -839,6 +831,48 @@ def test_execute_samples_wrk_when_macro_implements_job_queue_working():
     data = HireFire.configuration.buffer.flush()
     assert list(data["worker"]["jqs"].values())[0] == 7
     assert list(data["worker"]["wrk"].values())[0] == 3
+
+
+def test_execute_skips_wrk_when_job_strategy_sample_invalid():
+    working_called = False
+
+    class Macro:
+        @staticmethod
+        def supports_plan_strategy(strategy):
+            return True
+
+        @staticmethod
+        def plan_options(strategy, options):
+            return {}
+
+        @staticmethod
+        def plan_connection_options():
+            return {}
+
+        @staticmethod
+        def job_queue_size(*queues, **options):
+            return -1
+
+        @staticmethod
+        def job_queue_working(*queues, **options):
+            nonlocal working_called
+            working_called = True
+            return 3
+
+    with patch.object(plan, "_load_macro", return_value=Macro):
+        plan.execute(
+            {
+                "name": "worker",
+                "adapter": "rq",
+                "strategy": "jqs",
+                "queues": ["default"],
+            }
+        )
+
+    data = HireFire.configuration.buffer.flush()
+    assert data.get("worker", {}).get("jqs") is None
+    assert data.get("worker", {}).get("wrk") is None
+    assert working_called is False
 
 
 def test_execute_skips_wrk_when_macro_lacks_job_queue_working():

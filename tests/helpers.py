@@ -11,6 +11,5 @@ def set_HIREFIRE_TOKEN(reset_hirefire, monkeypatch):
     return HIREFIRE_TOKEN
 
 
-# A timezone-aware datetime at a Unix epoch second, for freezegun's freeze_time.
 def at(epoch):
     return datetime.datetime.fromtimestamp(epoch, tz=datetime.timezone.utc)

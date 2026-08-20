@@ -12,8 +12,8 @@ from mocket.mockhttp import Entry, Response
 
 from hirefire_resource import HireFire
 from hirefire_resource.client import RequestError
-from hirefire_resource.cpu.usage import Usage
 from hirefire_resource.dispatcher import Dispatcher
+from hirefire_resource.source.cpu.usage import Usage
 from tests.helpers import at, set_HIREFIRE_TOKEN  # noqa: F401
 
 INGEST_URL = "https://data.hirefire.io/metrics/ingest"
@@ -483,9 +483,7 @@ def test_sample_trace_attached_when_grant_trace_true():
     assert "sample_trace" in entry, "sample_trace attaches to first process report"
     assert "wave_ms" in entry["sample_trace"]
     assert isinstance(entry["sample_trace"]["ops"], list)
-    assert (
-        len(entry["sample_trace"]["ops"]) == 2
-    ), "one op per plan job_queue entry"
+    assert len(entry["sample_trace"]["ops"]) == 2, "one op per plan job_queue entry"
     assert all(
         op.get("strategy") == "jql" and "ms" in op
         for op in entry["sample_trace"]["ops"]
@@ -677,7 +675,6 @@ def test_always_on_cpu_uses_soft_identity_not_unrelated_name(monkeypatch):
     monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "web")
     dispatcher = HireFire.configuration.dispatcher
 
-    # First tick establishes the CPU baseline (no sample). Second tick dispatches cpu.
     with freeze_time(at(1000)):
         dispatcher._tick()
     with freeze_time(at(1001)):
@@ -731,7 +728,6 @@ def test_tick_dispatches_when_a_sampler_raises(caplog, monkeypatch):
     caplog.set_level(logging.ERROR)
     stub_lease(granted=True)
     bodies = capture_ingest_bodies()
-    # Platform web role arms RQT (bare dyno("web") is a no-op).
     monkeypatch.setenv("DYNO", "web.1")
 
     def boom():
@@ -1036,7 +1032,6 @@ def test_healthy_running_snapshots_thread_ref():
 
     class RacyDispatcher(Dispatcher):
         def __init__(self, inner, values):
-            # Skip Dispatcher.__init__; copy only fields used by _healthy_running.
             self._running = inner._running
             self._stopping = inner._stopping
             self._pid = inner._pid
@@ -1049,7 +1044,6 @@ def test_healthy_running_snapshots_thread_ref():
             return None
 
     racy = RacyDispatcher(dispatcher, [live, None])
-    # Without a local snapshot this raises AttributeError on the second load.
     assert racy._healthy_running() is True
 
 
@@ -1215,7 +1209,6 @@ def test_dispatch_dead_gen_after_successful_post_skips_watermark_and_frequency()
 @mocketize
 def test_dispatch_dead_gen_on_error_does_not_repopulate_without_handoff():
     Entry.single_register(Entry.POST, INGEST_URL, status=500)
-    # Force client error path via side_effect after flush
     stub_lease()
     dispatcher = configure_web_only()
     HireFire.configuration.buffer.sample("web", "rqt", 10)
@@ -1279,11 +1272,7 @@ def test_stop_without_flush_skips_final_dispatch():
     assert dispatcher.start()
     HireFire.configuration.buffer.sample("web", "rqt", 42)
     assert dispatcher.stop(flush=False)
-    # Final flush path skipped: either no ingest, or only loop ticks before stop.
-    # With flush=False samples are discarded and must not POST leftover buffer.
     assert HireFire.configuration.buffer.flush() == {}
-    # No post after stop's discard path: bodies from concurrent tick possible
-    # but buffer empty and stop returned true.
     assert dispatcher.running() is False
 
 
@@ -1331,13 +1320,10 @@ def test_stale_generation_cannot_dispatch_after_restart():
     assert dispatcher.start()
     gen = dispatcher._generation
     HireFire.configuration.buffer.sample("web", "rqt", 5)
-    # Restart bumps generation
     dispatcher.stop()
     assert dispatcher.start()
     assert dispatcher._generation != gen
     dispatcher._dispatch(gen)
-    # Stale gen must not POST; samples remain for live gen
-    # Live gen may have flushed on its own tick; assert stale path no-ops.
     assert dispatcher.running()
     dispatcher.stop()
 
@@ -1390,6 +1376,67 @@ def test_ensure_job_queue_loop_is_noop_when_stopping():
     dispatcher.ensure_job_queue_loop()
     assert dispatcher._job_queue_thread is dead
     dispatcher._stopping = False
+    dispatcher.stop()
+
+
+@mocketize
+def test_ensure_job_queue_loop_is_noop_when_not_running():
+    dispatcher = configure_web_only()
+    dispatcher.ensure_job_queue_loop()
+    assert dispatcher._job_queue_thread is None
+
+
+@mocketize
+def test_ensure_job_queue_loop_is_noop_without_enter_race():
+    stub_lease()
+    capture_ingest_bodies()
+    with patch(
+        "hirefire_resource.plan.any_allowlisted_job_queue_library_loaded",
+        return_value=False,
+    ):
+        dispatcher = configure_web_only()
+        assert dispatcher.start()
+        assert dispatcher._job_queue_thread is None
+        dispatcher.ensure_job_queue_loop()
+        assert dispatcher._job_queue_thread is None
+        dispatcher.stop()
+
+
+@mocketize
+def test_ensure_job_queue_loop_logs_when_thread_spawn_fails(caplog):
+    caplog.set_level(logging.ERROR)
+    stub_lease()
+    dispatcher = configure_workers_only()
+    dispatcher._running = True
+    dispatcher._stopping = False
+    dispatcher._pid = os.getpid()
+    dispatcher._generation = 1
+    with patch("threading.Thread.start", side_effect=RuntimeError("cannot spawn")):
+        dispatcher.ensure_job_queue_loop()
+    assert "Could not start job-queue loop" in caplog.text
+    dispatcher._job_queue_thread = None
+    dispatcher._running = False
+
+
+@mocketize
+def test_start_restarts_when_main_loop_thread_is_dead():
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    dispatcher = configure_web_only()
+    dead = threading.Thread(target=lambda: None)
+    dead.start()
+    dead.join()
+    dispatcher._running = True
+    dispatcher._stopping = False
+    dispatcher._pid = os.getpid()
+    dispatcher._thread = dead
+    dispatcher._generation = 1
+    assert not dispatcher.running()
+    assert dispatcher.start()
+    restarted = dispatcher._thread
+    assert restarted is not dead
+    assert restarted.is_alive()
+    assert dispatcher.running()
     dispatcher.stop()
 
 
@@ -1662,6 +1709,40 @@ def test_strategy_only_plan_uses_local_sampler_without_override_warn(caplog):
     entry = next(e for e in bodies[0] if e["name"] == "worker")
     assert list(entry["metrics"]["jqs"].values())[0] == 7
     assert "UI adapter is configured" not in caplog.text
+
+
+@mocketize
+def test_empty_string_adapter_uses_local_strategy_sampler():
+    plan = {
+        "version": 1,
+        "job_queues": [
+            {
+                "name": "worker",
+                "strategy": "jqs",
+                "adapter": "",
+                "queues": [],
+                "options": {},
+            }
+        ],
+    }
+    stub_lease(granted=True, plan=plan)
+    bodies = capture_ingest_bodies()
+    HireFire.configuration.dyno("worker", lambda: 11)
+    dispatcher = HireFire.configuration.dispatcher
+    dispatcher._job_queue_tick()
+    dispatcher._tick()
+
+    entry = next(e for e in bodies[0] if e["name"] == "worker")
+    assert list(entry["metrics"]["jqs"].values())[0] == 11
+
+
+@mocketize
+def test_empty_plan_with_local_samplers_still_holds_lease():
+    stub_lease(granted=True, plan={"version": 1, "job_queues": []})
+    HireFire.configuration.dyno("worker", lambda: 5)
+    dispatcher = HireFire.configuration.dispatcher
+    dispatcher._job_queue_tick()
+    assert dispatcher._lease.granted()
 
 
 @mocketize
@@ -2093,7 +2174,6 @@ def test_fork_resets_dispatch_pacing_and_watermark():
 
     child_pid = dispatcher._pid + 1
     with patch("os.getpid", return_value=child_pid):
-        # Suppress ticks so a live loop cannot re-arm pacing before assertions.
         with (
             patch.object(dispatcher, "_tick"),
             patch.object(dispatcher, "_job_queue_tick"),

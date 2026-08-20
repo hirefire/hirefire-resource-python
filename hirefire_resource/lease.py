@@ -19,7 +19,6 @@ class GrantBody:
 
 
 def empty_grant_body(*, trace: bool = False) -> GrantBody:
-    # Fresh job_queues list so callers cannot mutate a shared empty.
     return GrantBody(job_queues=[], trace=trace)
 
 
@@ -226,7 +225,6 @@ class Lease:
                 skipped += 1
                 continue
 
-            # JSON null must not become str(None) == "None" (Ruby nil.to_s is "").
             name = self._wire_string(entry.get("name"))
             strategy = self._wire_string(entry.get("strategy"))
             adapter_present = "adapter" in entry

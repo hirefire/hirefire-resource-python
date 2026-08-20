@@ -89,9 +89,7 @@ def test_measure_times_callable_and_records():
         time.sleep(0.01)
         return "ok"
 
-    result = wave.measure(
-        {"adapter": "a", "strategy": "jql", "queues": ["q"]}, work
-    )
+    result = wave.measure({"adapter": "a", "strategy": "jql", "queues": ["q"]}, work)
 
     assert called["v"] is True
     assert result == "ok"
@@ -149,7 +147,6 @@ def test_finish_wave_ms_covers_all_ops():
     assert len(payload["ops"]) == 2
     for op in payload["ops"]:
         assert payload["wave_ms"] >= op["ms"]
-    # Sequential ops plus gaps; 1ms slack for clock resolution.
     assert payload["wave_ms"] + 1.0 >= ops_ms
     assert payload["wave_ms"] >= 10
 

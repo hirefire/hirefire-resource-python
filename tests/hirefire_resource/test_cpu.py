@@ -4,8 +4,8 @@ from unittest.mock import patch
 from freezegun import freeze_time
 
 from hirefire_resource import HireFire
-from hirefire_resource.cpu import CPU
-from hirefire_resource.cpu.usage import Usage
+from hirefire_resource.source.cpu import CPU
+from hirefire_resource.source.cpu.usage import Usage
 from tests.helpers import at
 
 
@@ -230,13 +230,13 @@ def test_total_seconds_falls_back_to_proc_namespace_sum():
         "/proc/2/stat": "2 (puma (worker)) S 1 1 1 0 -1 0 0 0 0 0 150 100 0 0 20 0 1 0 9 0 0",
     }
     with patch.object(Usage, "read", side_effect=reading(mapping)), patch(
-        "hirefire_resource.cpu.usage.glob.glob", return_value=list(mapping)
+        "hirefire_resource.source.cpu.usage.glob.glob", return_value=list(mapping)
     ), patch.object(Usage, "clock_ticks", return_value=100):
         assert abs(Usage.total_seconds() - 10.0) < 0.0001
 
 
 def test_proc_namespace_seconds_none_without_proc():
-    with patch("hirefire_resource.cpu.usage.glob.glob", return_value=[]):
+    with patch("hirefire_resource.source.cpu.usage.glob.glob", return_value=[]):
         assert Usage.proc_namespace_seconds() is None
 
 
@@ -247,7 +247,7 @@ def test_stat_ticks_parses_around_comm_with_spaces_and_parens():
 
 def test_total_seconds_falls_back_to_process_clock():
     with patch.object(Usage, "read", return_value=None), patch(
-        "hirefire_resource.cpu.usage.glob.glob", return_value=[]
+        "hirefire_resource.source.cpu.usage.glob.glob", return_value=[]
     ):
         assert isinstance(Usage.total_seconds(), float)
 
@@ -417,7 +417,7 @@ def test_stat_ticks_returns_none_for_non_numeric_fields():
 
 def test_proc_namespace_seconds_none_when_every_entry_is_unreadable():
     with patch(
-        "hirefire_resource.cpu.usage.glob.glob",
+        "hirefire_resource.source.cpu.usage.glob.glob",
         return_value=["/proc/1/stat", "/proc/2/stat"],
     ), patch.object(Usage, "read", return_value=None):
         assert Usage.proc_namespace_seconds() is None
@@ -429,7 +429,7 @@ def test_a_garbled_proc_stat_entry_is_skipped_and_the_rest_counted():
         "/proc/2/stat": "2 garbled stat line",
     }
     with patch.object(Usage, "read", side_effect=reading(mapping)), patch(
-        "hirefire_resource.cpu.usage.glob.glob", return_value=list(mapping)
+        "hirefire_resource.source.cpu.usage.glob.glob", return_value=list(mapping)
     ), patch.object(Usage, "clock_ticks", return_value=100):
         assert abs(Usage.proc_namespace_seconds() - 7.5) < 0.0001
 

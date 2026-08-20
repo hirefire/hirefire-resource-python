@@ -135,11 +135,6 @@ def _seed_xq(client: redis.Redis, queue: str, *, namespace: str = NAMESPACE) -> 
     client.hset(f"{namespace}:{queue}.XQ.msgs", mid, body)
 
 
-# ---------------------------------------------------------------------------
-# Redis size
-# ---------------------------------------------------------------------------
-
-
 def test_job_queue_size_requires_queues():
     with pytest.raises(MissingQueueError):
         job_queue_size(broker_url=redis_url)
@@ -164,15 +159,12 @@ def test_job_queue_size_live_only():
 def test_job_queue_size_due_delayed_counted_future_excluded():
     client = redis.Redis.from_url(redis_url)
     try:
-        # live=2 + due=1 + future=1 → waiting 3.
-        # Distinguishes: live-only=2, all-DQ=2, live+all-DQ=4, live+due=3.
         _seed_live(client, "default", count=2)
         _seed_delayed(client, "default", eta_offset_s=-30)
         _seed_delayed(client, "default", eta_offset_s=60)
         assert client.llen(f"{NAMESPACE}:default") == 2
         assert client.llen(f"{NAMESPACE}:default.DQ") == 2
         assert job_queue_size("default", broker_url=redis_url) == 3
-        # Sampling must not mutate broker layout.
         assert client.llen(f"{NAMESPACE}:default") == 2
         assert client.llen(f"{NAMESPACE}:default.DQ") == 2
     finally:
@@ -207,7 +199,6 @@ def test_job_queue_size_working_and_xq_excluded():
     try:
         _seed_working(client, "default")
         _seed_xq(client, "default")
-        # Working lives only in acks; XQ is a separate zset. Neither is waiting.
         assert client.llen(f"{NAMESPACE}:default") == 0
         assert client.scard(f"{NAMESPACE}:__acks__.worker-1.default") == 1
         assert client.zcard(f"{NAMESPACE}:default.XQ") == 1
@@ -297,7 +288,6 @@ def test_job_queue_size_broker_injection_does_not_close_client():
             )
         )
         assert job_queue_size("default", broker=broker) == 1
-        # Shared client must remain usable after the sample.
         assert broker.client.llen(f"{NAMESPACE}:default") == 1
     finally:
         broker.client.flushdb()
@@ -322,11 +312,6 @@ def test_job_queue_size_url_owned_client_closed(monkeypatch):
     monkeypatch.setattr(dramatiq_macro.redis.Redis, "from_url", tracking_from_url)
     assert job_queue_size("default", broker_url=redis_url) == 0
     assert closed["n"] == 1
-
-
-# ---------------------------------------------------------------------------
-# Redis latency
-# ---------------------------------------------------------------------------
 
 
 def test_job_queue_latency_empty():
@@ -368,7 +353,6 @@ def test_job_queue_latency_uses_lindex_zero_not_max_ready_age():
         assert job_queue_latency("default", broker_url=redis_url) == pytest.approx(
             25, abs=5
         )
-        # Confirm tail really is the older message so max-scan would see ~400.
         tail_body = client.hget(f"{NAMESPACE}:default.msgs", tail_id)
         tail_msg = Message.decode(tail_body)
         now_ms = int(time.time() * 1000)
@@ -381,8 +365,6 @@ def test_job_queue_latency_uses_lindex_zero_not_max_ready_age():
 def test_job_queue_latency_due_delayed_lateness():
     client = redis.Redis.from_url(redis_url)
     try:
-        # Earliest due in the middle: rejects first-only, last-only, and
-        # "first due then stop" without a full min-eta scan over due messages.
         _seed_delayed(client, "default", eta_offset_s=-150)
         _seed_delayed(client, "default", eta_offset_s=-450)
         _seed_delayed(client, "default", eta_offset_s=120)
@@ -415,7 +397,6 @@ def test_job_queue_latency_max_of_live_and_due():
         assert job_queue_latency("default", broker_url=redis_url) == pytest.approx(
             300, abs=5
         )
-        # Flip: live older than due lateness.
         client.flushdb()
         _seed_live(client, "default", age_s=500)
         _seed_delayed(client, "default", eta_offset_s=-40)
@@ -464,7 +445,6 @@ def test_job_queue_size_eta_equal_to_now_is_due(monkeypatch):
         )
         client.rpush(f"{NAMESPACE}:default.DQ", mid)
         client.hset(f"{NAMESPACE}:default.DQ.msgs", mid, body)
-        # Future by 1ms must stay out.
         mid_future = str(uuid.uuid4())
         body_future = _encode(
             queue="default",
@@ -476,7 +456,6 @@ def test_job_queue_size_eta_equal_to_now_is_due(monkeypatch):
 
         assert client.llen(f"{NAMESPACE}:default.DQ") == 2
         assert job_queue_size("default", broker_url=redis_url) == 1
-        # At exact eta, lateness is 0 (still due for size).
         assert job_queue_latency("default", broker_url=redis_url) == 0.0
     finally:
         client.close()
@@ -530,8 +509,6 @@ def test_job_queue_size_never_uses_do_qsize(monkeypatch):
             )
         )
         client = broker.client
-        # Seed working under this broker's broker_id so do_qsize SCARD counts it.
-        # Upstream qsize = HLEN(msgs) + SCARD(__acks__.<broker_id>.queue) (+ DQ).
         mid = str(uuid.uuid4())
         body = _encode(queue="default", options={"redis_message_id": mid})
         client.hset(f"{NAMESPACE}:default.msgs", mid, body)
@@ -542,7 +519,6 @@ def test_job_queue_size_never_uses_do_qsize(monkeypatch):
         assert client.hlen(f"{NAMESPACE}:default.msgs") == 2
         assert client.scard(acks_key) == 1
 
-        # Contrast: HLEN(2 live+working bodies) + SCARD(1 this-broker ack) = 3.
         assert broker.do_qsize("default") == 3
 
         dispatch_commands: list[str] = []
@@ -555,10 +531,8 @@ def test_job_queue_size_never_uses_do_qsize(monkeypatch):
         monkeypatch.setattr(broker, "_dispatch", tracking_dispatch)
 
         assert job_queue_size("default", broker=broker) == 1
-        # Fresh live head only (working not on ready list). Age is near zero.
         assert job_queue_latency("default", broker=broker) < 1.0
         assert "qsize" not in dispatch_commands
-        # URL path also must not go through dispatch/eval for qsize.
         eval_calls = {"n": 0}
         real_from_url = redis.Redis.from_url
 
@@ -596,7 +570,6 @@ def test_job_queue_size_redis_command_keys_are_waiting_structures_only(monkeypat
                 return key.decode("utf-8")
             return str(key)
 
-        # Macro builds a fresh client from URL. Wrap that sample client's methods.
         recorded: list[str] = []
         forbidden_methods: list[str] = []
         real_from_url = redis.Redis.from_url
@@ -627,8 +600,6 @@ def test_job_queue_size_redis_command_keys_are_waiting_structures_only(monkeypat
 
                 setattr(sample, method_name, make_forbidden())
 
-            # redis-py routes LLEN/etc through execute_command. Flag only
-            # commands that would mean wrong waiting structures / Lua qsize.
             real_execute = sample.execute_command
 
             def execute_command(*args, **kwargs):
@@ -669,7 +640,6 @@ def test_job_queue_size_due_delayed_hmget_batching_across_boundary(monkeypatch):
     """Due scan must page HMGET across _HMGET_BATCH (not only the first page)."""
     batch = dramatiq_macro._HMGET_BATCH
     assert batch >= 2
-    # One full page of future + one due on the next page: size must be 1, not 0.
     client = redis.Redis.from_url(redis_url)
     try:
         for _ in range(batch):
@@ -694,7 +664,6 @@ def test_job_queue_size_due_delayed_hmget_batching_across_boundary(monkeypatch):
         monkeypatch.setattr(dramatiq_macro.redis.Redis, "from_url", tracking_from_url)
 
         assert job_queue_size("default", broker_url=redis_url) == 1
-        # At least two HMGET pages when scanning size (and latency may add more).
         assert len(hmget_calls) >= 2
         assert hmget_calls[0] == batch
         assert sum(hmget_calls) >= batch + 1
@@ -714,7 +683,6 @@ def test_job_queue_size_multi_queue_due_and_live_unequal():
         _seed_live(client, "mailer", count=1)
         _seed_delayed(client, "mailer", eta_offset_s=-5)
         _seed_delayed(client, "mailer", eta_offset_s=-8)
-        # default: 2 live + 1 due. mailer: 1 live + 2 due. Total 6.
         assert client.llen(f"{NAMESPACE}:default") == 2
         assert client.llen(f"{NAMESPACE}:default.DQ") == 2
         assert client.llen(f"{NAMESPACE}:mailer") == 1
@@ -734,7 +702,6 @@ def test_job_queue_size_queue_name_with_dots():
         assert client.llen(f"{NAMESPACE}:email.priority") == 2
         assert client.llen(f"{NAMESPACE}:email.priority.DQ") == 1
         assert job_queue_size("email.priority", broker_url=redis_url) == 3
-        # Must not strip internal dots as if they were .DQ.
         assert job_queue_size("email", broker_url=redis_url) == 0
     finally:
         client.close()
@@ -765,7 +732,6 @@ def test_job_queue_size_invalid_eta_type_skipped():
         _seed_live(client, "default", count=1)
         assert client.llen(f"{NAMESPACE}:default.DQ") == 1
         assert job_queue_size("default", broker_url=redis_url) == 1
-        # Live head age ~0 (default seed). Invalid eta must not invent due age.
         assert job_queue_latency("default", broker_url=redis_url) < 1.0
     finally:
         client.close()
@@ -779,10 +745,6 @@ def test_job_queue_latency_missing_or_future_message_timestamp_is_zero(monkeypat
     monkeypatch.setattr(dramatiq_macro, "_now_ms", lambda: fixed_now)
     client = redis.Redis.from_url(redis_url)
     try:
-        # Explicit null (not omitted). Omitting the field lets Message.decode's
-        # default_factory invent wall-clock now; under a frozen past _now_ms
-        # that invents a *future* ts and clamps to 0 without hitting the
-        # adapter's missing-ts branch (false green).
         mid_missing = str(uuid.uuid4())
         body_missing = json.dumps(
             {
@@ -827,7 +789,6 @@ def test_job_queue_size_json_fallback_when_message_decode_fails(monkeypatch):
         fixed_now = 1_722_600_000_000
         monkeypatch.setattr(dramatiq_macro, "_now_ms", lambda: fixed_now)
         mid = str(uuid.uuid4())
-        # Stock JSON shape without going through Message.encode.
         payload = json.dumps(
             {
                 "queue_name": "default",
@@ -882,7 +843,6 @@ def test_job_queue_size_uses_injected_broker_namespace():
     broker = RedisBroker(url=redis_url, namespace="appns")
     try:
         _seed_live(broker.client, "default", count=2, namespace="appns")
-        # No explicit namespace=; must read broker.namespace.
         assert job_queue_size("default", broker=broker) == 2
         assert job_queue_size("default", broker_url=redis_url) == 0
     finally:
@@ -969,11 +929,6 @@ def test_redis_broker_missing_client_raises():
         job_queue_size("default", broker=FakeRedisBroker())
 
 
-# ---------------------------------------------------------------------------
-# Async wrappers
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_async_job_queue_size_and_latency():
     client = redis.Redis.from_url(redis_url)
@@ -1007,15 +962,9 @@ async def test_async_broker_xor_broker_url():
         broker.close()
 
 
-# ---------------------------------------------------------------------------
-# Env ladder / ownership (unit-ish)
-# ---------------------------------------------------------------------------
-
-
 def test_resolve_broker_url_multi_key_precedence(monkeypatch):
     """Full ladder: first set key wins. AMQP family before Redis family."""
     _clear_broker_env(monkeypatch)
-    # Lower keys alone would win if higher keys were empty: prove order with all set.
     monkeypatch.setenv("OPENREDIS_URL", "redis://openredis/0")
     monkeypatch.setenv("REDISCLOUD_URL", "redis://rediscloud/0")
     monkeypatch.setenv("REDISTOGO_URL", "redis://redistogo/0")
@@ -1090,7 +1039,6 @@ def test_url_owned_client_closed_after_sampling_error(monkeypatch):
 
         client.llen = llen  # type: ignore[method-assign]
         client.close = close  # type: ignore[method-assign]
-        # Keep original_llen referenced so the mock is intentional.
         assert original_llen is not None
         return client
 
@@ -1120,7 +1068,6 @@ def test_resolve_namespace_precedence(monkeypatch):
     _clear_broker_env(monkeypatch)
     broker = MagicMock()
     broker.namespace = "from-broker"
-    # Explicit wins over broker and env.
     monkeypatch.setenv("HIREFIRE_DRAMATIQ_NAMESPACE", "from-env")
     assert (
         dramatiq_macro._resolve_namespace("explicit", broker, redis_path=True)
@@ -1160,11 +1107,6 @@ def test_rabbitmq_broker_missing_parameters_raises():
         job_queue_size("default", broker=FakeRabbit())
 
 
-# ---------------------------------------------------------------------------
-# RabbitMQ
-# ---------------------------------------------------------------------------
-
-
 pika = pytest.importorskip("pika")
 
 
@@ -1201,7 +1143,6 @@ def test_rabbitmq_job_queue_size_main_ready_only():
                         options={},
                     )
                 )
-            # Delayed message lands on .DQ only. Must not affect JQS in v1.
             broker.enqueue(
                 Message(
                     queue_name=queue,
@@ -1212,7 +1153,6 @@ def test_rabbitmq_job_queue_size_main_ready_only():
                 ),
                 delay=60_000,
             )
-            # Structure: main ready 2, DQ has the delayed message (not counted).
             inspect_conn = pika.BlockingConnection(pika.URLParameters(amqp_url))
             try:
                 ch = inspect_conn.channel()
@@ -1259,7 +1199,6 @@ def test_rabbitmq_job_queue_latency_head_age_and_requeue():
             assert job_queue_latency(queue, broker_url=amqp_url) == pytest.approx(
                 180, abs=10
             )
-            # Requeue must leave the message ready for a second sample.
             assert job_queue_size(queue, broker_url=amqp_url) == 1
             assert job_queue_latency(queue, broker_url=amqp_url) == pytest.approx(
                 180, abs=10
@@ -1309,7 +1248,6 @@ def test_rabbitmq_missing_middle_queue_still_counts_siblings():
                         options={},
                     )
                 )
-                # Missing queue in the middle of a multi-queue sample.
                 assert job_queue_size(q_a, missing, q_b, broker_url=amqp_url) == 3
                 assert job_queue_size(missing, q_b, broker_url=amqp_url) == 1
             finally:
@@ -1337,7 +1275,6 @@ def test_rabbitmq_latency_requeues_even_when_body_corrupt():
             channel.queue_declare(queue=queue, passive=True).method.message_count == 1
         )
 
-        # Latency is 0 for corrupt head, but the message must be requeued.
         assert job_queue_latency(queue, broker_url=amqp_url) == 0
         assert job_queue_size(queue, broker_url=amqp_url) == 1
     finally:
@@ -1417,7 +1354,6 @@ def test_rabbitmq_job_queue_size_multi_queue_and_empty():
                             options={},
                         )
                     )
-                    # DQ on q_a must not inflate multi-queue size.
                     broker.enqueue(
                         Message(
                             queue_name=q_a,
@@ -1451,8 +1387,6 @@ def test_rabbitmq_xq_not_counted_as_waiting():
             channel = connection.channel()
             channel.queue_declare(queue=queue, durable=False, auto_delete=True)
             channel.queue_declare(queue=f"{queue}.XQ", durable=False, auto_delete=True)
-            # confirm_delivery makes publish synchronous. Without it, immediate
-            # passive message_count can still read 0 (false fixture pin).
             channel.confirm_delivery()
             channel.basic_publish(
                 exchange="",
@@ -1526,8 +1460,6 @@ def test_rabbitmq_samples_only_main_queue_names_not_dq_or_xq(monkeypatch):
     assert job_queue_size("orders", "mail", broker_url=amqp_url) == 6
     assert job_queue_latency("orders", broker_url=amqp_url) == pytest.approx(90, abs=5)
 
-    # Size uses passive declare on main names only. Latency uses basic_get only.
-    # Queue iteration order is set-based (unordered).
     assert {(name, passive) for name, passive in declared} == {
         ("orders", True),
         ("mail", True),
@@ -1724,5 +1656,4 @@ def test_rabbitmq_channel_404_recovers_for_next_queue(monkeypatch):
     assert job_queue_size("gone", "alive", broker_url=amqp_url) == 4
     assert "gone" in state["declares"]
     assert "alive" in state["declares"]
-    # Initial channel + recovery after 404.
     assert state["channels"] >= 2

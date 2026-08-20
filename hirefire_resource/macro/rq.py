@@ -94,8 +94,6 @@ def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
         for job_data in job_ids[1::2]:
             if job_data:
                 _job_id, score = job_data[0]
-                # ZRANGEBYSCORE max is inclusive. Re-check with the shared due
-                # predicate so JQL cannot drift from JQS (score ≤ now).
                 if _is_due_scheduled_score(score, current_time):
                     latency = current_time - score
                     max_latency = max(max_latency, latency)

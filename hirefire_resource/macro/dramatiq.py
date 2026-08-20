@@ -38,7 +38,6 @@ except ImportError:
 
     PIKA_AVAILABLE = False
 
-
 _HMGET_BATCH = 200
 _DEFAULT_NAMESPACE = "dramatiq"
 _AMQP_SCHEMES = ("amqp://", "amqps://")
@@ -104,8 +103,6 @@ def job_queue_size(
             )
         return _rabbitmq_job_queue_size(resolved["connection"], queue_names)
     except (RedisError, AMQPConnectionError, OSError):
-        # Include connect-time failures (pika BlockingConnection raises before
-        # any sample command). Redis clients are lazy and fail on first cmd.
         return 0
     finally:
         if resolved is not None:
@@ -305,7 +302,6 @@ def _url_kind(url: str) -> str:
         return "rabbitmq"
     if lower.startswith(_REDIS_SCHEMES):
         return "redis"
-    # Fall back by scheme fragment (e.g. unexpected scheme → redis default path).
     if "amqp" in lower.split(":", 1)[0]:
         return "rabbitmq"
     return "redis"
@@ -337,8 +333,6 @@ def _resolve_connection(
                 "connection": None,
             }
         if _is_rabbitmq_broker(broker):
-            # Prefer a short-lived connection from the broker's parameters so
-            # sampling never shares the app's long-lived pika state.
             parameters = getattr(broker, "parameters", None)
             if parameters is None or pika is None:
                 raise ValueError(
@@ -477,7 +471,6 @@ def _redis_due_delayed_count(
         for body in bodies:
             message = _decode_message(body)
             eta = _message_eta_ms(message)
-            # Prefer skip when eta is missing (defensive). Future eta excluded.
             if eta is not None and eta <= now_ms:
                 count += 1
     return count
@@ -540,7 +533,6 @@ def _rabbitmq_ready_count(connection: Any, channel: Any, queue: str) -> tuple[in
         result = channel.queue_declare(queue=queue, passive=True)
         return int(result.method.message_count), channel
     except (AMQPChannelError, Exception) as error:
-        # pika closes the channel on 404 NOT_FOUND. Recover for the next queue.
         if (
             isinstance(error, AMQPChannelError)
             or "404" in str(error)
@@ -595,8 +587,6 @@ def _rabbitmq_queue_latency(
         if ts is not None:
             latency = max(0.0, (now_ms - ts) / 1000.0)
     finally:
-        # Always requeue, even when decode fails, so a bad payload cannot leave
-        # work unacked (same class of guarantee as Celery AMQP JQL).
         try:
             channel.basic_reject(method.delivery_tag, requeue=True)
         except Exception:

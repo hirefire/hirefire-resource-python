@@ -200,7 +200,6 @@ def test_is_due_scheduled_score_is_inclusive():
     assert _is_due_scheduled_score(now - 1.0, now) is True
     assert _is_due_scheduled_score(now, now) is True
     assert _is_due_scheduled_score(now + 0.001, now) is False
-    # Strict `<` would treat equality as future. This is the lock for that bug.
     assert _is_due_scheduled_score(now, now) != (now < now)
 
 
@@ -240,7 +239,6 @@ def test_job_queue_size_includes_scheduled_score_equal_to_now():
 
 def test_job_queue_size_includes_fractional_second_due_score():
     """JQS uses float now for ZCOUNT max, not int(time.time()) truncation."""
-    # 12:00:00.750 so int(now) == floor second. Score in (int(now), now] is due.
     frozen = datetime(2026, 8, 2, 12, 0, 0, 750_000, tzinfo=timezone.utc)
     with freeze_time(frozen):
         now = time.time()
@@ -265,8 +263,6 @@ def test_job_queue_latency_scheduled_due_age_and_empty_edge():
         r.zadd("rq:scheduled:default", {"edge-due": now})
         r.sadd("rq:queues", "rq:queue:default")
 
-        # Age 0 at the sample clock (does not alone prove inclusive filter:
-        # that residual is test_is_due_scheduled_score_is_inclusive).
         assert job_queue_latency("default", redis_url=redis_url) == 0
 
         r.zadd("rq:scheduled:default", {"late-due": now - 90})

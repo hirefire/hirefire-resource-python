@@ -126,7 +126,6 @@ class Dispatcher:
 
     def ensure_job_queue_loop(self) -> None:
         """Ensures the job-queue loop is running when lease race entry becomes true."""
-        # Snapshot before is_alive (unlocked). Concurrent stop() may null the attr.
         jq_thread = self._job_queue_thread
         if (
             jq_thread is not None
@@ -276,9 +275,6 @@ class Dispatcher:
         self._lease._reinit_after_fork()
 
     def _healthy_running(self) -> bool:
-        # Snapshot the thread ref once (Ruby `@thread&.alive?`). Concurrent
-        # stop() nulls self._thread under the mutex; two separate attribute
-        # loads can observe a live Thread then None and raise AttributeError.
         thread = self._thread
         return (
             self._running
@@ -325,14 +321,24 @@ class Dispatcher:
             self._guard(source.sample)
         self._dispatch_if_due(generation)
 
+    def _loop_live_proc(self, generation: int | None) -> Callable[[], bool]:
+        if generation is not None:
+            return lambda: self._loop_active(generation)
+        return lambda: True
+
     def _job_queue_tick(self, generation: int | None = None) -> None:
-        if generation is not None and not self._loop_active(generation):
+        live = self._loop_live_proc(generation)
+        if not live():
             return
 
         self._guard(lambda: self._lease.request_if_due(hold=self._hold_lease))
-        if generation is not None and not self._loop_active(generation):
+        if not live():
             return
-        self._guard(lambda: self._lease.sample_if_due(self._sample_job_queues))
+        self._guard(
+            lambda: self._lease.sample_if_due(
+                lambda: self._sample_job_queues(live=live)
+            )
+        )
 
     def _reset_dispatch_state_after_fork(self) -> None:
         self._reset_dispatch_state_for_restart()
@@ -372,19 +378,21 @@ class Dispatcher:
                 return True
         return False
 
-    def _sample_job_queues(self) -> None:
+    def _sample_job_queues(self, live: Callable[[], bool] | None = None) -> None:
         from hirefire_resource import plan
 
         wave = SampleTraceWave.start()
         with plan.around_job_queue_sample():
             local_job_queues = self._configuration().job_queues
             for entry in self._lease.job_queues:
+                if live is not None and not live():
+                    break
 
                 def _sample(entry: dict[str, Any] = entry) -> None:
                     if self._adapter_present(entry):
-                        self._sample_plan_adapter(entry, local_job_queues)
+                        self._sample_plan_adapter(entry, local_job_queues, live=live)
                     else:
-                        self._sample_strategy_only(entry, local_job_queues)
+                        self._sample_strategy_only(entry, local_job_queues, live=live)
 
                 wave.measure(entry, _sample)
         payload = wave.finish()
@@ -400,9 +408,15 @@ class Dispatcher:
         return value.lower() not in ("0", "false", "no")
 
     def _sample_plan_adapter(
-        self, entry: dict[str, Any], local_job_queues: Any
+        self,
+        entry: dict[str, Any],
+        local_job_queues: Any,
+        live: Callable[[], bool] | None = None,
     ) -> None:
         from hirefire_resource import plan
+
+        if live is not None and not live():
+            return
 
         name = str(entry.get("name", ""))
         adapter = entry.get("adapter")
@@ -414,6 +428,8 @@ class Dispatcher:
                 return
             if local_job_queues.find_by_name(name) is not None:
                 self._warn_plan_override_once(name)
+            if live is not None and not live():
+                return
             plan.execute(entry)
         elif plan.known_adapter(adapter):
             self._warn_unloaded_adapter_once(name, adapter)
@@ -421,9 +437,15 @@ class Dispatcher:
             self._warn_unknown_adapter_once(name, adapter)
 
     def _sample_strategy_only(
-        self, entry: dict[str, Any], local_job_queues: Any
+        self,
+        entry: dict[str, Any],
+        local_job_queues: Any,
+        live: Callable[[], bool] | None = None,
     ) -> None:
         from hirefire_resource import plan
+
+        if live is not None and not live():
+            return
 
         name = str(entry.get("name", ""))
         strategy = str(entry.get("strategy", ""))
@@ -434,7 +456,7 @@ class Dispatcher:
 
         job_queue = local_job_queues.find_by_name(name)
         if job_queue is not None:
-            local_job_queues.sample_job_queue(job_queue, strategy)
+            local_job_queues.sample_job_queue(job_queue, strategy, live=live)
 
     def _warn_unloaded_adapter_once(self, name: str, adapter: object) -> None:
         if name in self._unloaded_adapter_warned:
@@ -666,11 +688,7 @@ class Dispatcher:
         return entries, watermark
 
     def _attach_sample_trace(self, entries: list[Any]) -> None:
-        if (
-            self._pending_sample_trace is None
-            or not entries
-            or not self._lease.trace()
-        ):
+        if self._pending_sample_trace is None or not entries or not self._lease.trace():
             return
         entries[0]["sample_trace"] = self._pending_sample_trace
 

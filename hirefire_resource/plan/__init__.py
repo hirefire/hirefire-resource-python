@@ -71,9 +71,6 @@ def around_job_queue_sample() -> Iterator[None]:
     ``after_sample_job_queues`` (defaults no-op). Dispatcher must not know
     adapter cache details.
     """
-    # Only adapters whose before completed are recorded. If before raises,
-    # after is skipped for that adapter (Ruby Plan.around_job_queue_sample).
-    # Soft-skipped optional backends (ImportError → None) leave no token.
     tokens: dict[str, object] = {}
     for name in ADAPTER_MODULES:
         try:
@@ -148,7 +145,6 @@ def execute(entry: dict[str, Any]) -> None:
 
     macro = _load_macro(adapter)
     if macro is None:
-        # Known adapter but optional deps failed to import (or soft-skip).
         _log(
             "error",
             f"[HireFire] Plan adapter {adapter!r} could not be loaded for "
@@ -273,7 +269,6 @@ def normalize_queues(queues: object, name: str) -> list[str] | None:
 
     result: list[str] = []
     for queue in queues:
-        # JSON null → "" (Ruby nil.to_s), then dropped as empty.
         qname = "" if queue is None else str(queue).strip()
         if not qname or len(qname.encode("utf-8")) > MAX_QUEUE_NAME_BYTES:
             continue
@@ -303,9 +298,6 @@ def _load_macro(adapter: object) -> Any | None:
     try:
         return importlib.import_module(module_name)
     except ImportError:
-        # Optional backend deps (celery, redis, dramatiq, …) may be absent in
-        # this process. Wave fan-out skips without logging. `execute` logs
-        # known-but-unloadable when it hits this path.
         return None
 
 

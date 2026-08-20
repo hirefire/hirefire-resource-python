@@ -40,7 +40,6 @@ def _load_worktree_env():
 
 _load_worktree_env()
 
-
 _HIREFIRE_ENV = [
     "HIREFIRE_TOKEN",
     "HIREFIRE_DATA_URL",
@@ -73,8 +72,6 @@ def reset_hirefire(request, monkeypatch):
     HireFire.reset()
 
 
-# The hirefire_resource logger does not propagate, so caplog (which captures via the
-# root logger) needs its handler attached directly to see HireFire's output.
 @pytest.fixture(autouse=True)
 def capture_hirefire_logs(request, caplog):
     if "macro" in request.module.__name__.split("."):

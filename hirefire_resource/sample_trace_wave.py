@@ -37,7 +37,6 @@ class SampleTraceWave:
         queues = entry.get("queues")
         options = entry.get("options")
         strategy = entry.get("strategy")
-        # None must become "" (not str(None) == "None"); matches Ruby nil.to_s / Node.
         if strategy is None:
             strategy_s = ""
         else:

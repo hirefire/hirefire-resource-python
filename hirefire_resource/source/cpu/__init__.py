@@ -1,13 +1,13 @@
 import time
 
-from hirefire_resource.cpu.usage import Usage
+from hirefire_resource.source.cpu.usage import Usage
 
 
 class CPU:
-    """CPU utilization collector for a declared process.
+    """CPU utilization source for an always-on process identity name.
 
     Attributes:
-        name: The process name this collector reports under.
+        name: The process name this source reports under.
     """
 
     def __init__(self, name: str) -> None:

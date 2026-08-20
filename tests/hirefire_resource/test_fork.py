@@ -106,7 +106,6 @@ def test_after_fork_in_child_does_not_import_celery_macro(monkeypatch):
 
     monkeypatch.setenv("HIREFIRE_TOKEN", "tok")
     HireFire.reset()
-    # Isolate from other tests that may have imported the Celery macro.
     celery_macro = sys.modules.pop("hirefire_resource.macro.celery", None)
     try:
         assert "hirefire_resource.macro.celery" not in sys.modules

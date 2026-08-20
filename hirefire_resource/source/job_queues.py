@@ -1,42 +1,49 @@
 import math
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING
 
 from hirefire_resource.log import safe_log
-from hirefire_resource.worker import Worker
+from hirefire_resource.source.job_queue import JobQueue
 
 if TYPE_CHECKING:
     import logging
 
     from hirefire_resource.buffer import Buffer
+    from hirefire_resource.configuration import Configuration
 
 
-class Workers:
+class JobQueues:
     """Collection of local job-queue sources declared on the configuration."""
 
-    def __init__(self) -> None:
-        self._workers: list[Worker] = []
+    def __init__(self, configuration: "Configuration | None" = None) -> None:
+        self._configuration = configuration
+        self._job_queues: list[JobQueue] = []
 
-    def append(self, worker: Worker) -> None:
-        self._workers.append(worker)
+    def append(self, job_queue: JobQueue) -> None:
+        self._job_queues.append(job_queue)
 
     def any(self) -> bool:
-        return len(self._workers) > 0
+        return len(self._job_queues) > 0
 
-    def __iter__(self) -> Iterator[Worker]:
-        return iter(self._workers)
+    def __iter__(self) -> Iterator[JobQueue]:
+        return iter(self._job_queues)
 
     def __len__(self) -> int:
-        return len(self._workers)
+        return len(self._job_queues)
 
-    def find_by_name(self, name: str) -> Worker | None:
+    def find_by_name(self, name: str) -> JobQueue | None:
         needle = str(name).lower()
-        for worker in self._workers:
-            if worker.name.lower() == needle:
-                return worker
+        for job_queue in self._job_queues:
+            if job_queue.name.lower() == needle:
+                return job_queue
         return None
 
-    def sample_job_queue(self, job_queue: Worker | None, strategy: str) -> None:
+    def sample_job_queue(
+        self,
+        job_queue: JobQueue | None,
+        strategy: str,
+        live: Callable[[], bool] | None = None,
+    ) -> None:
         if job_queue is None:
             return
 
@@ -52,6 +59,8 @@ class Workers:
 
         try:
             value = job_queue.sample()
+            if live is not None and not live():
+                return
 
             if not self._valid_sample(value):
                 safe_log(
@@ -99,11 +108,14 @@ class Workers:
             return type(value).__name__
 
     def _buffer(self) -> "Buffer":
-        from hirefire_resource.hirefire import HireFire
-
-        return HireFire.configuration.buffer
+        return self._config().buffer
 
     def _logger(self) -> "logging.Logger":
+        return self._config().logger
+
+    def _config(self) -> "Configuration":
+        if self._configuration is not None:
+            return self._configuration
         from hirefire_resource.hirefire import HireFire
 
-        return HireFire.configuration.logger
+        return HireFire.configuration

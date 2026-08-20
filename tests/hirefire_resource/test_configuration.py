@@ -9,7 +9,6 @@ from hirefire_resource.configuration import (
     MissingSamplerError,
 )
 from hirefire_resource.dispatcher import Dispatcher
-from hirefire_resource.web import Web
 
 
 @pytest.fixture
@@ -35,12 +34,10 @@ def test_can_set_logger(config):
 
 def test_http_defaults_to_none(config):
     assert config.http is None
-    assert config.web is None
 
 
 def test_job_queues_default_to_empty(config):
     assert not config.job_queues.any()
-    assert not config.workers.any()
 
 
 def test_dyno_bare_web_is_noop(config):
