@@ -11,7 +11,7 @@ venv/
 __pycache__/
 *.egg-info/
 /dist
-CLAUDE.md
+AGENTS.md
 .worktreeinclude
 .claude/settings.local.json
 .cursor/sandbox.json
