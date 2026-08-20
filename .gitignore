@@ -12,7 +12,3 @@ __pycache__/
 *.egg-info/
 /dist
 AGENTS.md
-.worktreeinclude
-.claude/settings.local.json
-.cursor/sandbox.json
-.cursorignore
