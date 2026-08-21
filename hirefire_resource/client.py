@@ -12,12 +12,7 @@ from hirefire_resource.version import VERSION
 
 
 class RequestError(Exception):
-    """Raised when a HireFire API request cannot complete successfully.
-
-    Covers a missing token, transport/timeout failures, 5xx or other unexpected
-    statuses. A 401 is treated as "no grant" and returns None (does not raise).
-    A 413 returns PAYLOAD_TOO_LARGE (does not raise). Failed lease responses raise.
-    """
+    pass
 
 
 PAYLOAD_TOO_LARGE = "payload_too_large"

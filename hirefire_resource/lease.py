@@ -12,8 +12,6 @@ from hirefire_resource.log import safe_log
 
 @dataclass(frozen=True)
 class GrantBody:
-    """Parsed lease grant JSON: plan entries plus optional sample-trace arm."""
-
     job_queues: list[dict[str, Any]]
     trace: bool = False
 
@@ -46,15 +44,9 @@ class Lease:
         return self._granted
 
     def trace(self) -> bool:
-        """Whether the current grant asked the client to ship sample_trace on ingest."""
         return self._trace
 
     def demote(self) -> None:
-        """Drop local grant state without closing the transport.
-
-        Bumps epoch so an in-flight lease HTTP response cannot re-apply grant state.
-        Does not rotate process_id.
-        """
         self._epoch += 1
         self._granted = False
         self._trace = False
@@ -265,7 +257,6 @@ class Lease:
 
     @staticmethod
     def _wire_string(value: object | None) -> str:
-        """Normalize a lease JSON string field. Null becomes empty (Ruby nil.to_s)."""
         if value is None:
             return ""
         return str(value).strip()

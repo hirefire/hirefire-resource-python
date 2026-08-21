@@ -1,5 +1,3 @@
-"""One job-queue sample wave: start time, per-op timings, finish payload."""
-
 from __future__ import annotations
 
 import time
@@ -11,8 +9,6 @@ T = TypeVar("T")
 
 
 class SampleTraceWave:
-    """Monotonic start + ops list for a single ``sample_job_queues`` wave."""
-
     def __init__(self) -> None:
         self._start = time.monotonic()
         self._ops: list[dict[str, Any]] = []
@@ -23,14 +19,12 @@ class SampleTraceWave:
         return cls()
 
     def measure(self, entry: Any, fn: Callable[[], T]) -> T:
-        """Run ``fn``, record one op for ``entry``, return ``fn``'s result."""
         op_start = time.monotonic()
         result = fn()
         self.record(entry, self._elapsed_ms(op_start))
         return result
 
     def record(self, entry: Any, ms: float) -> SampleTraceWave:
-        """Record one op with a pre-measured duration in milliseconds."""
         self._payload = None
         if not isinstance(entry, dict):
             entry = {}
@@ -53,10 +47,6 @@ class SampleTraceWave:
         return self
 
     def finish(self) -> dict[str, Any]:
-        """Wire payload: ``{"wave_ms": number, "ops": [...]}``.
-
-        Ops is a copy so later ``record`` does not mutate a previous finish handle.
-        """
         if self._payload is None:
             self._payload = {
                 "wave_ms": self._elapsed_ms(self._start),
@@ -65,7 +55,6 @@ class SampleTraceWave:
         return self._payload
 
     def log_to(self, logger: Any) -> None:
-        """Verbose sample timing lines (same format as the former dispatcher helper)."""
         payload = self.finish()
         safe_log(
             logger,

@@ -284,11 +284,6 @@ _QUEUE_KEY_PREFIX = "rq:queue:"
 
 
 def _is_due_scheduled_score(score: float, now: float) -> bool:
-    """Return True when a scheduled-registry score is due (score ≤ now).
-
-    Shared product bound for JQL/JQS. Inclusive so a job whose run time equals
-    the sample clock is waiting, not future.
-    """
     return score <= now
 
 

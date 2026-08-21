@@ -169,22 +169,15 @@ class Configuration:
             self._dispatcher.stop(flush=flush)
 
     def http_name(self) -> str | None:
-        """Process name used for request-queue-time metrics.
-
-        Resolved process identity only. No invented default (e.g. not ``"web"``).
-        """
         return self.soft_identity()
 
     def mark_http_active(self) -> None:
-        """Marks this process as serving HTTP (middleware has sampled)."""
         self._http_active = True
 
     def rqt_enabled(self) -> bool:
-        """Whether this process should emit the ``rqt`` wire metric."""
         return bool(self._http_active or identity.platform_http_role())
 
     def http_source(self) -> HTTP | None:
-        """HTTP source used for sampling, creating always-on when name is known."""
         name = self.http_name()
         if name is None:
             if self.token and (self._http_active or identity.platform_http_role()):
@@ -199,7 +192,6 @@ class Configuration:
         return self._always_on_http
 
     def rqt_liveness(self) -> bool:
-        """Whether ``rqt`` liveness claims may be synthesized for this process."""
         if not self.rqt_enabled():
             return False
 
@@ -211,7 +203,6 @@ class Configuration:
         return resolved.lower() == name.lower()
 
     def active_cpu_sources(self) -> list[CPU]:
-        """Always-on CPU source for this process when identity resolves."""
         resolved = self.soft_identity()
         if resolved is None:
             self._warn_cpu_unresolved_once()
@@ -225,16 +216,13 @@ class Configuration:
         return [self._always_on_cpu]
 
     def reset_after_fork(self) -> None:
-        """Drop process-local always-on source instances after a fork."""
         self._always_on_cpu = None
         self._always_on_http = None
 
     def prefork_web_handoff(self) -> bool:
-        """Whether this process participates in prefork web master → worker handoff."""
         return self.rqt_enabled()
 
     def soft_identity(self) -> str | None:
-        """Resolved process identity with soft length gate (re-resolves every call)."""
         self._warn_heroku_conflict_once()
         name = identity.resolve()
         if name is None:

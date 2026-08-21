@@ -5,12 +5,6 @@ from typing import Any
 
 
 class Buffer:
-    """Nested metric buffer: name → strategy → second → bucket.
-
-    RQT buckets are ``{"sum": float, "count": int}``. Non-RQT buckets are bare numbers
-    (latest-wins).
-    """
-
     SAMPLE_COUNT_LIMIT = 1_000_000
 
     def __init__(self, ttl: int = 60) -> None:
@@ -19,7 +13,6 @@ class Buffer:
         self._ttl = ttl
 
     def sample(self, name: str, strategy: str, value: float) -> None:
-        """Records a sample. RQT accumulates sum+count. Other strategies latest-wins."""
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             return
         if not math.isfinite(value):
@@ -63,11 +56,6 @@ class Buffer:
         self.reinit_after_fork()
 
     def repopulate(self, name: str, strategy: str, data: dict[int, Any]) -> None:
-        """Merge flushed RQT buckets ``{sum, count}`` back into the live buffer.
-
-        Caps at SAMPLE_COUNT_LIMIT (scales sum to keep mean) so wire weight stays honest.
-        Non-dict buckets are ignored.
-        """
         strategy = str(strategy)
         if strategy != "rqt":
             return

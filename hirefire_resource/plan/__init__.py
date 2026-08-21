@@ -65,12 +65,6 @@ def supports_strategy(adapter: object, strategy: object) -> bool:
 
 @contextmanager
 def around_job_queue_sample() -> Iterator[None]:
-    """Run the body as one job-queue sample wave.
-
-    Every allowlisted macro receives ``before_sample_job_queues`` /
-    ``after_sample_job_queues`` (defaults no-op). Dispatcher must not know
-    adapter cache details.
-    """
     tokens: dict[str, object] = {}
     for name in ADAPTER_MODULES:
         try:
@@ -106,7 +100,6 @@ def around_job_queue_sample() -> Iterator[None]:
 
 
 def reinit_macros_after_fork() -> None:
-    """Notify every allowlisted macro after fork / abandoned inherited state."""
     for name in ADAPTER_MODULES:
         try:
             macro = _load_macro(name)
@@ -202,7 +195,6 @@ def _sample_job_strategy(
     queues: list[str],
     options: dict[str, Any],
 ) -> bool:
-    """Primary jql/jqs sample. Returns True when a value was buffered."""
     method = getattr(macro, method_name)
     value = method(*queues, **options)
 
@@ -225,11 +217,6 @@ def _sample_working(
     queues: list[str],
     options: dict[str, Any],
 ) -> None:
-    """Companion in-flight series for adapters that implement job_queue_working.
-
-    Same queues and connection options as the jql/jqs sample. Unconditional
-    (not gated on hold). Failures are logged and do not drop the job strategy sample.
-    """
     try:
         method = getattr(macro, "job_queue_working")
         wrk = method(*queues, **options)

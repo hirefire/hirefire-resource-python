@@ -64,7 +64,6 @@ def process_request_queue_time(
 
 
 def log_request_queue_time(request_queue_time: int) -> None:
-    """Exact 1.x shape for logdrain app-router parser."""
     print(f"[hirefire:router] queue={request_queue_time}ms")
 
 

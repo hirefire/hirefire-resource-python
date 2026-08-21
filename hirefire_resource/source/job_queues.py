@@ -13,8 +13,6 @@ if TYPE_CHECKING:
 
 
 class JobQueues:
-    """Collection of local job-queue sources declared on the configuration."""
-
     def __init__(self, configuration: "Configuration | None" = None) -> None:
         self._configuration = configuration
         self._job_queues: list[JobQueue] = []
