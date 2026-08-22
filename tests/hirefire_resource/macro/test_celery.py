@@ -1,5 +1,7 @@
+import asyncio
 import math
 import os
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -20,10 +22,45 @@ redis_url = f"redis://localhost:{os.environ.get('REDIS_PORT', '6379')}/0"
 amqp_url = f"amqp://guest:guest@localhost:{os.environ.get('RABBITMQ_PORT', '5672')}"
 broker_urls = [redis_url, amqp_url]
 
+# AMQP send_task is fire-and-forget without confirms. Immediate message_count
+# then reads N-1 under CI load. Redis publish is request/response (no-op).
+_SIZE_WAIT_S = 2.0
+_SIZE_POLL_S = 0.02
+
+
+def _celery(broker_url):
+    app = Celery(broker=broker_url)
+    app.conf.broker_pool_limit = None
+    if str(broker_url).startswith("amqp"):
+        app.conf.broker_transport_options = {"confirm_publish": True}
+    return app
+
+
+def _assert_size(expected, *queues, **kwargs):
+    deadline = time.monotonic() + _SIZE_WAIT_S
+    seen = None
+    while time.monotonic() < deadline:
+        seen = job_queue_size(*queues, **kwargs)
+        if seen == expected:
+            return
+        time.sleep(_SIZE_POLL_S)
+    assert seen == expected
+
+
+async def _assert_async_size(expected, *queues, **kwargs):
+    deadline = time.monotonic() + _SIZE_WAIT_S
+    seen = None
+    while time.monotonic() < deadline:
+        seen = await async_job_queue_size(*queues, **kwargs)
+        if seen == expected:
+            return
+        await asyncio.sleep(_SIZE_POLL_S)
+    assert seen == expected
+
 
 @pytest.fixture(scope="session", params=broker_urls)
 def celery_app(request):
-    return Celery(broker=request.param)
+    return _celery(request.param)
 
 
 @pytest.fixture(autouse=True)
@@ -74,9 +111,7 @@ def test_job_queue_latency_with_jobs(celery_app):
     assert math.isclose(
         job_queue_latency("mailer", broker_url=celery_app.conf.broker_url), 8, abs_tol=1
     )
-    assert (
-        job_queue_size("celery", "mailer", broker_url=celery_app.conf.broker_url) == 10
-    )
+    _assert_size(10, "celery", "mailer", broker_url=celery_app.conf.broker_url)
 
 
 def test_job_queue_latency_with_jobs_multi(celery_app):
@@ -87,9 +122,7 @@ def test_job_queue_latency_with_jobs_multi(celery_app):
         8,
         abs_tol=1,
     )
-    assert (
-        job_queue_size("celery", "mailer", broker_url=celery_app.conf.broker_url) == 10
-    )
+    _assert_size(10, "celery", "mailer", broker_url=celery_app.conf.broker_url)
 
 
 @pytest.mark.asyncio
@@ -120,11 +153,8 @@ async def test_job_queue_latency_with_jobs_async(celery_app):
         8,
         abs_tol=1,
     )
-    assert (
-        await async_job_queue_size(
-            "celery", "mailer", broker_url=celery_app.conf.broker_url
-        )
-        == 10
+    await _assert_async_size(
+        10, "celery", "mailer", broker_url=celery_app.conf.broker_url
     )
 
 
@@ -139,11 +169,8 @@ async def test_job_queue_latency_with_jobs_multi_async(celery_app):
         8,
         abs_tol=1,
     )
-    assert (
-        await async_job_queue_size(
-            "celery", "mailer", broker_url=celery_app.conf.broker_url
-        )
-        == 10
+    await _assert_async_size(
+        10, "celery", "mailer", broker_url=celery_app.conf.broker_url
     )
 
 
@@ -161,21 +188,20 @@ def test_job_queue_size_with_jobs(celery_app):
         celery_app.send_task("test_task", queue="celery")
         celery_app.send_task("test_task", queue="mailer")
 
-    assert job_queue_size("celery", broker_url=celery_app.conf.broker_url) == 5
-    assert (
-        job_queue_size("celery", "mailer", broker_url=celery_app.conf.broker_url) == 10
-    )
+    _assert_size(5, "celery", broker_url=celery_app.conf.broker_url)
+    _assert_size(10, "celery", "mailer", broker_url=celery_app.conf.broker_url)
 
 
 def test_job_queue_size_dedupes_and_trims_queue_names(celery_app):
     for _ in range(3):
         celery_app.send_task("test_task", queue="celery")
 
-    assert (
-        job_queue_size(
-            "celery", " celery ", "celery", broker_url=celery_app.conf.broker_url
-        )
-        == 3
+    _assert_size(
+        3,
+        "celery",
+        " celery ",
+        "celery",
+        broker_url=celery_app.conf.broker_url,
     )
 
 
@@ -221,22 +247,16 @@ async def test_job_queue_size_with_jobs_async(celery_app):
         celery_app.send_task("test_task", queue="celery")
         celery_app.send_task("test_task", queue="mailer")
 
-    assert (
-        await async_job_queue_size("celery", broker_url=celery_app.conf.broker_url) == 5
-    )
-    assert (
-        await async_job_queue_size(
-            "celery", "mailer", broker_url=celery_app.conf.broker_url
-        )
-        == 10
+    await _assert_async_size(5, "celery", broker_url=celery_app.conf.broker_url)
+    await _assert_async_size(
+        10, "celery", "mailer", broker_url=celery_app.conf.broker_url
     )
 
 
 @pytest.fixture
 def priority_celery_app():
     """Create a Celery app with priority queue configuration."""
-    broker_url = amqp_url
-    app = Celery(broker=broker_url)
+    app = _celery(amqp_url)
 
     queue_arguments = {"x-max-priority": 10}
     app.conf.task_queues = [
@@ -275,9 +295,7 @@ def test_job_queue_size_priority_queue_with_broker_url(setup_priority_queue):
     priority_celery_app.send_task("test_task", queue="priority_queue")
     priority_celery_app.send_task("test_task", queue="priority_queue")
 
-    result = job_queue_size("priority_queue", broker_url=broker_url)
-
-    assert result == 2
+    _assert_size(2, "priority_queue", broker_url=broker_url)
 
 
 def test_job_queue_size_priority_queue_with_celery_app_returns_correct_count(
@@ -289,9 +307,7 @@ def test_job_queue_size_priority_queue_with_celery_app_returns_correct_count(
     priority_celery_app.send_task("test_task", queue="priority_queue")
     priority_celery_app.send_task("test_task", queue="priority_queue")
 
-    result = job_queue_size("priority_queue", celery_app=priority_celery_app)
-
-    assert result == 3
+    _assert_size(3, "priority_queue", celery_app=priority_celery_app)
 
 
 def test_job_queue_size_raises_error_when_both_broker_url_and_celery_app_provided(
@@ -351,7 +367,7 @@ def test_job_queue_size_with_mismatched_priority_arguments(celery_app):
 
     queue_name = f"test_mismatch_{uuid.uuid4().hex[:8]}"
 
-    temp_app = Celery(broker=broker_url)
+    temp_app = _celery(broker_url)
     temp_app.conf.task_queues = [
         Queue(queue_name, queue_arguments={"x-max-priority": 20}),
     ]
@@ -382,8 +398,7 @@ def test_job_queue_size_with_mismatched_priority_arguments(celery_app):
             Queue(queue_name, queue_arguments={"x-max-priority": 20}),  # Correct!
         ]
 
-        result_correct = job_queue_size(queue_name, celery_app=correct_app)
-        assert result_correct == 2
+        _assert_size(2, queue_name, celery_app=correct_app)
 
     finally:
         try:
@@ -484,7 +499,7 @@ def test_job_queue_size_ignores_active_reserved_and_due_scheduled_inspect(
     control = _inflating_inspect_control()
     monkeypatch.setattr(celery_app, "control", control)
 
-    assert job_queue_size("celery", celery_app=celery_app) == 2
+    _assert_size(2, "celery", celery_app=celery_app)
     assert control.inspect_calls == 0
 
 
@@ -508,5 +523,5 @@ def test_job_queue_size_mixed_broker_and_inspect_counts_broker_only(
     control = _inflating_inspect_control()
     monkeypatch.setattr(celery_app, "control", control)
 
-    assert job_queue_size("celery", "mailer", celery_app=celery_app) == 3
+    _assert_size(3, "celery", "mailer", celery_app=celery_app)
     assert control.inspect_calls == 0
