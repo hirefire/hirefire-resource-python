@@ -9,28 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Push job-queue and request-queue-time metrics to `https://data.hirefire.io` (lease plus nested ingest) so HireFire no longer polls the app.
-- Always-on request queue time on the HTTP middleware path, and always-on CPU when process identity resolves (`DYNO`, `HIREFIRE_SERVICE_NAME`, or `RENDER_SERVICE_NAME`).
-- `HireFire.boot()` for token-only zero-config. Local `config.dyno` job-queue samplers remain for custom probes and root installs.
-- Job-queue working count (`job_queue_working` / `async_job_queue_working`) and nested `wrk` beside `jql`/`jqs` for RQ.
-- Lease collection plans: the server grant can drive allowlisted macros (`celery`, `rq`, `dramatiq`). Strategy-only entries still run the matching local `config.dyno` sampler.
-- Dramatiq first-party adapter (`dramatiq` plan key): waiting-only size and latency on Redis (live plus due delayed) and RabbitMQ (main-queue ready).
+- The library now pushes metrics to `https://data.hirefire.io`. HireFire no longer polls the app.
+- Request queue time is sampled automatically from HTTP traffic. You do not need a web `dyno` line.
+- CPU activity is sampled automatically.
+- Optional token-only setup with `HireFire.boot()`. Existing `config.dyno` job queue blocks still work.
+- Count of jobs still being processed (`job_queue_working` / `async_job_queue_working`) for RQ.
+- Dramatiq adapter: job queue size and job queue latency.
+- The package now ships type hints.
 
 ### Changed
 
-- Job-queue macros count only the waiting set (live plus due scheduled plus due retry). In-flight jobs are no longer included in JQL or JQS.
-- Celery size is broker-ready only (no active, reserved, or inspect-based scheduled). RQ size and latency exclude started, failed, deferred, and future scheduled jobs.
-- Required Python is 3.11+.
+- Job queue macros count queued jobs plus scheduled or retry jobs that are due. Jobs already being processed are no longer included in job queue size or job queue latency.
+- Celery job queue size counts only ready messages in the broker. Active, reserved, and inspect-based scheduled tasks are not included.
+- Required Python is 3.11+. Official support is Django 4+.
 
 ### Deprecated
 
-- `config.log_queue_metrics = True` still prints `[hirefire:router] queue=<N>ms` for Logplex QueueTime. Setting it once-warns to prefer HireFire Request Queue Time plus `HIREFIRE_TOKEN`.
-- Bare `config.dyno("web")` (no sampler) is a once-warn no-op. Request queue time is armed by platform web identity and HTTP middleware traffic.
+- Bare `config.dyno("web")` (no sampler) is deprecated. It does nothing. Request queue time is sampled automatically from HTTP traffic. You can remove the line. Leaving it does not break anything.
 
 ### Removed
 
-- Serving `GET /hirefire/:token/info`. Job metrics are push-only.
+- Serving `GET /hirefire/:token/info`.
 - Official support for Python 3.9 and 3.10.
+- Official support for Django 3.
 
 ## [1.0.4] - 2026-01-09
 
