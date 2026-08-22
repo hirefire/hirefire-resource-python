@@ -37,18 +37,12 @@ class Configuration:
         job_queues: Local job-queue sources declared via sampler callables on :meth:`dyno`.
         logger: Logger used for HireFire diagnostic messages. Defaults to a stdout logger.
             Set to ``None`` (or a logger missing the log methods) to silence diagnostics.
-        log_queue_metrics: Legacy flag: when true, middleware still prints
-            ``[hirefire:router] queue=…ms`` to stdout (Logplex QueueTime BC). Setting
-            true once-warns to migrate to HireFire Request Queue Time with
-            ``HIREFIRE_TOKEN``. Preferred web RQT is push to data.hirefire.io.
     """
 
     def __init__(self) -> None:
         self.http: HTTP | None = None
         self.job_queues = JobQueues(self)
         self.logger = self._init_logger()
-        self._log_queue_metrics = False
-        self._log_queue_metrics_warned = False
         self._sources_by_name: dict[str, list[str]] = {}
         self._buffer: Buffer | None = None
         self._dispatcher: Dispatcher | None = None
@@ -88,17 +82,6 @@ class Configuration:
     def token(self, value: str | None) -> None:
         self._token = value
 
-    @property
-    def log_queue_metrics(self) -> bool:
-        """Legacy flag. When true, middleware prints ``[hirefire:router]`` stdout lines."""
-        return self._log_queue_metrics
-
-    @log_queue_metrics.setter
-    def log_queue_metrics(self, value: bool) -> None:
-        self._log_queue_metrics = bool(value)
-        if self._log_queue_metrics:
-            self._warn_log_queue_metrics_once()
-
     def dyno(self, name: str, sampler: Sampler | None = None) -> None:
         """Declares a process by dyno name (Heroku Procfile-shaped).
 
@@ -108,10 +91,11 @@ class Configuration:
         queues. Use :meth:`dyno` with a sampler for custom probes or strategy-only (custom
         configuration) plan entries.
 
-        Bare ``dyno("web")`` (no sampler, name ``"web"`` case-insensitive) is accepted for
-        1.x backwards compatibility but does nothing: RQT is armed only by platform web
-        role and middleware traffic. A once-per-process warning explains that the line can
-        be removed. ``dyno("web", sampler)`` still registers a job-queue sampler under
+        Bare ``dyno("web")`` (no sampler, name ``"web"`` case-insensitive) is
+        deprecated. It is accepted so 1.x configs do not break, but it does
+        nothing. Request queue time is sampled automatically from HTTP traffic.
+        A once-per-process warning says the line can be removed.
+        ``dyno("web", sampler)`` still registers a job-queue sampler under
         ``"web"``.
 
         Args:
@@ -312,23 +296,9 @@ class Configuration:
         safe_log(
             self.logger,
             "warning",
-            '[HireFire] config.dyno("web") without a sampler is no longer '
-            "necessary. Request queue time is armed by platform web identity "
-            "(for example DYNO type web or RENDER_SERVICE_TYPE=web) and by HTTP "
-            "middleware traffic. You can remove this line.",
-        )
-
-    def _warn_log_queue_metrics_once(self) -> None:
-        if self._log_queue_metrics_warned:
-            return
-        self._log_queue_metrics_warned = True
-        safe_log(
-            self.logger,
-            "warning",
-            "[HireFire] config.log_queue_metrics is deprecated. Prefer the "
-            "HireFire Request Queue Time strategy, set HIREFIRE_TOKEN, then "
-            "remove this log_queue_metrics = true line. Stdout [hirefire:router] "
-            "lines still emit while this flag is set.",
+            '[HireFire] config.dyno("web") is deprecated. It does nothing. '
+            "Request queue time is sampled automatically from HTTP traffic. "
+            "You can remove this line. Leaving it does not break anything.",
         )
 
     def _warn_rqt_unresolved_once(self) -> None:

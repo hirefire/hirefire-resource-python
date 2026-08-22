@@ -57,34 +57,9 @@ def test_dyno_bare_web_warns_once(config, caplog):
     caplog.set_level(logging.WARNING)
     config.dyno("web")
     config.dyno("Web")
-    assert caplog.text.count('config.dyno("web") without a sampler is no longer') == 1
+    assert caplog.text.count('config.dyno("web") is deprecated') == 1
     assert "You can remove" in caplog.text
-
-
-def test_log_queue_metrics_defaults_to_false(config):
-    assert config.log_queue_metrics is False
-
-
-def test_log_queue_metrics_can_be_set(config):
-    config.log_queue_metrics = True
-    assert config.log_queue_metrics is True
-
-
-def test_log_queue_metrics_true_warns_once(config, caplog):
-    caplog.set_level(logging.WARNING)
-    config.log_queue_metrics = True
-    config.log_queue_metrics = True
-    assert caplog.text.count("config.log_queue_metrics is deprecated") == 1
-    assert "HireFire Request Queue Time" in caplog.text
-    assert "HIREFIRE_TOKEN" in caplog.text
-    assert "remove this log_queue_metrics = true line" in caplog.text
-    assert "still emit" in caplog.text
-
-
-def test_log_queue_metrics_false_is_silent(config, caplog):
-    caplog.set_level(logging.WARNING)
-    config.log_queue_metrics = False
-    assert "log_queue_metrics" not in caplog.text
+    assert "does nothing" in caplog.text
 
 
 def test_dyno_with_a_sampler_configures_a_job_queue(config):
