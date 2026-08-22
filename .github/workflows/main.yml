@@ -53,7 +53,7 @@ jobs:
       - name: Run build
         run: poetry build
       - name: Verify package artifacts
-        run: python bin/verify-package
+        run: bin/verify-package
 
   validate:
     needs: matrix
@@ -71,7 +71,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        env: ${{ fromJson(needs.matrix.outputs.list) }}
+        env: ${{ fromJSON(needs.matrix.outputs.list) }}
+    name: ${{ matrix.env }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -134,6 +135,6 @@ jobs:
       - name: Run build
         run: poetry build
       - name: Verify package artifacts
-        run: python bin/verify-package
+        run: bin/verify-package
       - name: Publish package
         uses: pypa/gh-action-pypi-publish@v1.14.1
