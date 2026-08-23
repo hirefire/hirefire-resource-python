@@ -1712,6 +1712,32 @@ def test_strategy_only_plan_uses_local_sampler_without_override_warn(caplog):
 
 
 @mocketize
+def test_strategy_only_plan_reports_lease_name_not_local_dyno_spelling():
+    plan = {
+        "version": 1,
+        "job_queues": [
+            {
+                "name": "worker",
+                "strategy": "jqs",
+                "adapter": None,
+                "queues": [],
+                "options": {},
+            }
+        ],
+    }
+    stub_lease(granted=True, plan=plan)
+    bodies = capture_ingest_bodies()
+    HireFire.configuration.dyno("Worker", lambda: 7)
+    dispatcher = HireFire.configuration.dispatcher
+    dispatcher._job_queue_tick()
+    dispatcher._tick()
+
+    names = [e["name"] for e in bodies[0]]
+    assert "worker" in names
+    assert "Worker" not in names
+
+
+@mocketize
 def test_empty_string_adapter_uses_local_strategy_sampler():
     plan = {
         "version": 1,
@@ -2315,7 +2341,7 @@ def test_sample_job_queues_runs_plan_inside_around_job_queue_sample():
         yield
         order.append("around-exit")
 
-    def fake_execute(entry):
+    def fake_execute(entry, live=None):
         order.append("execute")
         executed.append(entry["adapter"])
         assert entry["strategy"] in ("jql", "jqs")

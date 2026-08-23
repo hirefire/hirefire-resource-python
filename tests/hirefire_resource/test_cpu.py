@@ -40,6 +40,32 @@ def test_second_sample_buffers_normalized_percentage():
         assert buffer().flush()["clock"]["cpu"] == {1001: 50.0}
 
 
+def test_sample_rounds_percentage_to_two_decimal_places():
+    with patch.object(
+        Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (1.0 / 3.0, "cgroup_v2")]
+    ), patch.object(Usage, "available_cpus", return_value=1.0):
+        collector = CPU("clock")
+        with freeze_time(at(1000)):
+            collector.sample()
+        with freeze_time(at(1001)):
+            collector.sample()
+
+        assert buffer().flush()["clock"]["cpu"] == {1001: 33.33}
+
+
+def test_zero_utilization_buffers_zero():
+    with patch.object(
+        Usage, "reading", side_effect=[(10.0, "cgroup_v2"), (10.0, "cgroup_v2")]
+    ), patch.object(Usage, "available_cpus", return_value=1.0):
+        collector = CPU("clock")
+        with freeze_time(at(1000)):
+            collector.sample()
+        with freeze_time(at(1001)):
+            collector.sample()
+
+        assert buffer().flush()["clock"]["cpu"] == {1001: 0.0}
+
+
 def test_normalizes_by_available_cpus():
     with patch.object(
         Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (1.0, "cgroup_v2")]
@@ -350,6 +376,15 @@ def test_render_without_a_cpu_count_falls_through_to_processor_count(monkeypatch
         assert Usage.available_cpus() == os.cpu_count()
 
 
+def test_render_cpu_count_zero_or_non_numeric_falls_through(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    with patch.object(Usage, "read", side_effect=reading({})):
+        monkeypatch.setenv("RENDER_CPU_COUNT", "0")
+        assert Usage.available_cpus() == os.cpu_count()
+        monkeypatch.setenv("RENDER_CPU_COUNT", "nope")
+        assert Usage.available_cpus() == os.cpu_count()
+
+
 def test_cgroup_quota_wins_over_render_entitlement(monkeypatch):
     monkeypatch.setenv("RENDER", "true")
     monkeypatch.setenv("RENDER_CPU_COUNT", "8")
@@ -387,6 +422,15 @@ def test_clock_ticks_falls_back_to_100():
         assert Usage.clock_ticks() == 100
 
 
+def test_positive_clock_ticks_rejects_zero_and_negative():
+    with patch.object(Usage, "clock_ticks", return_value=0):
+        assert Usage.positive_clock_ticks() == 100
+    with patch.object(Usage, "clock_ticks", return_value=-1):
+        assert Usage.positive_clock_ticks() == 100
+    with patch.object(Usage, "clock_ticks", return_value=250):
+        assert Usage.positive_clock_ticks() == 250
+
+
 def test_cgroup_v2_without_a_usage_usec_line_falls_through_to_v1():
     mapping = {
         Usage.CGROUP_V2_USAGE: "user_usec 1000000\nsystem_usec 500000",
@@ -398,6 +442,12 @@ def test_cgroup_v2_without_a_usage_usec_line_falls_through_to_v1():
 
 def test_available_cpus_ignores_v1_unlimited_quota():
     mapping = {Usage.CGROUP_V1_QUOTA: "-1", Usage.CGROUP_V1_PERIOD: "100000"}
+    with patch.object(Usage, "read", side_effect=reading(mapping)):
+        assert Usage.available_cpus() == os.cpu_count()
+
+
+def test_available_cpus_ignores_a_non_positive_v1_quota():
+    mapping = {Usage.CGROUP_V1_QUOTA: "0", Usage.CGROUP_V1_PERIOD: "100000"}
     with patch.object(Usage, "read", side_effect=reading(mapping)):
         assert Usage.available_cpus() == os.cpu_count()
 

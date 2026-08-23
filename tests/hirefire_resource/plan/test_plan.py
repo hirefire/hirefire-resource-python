@@ -74,6 +74,42 @@ def test_execute_samples_buffer_with_mock_macro():
     assert list(data["worker"]["jql"].values())[0] == 12.5
 
 
+def test_execute_live_gate_drops_a_sample_that_returns_after_stop():
+    class Macro:
+        @staticmethod
+        def supports_plan_strategy(strategy):
+            return True
+
+        @staticmethod
+        def plan_options(strategy, options):
+            return {}
+
+        @staticmethod
+        def plan_connection_options():
+            return {}
+
+        @staticmethod
+        def job_queue_size(*queues, **options):
+            return 11
+
+        @staticmethod
+        def job_queue_working(*queues, **options):
+            return 3
+
+    with patch.object(plan, "_load_macro", return_value=Macro):
+        plan.execute(
+            {
+                "name": "worker",
+                "adapter": "rq",
+                "strategy": "jqs",
+                "queues": ["default"],
+            },
+            lambda: False,
+        )
+
+    assert HireFire.configuration.buffer.flush() == {}
+
+
 def test_execute_rejects_bool_sample(caplog):
     import logging
 
@@ -338,6 +374,45 @@ def test_execute_skips_dramatiq_empty_queues(caplog):
             {
                 "name": "worker",
                 "adapter": "dramatiq",
+                "strategy": "jqs",
+                "queues": [],
+            }
+        )
+
+    assert called["n"] == 0
+    assert HireFire.configuration.buffer.flush() == {}
+    assert "no valid names" in caplog.text
+
+
+def test_execute_skips_celery_empty_queues(caplog):
+    import logging
+
+    caplog.set_level(logging.ERROR)
+    called = {"n": 0}
+
+    class Macro:
+        @staticmethod
+        def supports_plan_strategy(strategy):
+            return True
+
+        @staticmethod
+        def plan_options(strategy, options):
+            return {}
+
+        @staticmethod
+        def plan_connection_options():
+            return {}
+
+        @staticmethod
+        def job_queue_size(*queues, **options):
+            called["n"] += 1
+            return 1
+
+    with patch.object(plan, "_load_macro", return_value=Macro):
+        plan.execute(
+            {
+                "name": "worker",
+                "adapter": "celery",
                 "strategy": "jqs",
                 "queues": [],
             }

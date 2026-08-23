@@ -1,7 +1,7 @@
 import importlib
 import math
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
@@ -116,7 +116,7 @@ def reinit_macros_after_fork() -> None:
             )
 
 
-def execute(entry: dict[str, Any]) -> None:
+def execute(entry: dict[str, Any], live: Callable[[], bool] | None = None) -> None:
     adapter = str(entry.get("adapter", "")).strip()
     strategy = str(entry.get("strategy", "")).strip()
     name = str(entry.get("name", "")).strip()
@@ -174,11 +174,11 @@ def execute(entry: dict[str, Any]) -> None:
         )()
         options = {**plan_options, **connection_options}
         if not _sample_job_strategy(
-            macro, name, strategy, method_name, queues, options
+            macro, name, strategy, method_name, queues, options, live=live
         ):
             return
         if hasattr(macro, "job_queue_working"):
-            _sample_working(macro, name, queues, options)
+            _sample_working(macro, name, queues, options, live=live)
     except Exception as error:
         _log(
             "error",
@@ -194,9 +194,12 @@ def _sample_job_strategy(
     method_name: str,
     queues: list[str],
     options: dict[str, Any],
+    live: Callable[[], bool] | None = None,
 ) -> bool:
     method = getattr(macro, method_name)
     value = method(*queues, **options)
+    if live is not None and not live():
+        return False
 
     if not _valid_sample(value):
         _log(
@@ -216,10 +219,13 @@ def _sample_working(
     name: str,
     queues: list[str],
     options: dict[str, Any],
+    live: Callable[[], bool] | None = None,
 ) -> None:
     try:
         method = getattr(macro, "job_queue_working")
         wrk = method(*queues, **options)
+        if live is not None and not live():
+            return
         if not _valid_sample(wrk):
             _log(
                 "error",

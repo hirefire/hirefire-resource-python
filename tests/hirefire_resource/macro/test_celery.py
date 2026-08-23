@@ -12,6 +12,7 @@ from hirefire_resource.errors import MissingQueueError
 from hirefire_resource.macro.celery import (
     _job_queue_latency_rabbitmq,
     _job_queue_latency_redis,
+    _resolve_broker_url,
     async_job_queue_latency,
     async_job_queue_size,
     job_queue_latency,
@@ -428,6 +429,17 @@ def test_job_queue_latency_redis_accepts_str_payload():
     assert math.isclose(latency, 5, abs_tol=1)
 
 
+def test_job_queue_latency_redis_skips_corrupt_payload():
+    class FakeClient:
+        def lindex(self, queue, index):
+            return "not-json"
+
+    class FakeChannel:
+        client = FakeClient()
+
+    assert _job_queue_latency_redis(FakeChannel(), "celery") == 0
+
+
 def test_job_queue_latency_rabbitmq_requeues_after_parse_error():
     class BrokenMessage:
         headers = object()
@@ -444,8 +456,7 @@ def test_job_queue_latency_rabbitmq_requeues_after_parse_error():
             self.rejected.append((delivery_tag, requeue))
 
     channel = FakeChannel()
-    with pytest.raises(AttributeError):
-        _job_queue_latency_rabbitmq(channel, "celery")
+    assert _job_queue_latency_rabbitmq(channel, "celery") == 0
 
     assert channel.rejected == [(7, True)]
 
@@ -525,3 +536,53 @@ def test_job_queue_size_mixed_broker_and_inspect_counts_broker_only(
 
     _assert_size(3, "celery", "mailer", celery_app=celery_app)
     assert control.inspect_calls == 0
+
+
+def _clear_broker_env(monkeypatch):
+    for key in (
+        "HIREFIRE_CELERY_BROKER_URL",
+        "AMQP_URL",
+        "RABBITMQ_URL",
+        "RABBITMQ_BIGWIG_URL",
+        "CLOUDAMQP_URL",
+        "REDIS_TLS_URL",
+        "REDIS_URL",
+        "REDISTOGO_URL",
+        "REDISCLOUD_URL",
+        "OPENREDIS_URL",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+
+def test_resolve_broker_url_multi_key_precedence(monkeypatch):
+    _clear_broker_env(monkeypatch)
+    monkeypatch.setenv("OPENREDIS_URL", "redis://openredis/0")
+    monkeypatch.setenv("REDISCLOUD_URL", "redis://rediscloud/0")
+    monkeypatch.setenv("REDISTOGO_URL", "redis://redistogo/0")
+    monkeypatch.setenv("REDIS_URL", "redis://redis-url/0")
+    monkeypatch.setenv("REDIS_TLS_URL", "rediss://redis-tls/0")
+    monkeypatch.setenv("CLOUDAMQP_URL", "amqp://cloudamqp")
+    monkeypatch.setenv("RABBITMQ_BIGWIG_URL", "amqp://bigwig")
+    monkeypatch.setenv("RABBITMQ_URL", "amqp://rabbitmq-url")
+    monkeypatch.setenv("AMQP_URL", "amqp://amqp-url")
+    monkeypatch.setenv("HIREFIRE_CELERY_BROKER_URL", "redis://hirefire/0")
+    assert _resolve_broker_url(None) == "amqp://amqp-url"
+
+    monkeypatch.delenv("AMQP_URL")
+    assert _resolve_broker_url(None) == "amqp://rabbitmq-url"
+
+
+def test_resolve_broker_url_explicit_wins_over_env(monkeypatch):
+    _clear_broker_env(monkeypatch)
+    monkeypatch.setenv("REDIS_URL", "redis://from-env/0")
+    assert _resolve_broker_url("redis://explicit/0") == "redis://explicit/0"
+
+
+def test_hirefire_celery_broker_url_is_plan_only(monkeypatch):
+    import hirefire_resource.macro.celery as celery_macro
+
+    _clear_broker_env(monkeypatch)
+    monkeypatch.setenv("HIREFIRE_CELERY_BROKER_URL", "redis://hf/0")
+    monkeypatch.setenv("REDIS_URL", "redis://local/0")
+    assert _resolve_broker_url(None) == "redis://local/0"
+    assert celery_macro.plan_connection_options() == {"broker_url": "redis://hf/0"}

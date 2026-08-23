@@ -49,6 +49,9 @@ def test_process_request_queue_time_survives_a_raising_logger(
     with patch.object(Dispatcher, "start", side_effect=RuntimeError("no threads")):
         process_request_queue_time(recent_request_start())
 
+    data = HireFire.configuration.buffer.flush()
+    assert "web" in data and "rqt" in data["web"]
+
 
 def test_process_request_queue_time_without_a_request_start_is_a_noop(
     set_HIREFIRE_TOKEN, monkeypatch
@@ -152,6 +155,7 @@ def test_request_start_from_environ_whitespace_request_start_falls_back_to_queue
 def test_calculate_request_queue_time_normalizes_every_precision_variant():
     with patch("time.time", return_value=1_700_000_001):
         assert calculate_request_queue_time("t=1700000000.250") == 750
+        assert calculate_request_queue_time("t=1700000000250") == 750
         assert calculate_request_queue_time("1700000000250") == 750
         assert calculate_request_queue_time("1700000000250000") == 750
         assert calculate_request_queue_time("1700000000250000000") == 750
@@ -228,3 +232,12 @@ def test_calculate_request_queue_time_ignores_non_finite_headers():
     assert calculate_request_queue_time("Infinity") is None
     assert calculate_request_queue_time("t=Infinity") is None
     assert calculate_request_queue_time("1e500") is None
+
+
+def test_calculate_request_queue_time_rounds_a_fractional_millisecond_remainder():
+    with patch("time.time", return_value=1_700_000_001):
+        assert calculate_request_queue_time("t=1700000000.2506") == 749
+
+
+def test_calculate_request_queue_time_drops_a_negative_request_start():
+    assert calculate_request_queue_time("-1700000000250") is None

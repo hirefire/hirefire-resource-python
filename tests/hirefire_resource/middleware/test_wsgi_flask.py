@@ -15,6 +15,11 @@ app.wsgi_app = HireFireMiddleware(app)
 app.config["TESTING"] = True
 
 
+@app.route("/boom")
+def boom():
+    raise RuntimeError("boom from the app")
+
+
 @app.route("/<path:path>")
 def catch_all(path):
     return "DEFAULT", 200
@@ -88,3 +93,29 @@ def test_falls_back_to_x_queue_start(client, set_HIREFIRE_TOKEN, monkeypatch):
             assert HireFire.configuration.buffer.flush()["web"]["rqt"] == {
                 _ts: {"sum": float(5), "count": 1}
             }
+
+
+def test_info_path_is_passed_through_to_the_app(
+    client, set_HIREFIRE_TOKEN, monkeypatch
+):
+    monkeypatch.setenv("DYNO", "web.1")
+    with patch.object(Dispatcher, "start"):
+        with patch.object(Dispatcher, "ensure_job_queue_loop"):
+            response = client.get("/hirefire/SOME_TOKEN/info")
+
+    assert response.status_code == 200
+    assert response.data.decode("utf-8") == "DEFAULT"
+    assert HireFire.configuration.buffer.flush() == {}
+
+
+def test_an_error_raised_by_the_host_app_still_propagates(
+    client, set_HIREFIRE_TOKEN, monkeypatch
+):
+    monkeypatch.setenv("DYNO", "web.1")
+    with patch.object(Dispatcher, "start"):
+        with patch.object(Dispatcher, "ensure_job_queue_loop"):
+            with pytest.raises(RuntimeError, match="boom from the app"):
+                client.get(
+                    "/boom",
+                    headers={"X-Request-Start": str(int(time.time() * 1000 - 5))},
+                )

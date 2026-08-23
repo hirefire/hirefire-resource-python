@@ -164,6 +164,12 @@ def test_token_strips_whitespace(config, monkeypatch):
     assert config.token == "def"
 
 
+def test_token_whitespace_only_assignment_is_absent(config, monkeypatch):
+    monkeypatch.setenv("HIREFIRE_TOKEN", "from-env")
+    config.token = "  \t  "
+    assert config.token is None
+
+
 def test_token_whitespace_only_absent(config, monkeypatch):
     monkeypatch.setenv("HIREFIRE_TOKEN", "   ")
     assert config.token is None
@@ -181,6 +187,11 @@ def test_soft_identity_too_long(config, monkeypatch, caplog):
     monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "w" * 129)
     assert config.soft_identity() is None
     assert "exceeds 128 bytes" in caplog.text
+    assert config.http_source() is None
+    assert config.active_cpu_sources() == []
+    config.http_source()
+    config.active_cpu_sources()
+    assert caplog.text.count("exceeds 128 bytes") == 1
 
 
 def test_rqt_enabled_platform_role(config, monkeypatch):

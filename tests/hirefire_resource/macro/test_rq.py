@@ -10,6 +10,7 @@ from rq import Queue
 from hirefire_resource import HireFire, plan
 from hirefire_resource.macro.rq import (
     _is_due_scheduled_score,
+    _resolve_redis_url,
     async_job_queue_latency,
     async_job_queue_size,
     async_job_queue_working,
@@ -29,7 +30,7 @@ def clear_redis():
 
 
 def test_job_queue_latency_default_redis_url():
-    assert job_queue_size("test_default_redis_url") == 0
+    assert job_queue_latency("test_default_redis_url") == 0
 
 
 def test_job_queue_latency_without_jobs():
@@ -418,3 +419,45 @@ def test_plan_execute_rq_empty_queues_samples_all_wrk(monkeypatch):
     wrk_value = list(flushed["worker"]["wrk"].values())[-1]
     assert wrk_value == 2
     assert wrk_value == job_queue_working(redis_url=redis_url)
+
+
+def _clear_redis_env(monkeypatch):
+    for key in (
+        "HIREFIRE_RQ_URL",
+        "REDIS_TLS_URL",
+        "REDIS_URL",
+        "REDISTOGO_URL",
+        "REDISCLOUD_URL",
+        "OPENREDIS_URL",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+
+def test_resolve_redis_url_multi_key_precedence(monkeypatch):
+    _clear_redis_env(monkeypatch)
+    monkeypatch.setenv("OPENREDIS_URL", "redis://openredis/0")
+    monkeypatch.setenv("REDISCLOUD_URL", "redis://rediscloud/0")
+    monkeypatch.setenv("REDISTOGO_URL", "redis://redistogo/0")
+    monkeypatch.setenv("REDIS_URL", "redis://redis-url/0")
+    monkeypatch.setenv("REDIS_TLS_URL", "rediss://redis-tls/0")
+    monkeypatch.setenv("HIREFIRE_RQ_URL", "redis://hirefire/0")
+    assert _resolve_redis_url(None) == "rediss://redis-tls/0"
+
+    monkeypatch.delenv("REDIS_TLS_URL")
+    assert _resolve_redis_url(None) == "redis://redis-url/0"
+
+
+def test_resolve_redis_url_explicit_wins_over_env(monkeypatch):
+    _clear_redis_env(monkeypatch)
+    monkeypatch.setenv("REDIS_URL", "redis://from-env/0")
+    assert _resolve_redis_url("redis://explicit/0") == "redis://explicit/0"
+
+
+def test_hirefire_rq_url_is_plan_only(monkeypatch):
+    import hirefire_resource.macro.rq as rq_macro
+
+    _clear_redis_env(monkeypatch)
+    monkeypatch.setenv("HIREFIRE_RQ_URL", "redis://hf/1")
+    monkeypatch.setenv("REDIS_URL", "redis://local/0")
+    assert _resolve_redis_url(None) == "redis://local/0"
+    assert rq_macro.plan_connection_options() == {"redis_url": "redis://hf/1"}

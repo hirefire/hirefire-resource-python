@@ -15,6 +15,18 @@ after_sample_job_queues = _plan_hooks.after_sample_job_queues
 reinit_after_fork = _plan_hooks.reinit_after_fork
 
 
+def _resolve_redis_url(redis_url: str | None) -> str:
+    return (
+        redis_url
+        or os.getenv("REDIS_TLS_URL")
+        or os.getenv("REDIS_URL")
+        or os.getenv("REDISTOGO_URL")
+        or os.getenv("REDISCLOUD_URL")
+        or os.getenv("OPENREDIS_URL")
+        or "redis://localhost:6379/0"
+    )
+
+
 def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
     """Maximum job queue latency across the given RQ queues (waiting only).
 
@@ -46,15 +58,7 @@ def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
         >>> job_queue_latency("default", redis_url="redis://localhost:6379/0")
         10.172
     """
-    redis_url = (
-        redis_url
-        or os.getenv("REDIS_TLS_URL")
-        or os.getenv("REDIS_URL")
-        or os.getenv("REDISTOGO_URL")
-        or os.getenv("REDISCLOUD_URL")
-        or os.getenv("OPENREDIS_URL")
-        or "redis://localhost:6379/0"
-    )
+    redis_url = _resolve_redis_url(redis_url)
 
     redis_client = redis.Redis.from_url(redis_url)
     try:
@@ -164,15 +168,7 @@ def job_queue_size(*queues: str, redis_url: str | None = None) -> int:
         >>> job_queue_size("default", redis_url="redis://localhost:6379/0")
         42
     """
-    redis_url = (
-        redis_url
-        or os.getenv("REDIS_TLS_URL")
-        or os.getenv("REDIS_URL")
-        or os.getenv("REDISTOGO_URL")
-        or os.getenv("REDISCLOUD_URL")
-        or os.getenv("OPENREDIS_URL")
-        or "redis://localhost:6379/0"
-    )
+    redis_url = _resolve_redis_url(redis_url)
 
     redis_client = redis.Redis.from_url(redis_url)
     try:
@@ -248,15 +244,7 @@ def job_queue_working(*queues: str, redis_url: str | None = None) -> int:
         >>> job_queue_working("default", "mailer")
         3
     """
-    redis_url = (
-        redis_url
-        or os.getenv("REDIS_TLS_URL")
-        or os.getenv("REDIS_URL")
-        or os.getenv("REDISTOGO_URL")
-        or os.getenv("REDISCLOUD_URL")
-        or os.getenv("OPENREDIS_URL")
-        or "redis://localhost:6379/0"
-    )
+    redis_url = _resolve_redis_url(redis_url)
 
     redis_client = redis.Redis.from_url(redis_url)
     try:

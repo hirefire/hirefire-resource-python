@@ -187,3 +187,15 @@ def test_live_gate_drops_a_sample_that_returns_after_stop():
     )
 
     assert buffer().flush() == {}
+
+
+def test_sample_job_queue_reports_under_explicit_name():
+    with HireFire.configure() as config:
+        config.dyno("Worker", lambda: 4)
+
+    job_queue = HireFire.configuration.job_queues.find_by_name("worker")
+    HireFire.configuration.job_queues.sample_job_queue(job_queue, "jqs", name="worker")
+
+    data = buffer().flush()
+    assert _strategy_value(data, "worker", "jqs") == 4
+    assert "Worker" not in data

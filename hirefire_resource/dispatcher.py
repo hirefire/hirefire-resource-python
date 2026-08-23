@@ -430,7 +430,7 @@ class Dispatcher:
                 self._warn_plan_override_once(name)
             if live is not None and not live():
                 return
-            plan.execute(entry)
+            plan.execute(entry, live)
         elif plan.known_adapter(adapter):
             self._warn_unloaded_adapter_once(name, adapter)
         else:
@@ -456,7 +456,9 @@ class Dispatcher:
 
         job_queue = local_job_queues.find_by_name(name)
         if job_queue is not None:
-            local_job_queues.sample_job_queue(job_queue, strategy, live=live)
+            local_job_queues.sample_job_queue(
+                job_queue, strategy, live=live, name=name.strip()
+            )
 
     def _warn_unloaded_adapter_once(self, name: str, adapter: object) -> None:
         if name in self._unloaded_adapter_warned:

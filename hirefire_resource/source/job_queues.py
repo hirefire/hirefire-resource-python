@@ -41,17 +41,23 @@ class JobQueues:
         job_queue: JobQueue | None,
         strategy: str,
         live: Callable[[], bool] | None = None,
+        name: str | None = None,
     ) -> None:
         if job_queue is None:
             return
 
+        report_name = (
+            job_queue.name
+            if name is None or not str(name).strip()
+            else str(name).strip()
+        )
         strategy = str(strategy)
         if strategy not in ("jql", "jqs"):
             safe_log(
                 self._logger(),
                 "error",
                 f"[HireFire] Unknown job-queue strategy {strategy!r} for "
-                f"{job_queue.name!r}. Sample dropped.",
+                f"{report_name!r}. Sample dropped.",
             )
             return
 
@@ -64,18 +70,18 @@ class JobQueues:
                 safe_log(
                     self._logger(),
                     "error",
-                    f"[HireFire] The sampler for {job_queue.name!r} returned "
+                    f"[HireFire] The sampler for {report_name!r} returned "
                     f"{self._format_sample_value(value)}, expected a non-negative "
                     "number. Sample dropped.",
                 )
                 return
 
-            self._buffer().sample(job_queue.name, strategy, self._coerce_sample(value))
+            self._buffer().sample(report_name, strategy, self._coerce_sample(value))
         except Exception as error:
             safe_log(
                 self._logger(),
                 "error",
-                f"[HireFire] The sampler for {job_queue.name!r} raised "
+                f"[HireFire] The sampler for {report_name!r} raised "
                 f"{type(error).__name__}: {error}",
             )
 

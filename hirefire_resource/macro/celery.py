@@ -122,27 +122,7 @@ def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
         22.918
     """
     queue_names = normalize_queues(*queues)
-
-    broker_url = (
-        broker_url
-        or os.environ.get("AMQP_URL")
-        or os.environ.get("RABBITMQ_URL")
-        or os.environ.get("RABBITMQ_BIGWIG_URL")
-        or os.environ.get("CLOUDAMQP_URL")
-        or os.environ.get("REDIS_TLS_URL")
-        or os.environ.get("REDIS_URL")
-        or os.environ.get("REDISTOGO_URL")
-        or os.environ.get("REDISCLOUD_URL")
-        or os.environ.get("OPENREDIS_URL")
-    )
-
-    if not broker_url:
-        if AMQP_AVAILABLE:
-            broker_url = "amqp://guest:guest@localhost:5672"
-        else:
-            broker_url = "redis://localhost:6379/0"
-
-    app = Celery(broker=broker_url)
+    app = Celery(broker=_resolve_broker_url(broker_url))
 
     try:
         with app.connection_or_acquire() as connection:
@@ -293,26 +273,7 @@ def job_queue_size(
         )
 
     if celery_app is None:
-        broker_url = (
-            broker_url
-            or os.environ.get("AMQP_URL")
-            or os.environ.get("RABBITMQ_URL")
-            or os.environ.get("RABBITMQ_BIGWIG_URL")
-            or os.environ.get("CLOUDAMQP_URL")
-            or os.environ.get("REDIS_TLS_URL")
-            or os.environ.get("REDIS_URL")
-            or os.environ.get("REDISTOGO_URL")
-            or os.environ.get("REDISCLOUD_URL")
-            or os.environ.get("OPENREDIS_URL")
-        )
-
-        if not broker_url:
-            if AMQP_AVAILABLE:
-                broker_url = "amqp://guest:guest@localhost:5672"
-            else:
-                broker_url = "redis://localhost:6379/0"
-
-        celery_app = Celery(broker=broker_url)
+        celery_app = Celery(broker=_resolve_broker_url(broker_url))
 
     try:
         with celery_app.connection_or_acquire() as connection:
@@ -412,7 +373,10 @@ def run_at_header_signal(
 def _job_queue_latency_redis(channel: Any, queue: str) -> float:
     oldest_job = channel.client.lindex(queue, -1)
 
-    if oldest_job:
+    if not oldest_job:
+        return 0
+
+    try:
         oldest_job = json.loads(_as_str(oldest_job))
         run_at = oldest_job.get("headers", {}).get("run_at")
 
@@ -420,6 +384,8 @@ def _job_queue_latency_redis(channel: Any, queue: str) -> float:
             run_at_time = parse(run_at)
             latency = time.time() - run_at_time.timestamp()
             return max(0, latency)
+    except Exception:
+        return 0
 
     return 0
 
@@ -428,6 +394,30 @@ def _as_str(value: bytes | str) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8")
     return value
+
+
+def _resolve_broker_url(broker_url: str | None) -> str:
+    if broker_url:
+        return broker_url
+
+    for key in (
+        "AMQP_URL",
+        "RABBITMQ_URL",
+        "RABBITMQ_BIGWIG_URL",
+        "CLOUDAMQP_URL",
+        "REDIS_TLS_URL",
+        "REDIS_URL",
+        "REDISTOGO_URL",
+        "REDISCLOUD_URL",
+        "OPENREDIS_URL",
+    ):
+        value = os.environ.get(key)
+        if value:
+            return value
+
+    if AMQP_AVAILABLE:
+        return "amqp://guest:guest@localhost:5672"
+    return "redis://localhost:6379/0"
 
 
 def _job_queue_latency_rabbitmq(channel: Any, queue: str) -> float:
@@ -445,6 +435,8 @@ def _job_queue_latency_rabbitmq(channel: Any, queue: str) -> float:
                 latency = time.time() - run_at_time.timestamp()
                 return max(0, latency)
 
+            return 0
+        except Exception:
             return 0
         finally:
             channel.basic_reject(message.delivery_tag, requeue=True)
