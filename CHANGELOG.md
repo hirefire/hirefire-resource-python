@@ -14,14 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - CPU activity is sampled automatically.
 - Optional token-only setup with `HireFire.boot()`. Existing `config.dyno` job queue blocks still work.
 - Count of jobs still being processed (`job_queue_working` / `async_job_queue_working`) for RQ.
-- Dramatiq adapter: job queue size and job queue latency.
+- Dramatiq adapter: job queue size and job queue latency. Redis counts ready jobs plus due delayed jobs. RabbitMQ counts ready messages on the main queue only.
+- Support Python 3.13 and 3.14.
+- Support Django 5 and 6, Starlette 1, and RQ 2.
 - The package now ships type hints.
 
 ### Changed
 
 - Job queue macros count queued jobs plus scheduled or retry jobs that are due. Jobs already being processed are no longer included in job queue size or job queue latency.
 - Celery job queue size counts only ready messages in the broker. Active, reserved, and inspect-based scheduled tasks are not included.
-- Required Python is 3.11+. Official support is Django 4+.
+- Required Python is 3.11+. Official support is Django 4+, Flask 2+, Celery 5+, RQ 1+, and Dramatiq 2+.
 
 ### Deprecated
 

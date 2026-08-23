@@ -10,15 +10,16 @@ class MissingQueueError(Exception):
 
 
 class MissingSamplerError(Exception):
-    """Raised when ``dyno`` cannot resolve a source without a sampler.
+    """Raised when ``dyno`` is given without a sampler.
 
-    Bare ``dyno("web")`` is valid: the ``"web"`` name implies http without a sampler.
+    Bare ``dyno("web")`` is a deprecated no-op (request queue time is sampled from
+    HTTP traffic). Any other name needs a job-queue sampler.
     """
 
 
 class DuplicateDynoError(Exception):
     """Raised when a dyno name was already declared for the same source kind.
 
-    Names are compared case-insensitively. At most one http source may exist per
-    app process.
+    Names are compared case-insensitively. Job-queue samplers share a name
+    namespace per process.
     """

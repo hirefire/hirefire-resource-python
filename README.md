@@ -54,10 +54,11 @@ Requires [Docker](https://www.docker.com/) and [mise](https://mise.jdx.dev/). Re
 ## Release
 
 1. Update the `version` property in `pyproject.toml`.
-2. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` (today's date) and add a fresh empty `## [Unreleased]` above it.
-3. Commit changes with `git commit`.
-4. Create a `git tag` matching the new version (e.g., `v1.0.0`).
-5. Push the new git tag. Continuous Integration will handle the distribution process.
+2. If `pyproject.toml` dependencies changed, refresh `poetry.lock` with `poetry lock`.
+3. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` (today's date) and add a fresh empty `## [Unreleased]` above it.
+4. Commit changes with `git commit`.
+5. Create a `git tag` matching the new version (e.g., `v1.0.0`).
+6. Push the new git tag. Continuous Integration will handle the distribution process.
 
 ## License
 
