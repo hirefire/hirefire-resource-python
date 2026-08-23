@@ -745,6 +745,7 @@ def test_tick_dispatches_when_a_sampler_raises(caplog, monkeypatch):
 
 
 @mocketize
+@mocketize
 def test_started_thread_dispatches_until_stopped():
     Entry.single_register(Entry.POST, INGEST_URL, status=200)
 
