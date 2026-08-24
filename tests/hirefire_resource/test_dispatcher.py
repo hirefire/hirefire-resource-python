@@ -323,6 +323,7 @@ def test_web_buffer_discarded_on_unauthorized(caplog):
         dispatcher._tick()
 
     assert "web" not in HireFire.configuration.buffer.flush()
+    assert dispatcher._last_rqt_second == 1000
     assert "Dispatch error" not in caplog.text
 
 

@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Job queue macros count queued jobs plus scheduled or retry jobs that are due. Jobs already being processed are no longer included in job queue size or job queue latency.
 - Celery job queue size counts only ready messages in the broker. Active, reserved, and inspect-based scheduled tasks are not included.
-- Required Python is 3.11+. Official support is Django 4+, Flask 2+, Celery 5+, RQ 1+, and Dramatiq 2+.
+- Required Python is 3.11+. Official Django support is 4+.
 
 ### Deprecated
 

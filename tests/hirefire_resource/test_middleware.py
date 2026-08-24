@@ -239,5 +239,10 @@ def test_calculate_request_queue_time_rounds_a_fractional_millisecond_remainder(
         assert calculate_request_queue_time("t=1700000000.2506") == 749
 
 
+def test_calculate_request_queue_time_rounds_a_fractional_nanosecond_remainder():
+    with patch("time.time", return_value=1_700_000_001):
+        assert calculate_request_queue_time("1700000000250600000") == 749
+
+
 def test_calculate_request_queue_time_drops_a_negative_request_start():
     assert calculate_request_queue_time("-1700000000250") is None

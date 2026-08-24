@@ -8,6 +8,7 @@ import redis
 from dramatiq import Message
 from dramatiq.brokers.redis import RedisBroker
 
+from hirefire_resource import plan
 from hirefire_resource.errors import MissingQueueError
 from hirefire_resource.macro import dramatiq as dramatiq_macro
 from hirefire_resource.macro.dramatiq import (
@@ -133,6 +134,12 @@ def _seed_xq(client: redis.Redis, queue: str, *, namespace: str = NAMESPACE) -> 
     body = _encode(queue=queue, options={"redis_message_id": mid})
     client.zadd(f"{namespace}:{queue}.XQ", {mid: time.time() * 1000})
     client.hset(f"{namespace}:{queue}.XQ.msgs", mid, body)
+
+
+def test_library_loaded_is_true_when_dramatiq_package_is_imported():
+    assert plan.library_loaded("dramatiq")
+    assert plan.executable("dramatiq")
+    assert plan.any_allowlisted_job_queue_library_loaded()
 
 
 def test_job_queue_size_requires_queues():

@@ -21,6 +21,32 @@ def test_library_loaded_uses_sys_modules_only():
         assert plan.any_allowlisted_job_queue_library_loaded()
 
 
+def test_load_macro_does_not_import_unloaded_host_library():
+    hosts = ("celery", "rq", "dramatiq")
+    adapter_modules = {f"hirefire_resource.macro.{name}" for name in hosts}
+    removed = {}
+    keys = [
+        k
+        for k in list(sys.modules)
+        if k in hosts
+        or any(k.startswith(f"{name}.") for name in hosts)
+        or k in adapter_modules
+    ]
+    for key in keys:
+        removed[key] = sys.modules.pop(key)
+    try:
+        for name in hosts:
+            assert plan._load_macro(name) is None
+        with plan.around_job_queue_sample():
+            pass
+        plan.reinit_macros_after_fork()
+        for name in hosts:
+            assert name not in sys.modules
+            assert f"hirefire_resource.macro.{name}" not in sys.modules
+    finally:
+        sys.modules.update(removed)
+
+
 def test_library_loaded_detects_dramatiq_from_sys_modules():
     with patch.dict(sys.modules, {"dramatiq": object()}, clear=False):
         assert plan.library_loaded("dramatiq")
@@ -778,8 +804,13 @@ def test_around_job_queue_sample_soft_skips_missing_macro_without_logging(caplog
 
 
 def test_load_macro_import_error_returns_none_without_raising():
-    with patch.object(
-        plan, "ADAPTER_MODULES", {"celery": "hirefire_resource.macro.no_such_module"}
+    with (
+        patch.object(
+            plan,
+            "ADAPTER_MODULES",
+            {"celery": "hirefire_resource.macro.no_such_module"},
+        ),
+        patch.dict(sys.modules, {"celery": object()}),
     ):
         assert plan._load_macro("celery") is None
         assert plan._load_macro("unknown") is None

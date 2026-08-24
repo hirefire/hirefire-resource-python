@@ -23,6 +23,12 @@ redis_url = f"redis://localhost:{os.environ.get('REDIS_PORT', '6379')}/0"
 queue_name = "default"
 
 
+def test_library_loaded_is_true_when_rq_package_is_imported():
+    assert plan.library_loaded("rq")
+    assert plan.executable("rq")
+    assert plan.any_allowlisted_job_queue_library_loaded()
+
+
 @pytest.fixture(autouse=True)
 def clear_redis():
     r = Redis.from_url(redis_url)

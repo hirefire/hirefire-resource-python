@@ -285,6 +285,8 @@ def normalize_queues(queues: object, name: str) -> list[str] | None:
 
 
 def _load_macro(adapter: object) -> Any | None:
+    if not library_loaded(adapter):
+        return None
     module_name = ADAPTER_MODULES.get(str(adapter))
     if module_name is None:
         return None

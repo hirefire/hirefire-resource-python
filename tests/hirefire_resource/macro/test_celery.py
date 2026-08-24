@@ -8,6 +8,7 @@ import pytest
 from celery import Celery
 from kombu import Queue
 
+from hirefire_resource import plan
 from hirefire_resource.errors import MissingQueueError
 from hirefire_resource.macro.celery import (
     _job_queue_latency_rabbitmq,
@@ -78,6 +79,36 @@ def clear_broker(celery_app):
             for queue in ["celery", "mailer"]:
                 channel.queue_delete(queue=queue)
                 channel.queue_declare(queue=queue, durable=True, auto_delete=False)
+
+
+def test_library_loaded_is_true_when_celery_package_is_imported():
+    assert plan.library_loaded("celery")
+    assert plan.executable("celery")
+    assert plan.any_allowlisted_job_queue_library_loaded()
+
+
+def test_plan_does_not_import_celery_when_host_is_unloaded():
+    import sys
+
+    removed = {}
+    keys = [
+        k
+        for k in list(sys.modules)
+        if k == "celery"
+        or k.startswith("celery.")
+        or k == "hirefire_resource.macro.celery"
+    ]
+    for key in keys:
+        removed[key] = sys.modules.pop(key)
+    try:
+        assert plan._load_macro("celery") is None
+        with plan.around_job_queue_sample():
+            pass
+        plan.reinit_macros_after_fork()
+        assert "celery" not in sys.modules
+        assert "hirefire_resource.macro.celery" not in sys.modules
+    finally:
+        sys.modules.update(removed)
 
 
 def test_job_queue_latency_missing_queue():
