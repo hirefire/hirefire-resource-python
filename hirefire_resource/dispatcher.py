@@ -301,7 +301,14 @@ class Dispatcher:
         self, generation: int, tick: Callable[[int | None], None]
     ) -> None:
         while self._loop_active(generation):
-            tick(generation)
+            try:
+                tick(generation)
+            except Exception as error:
+                safe_log(
+                    self._logger(),
+                    "error",
+                    f"[HireFire] {type(error).__name__}: {error}",
+                )
             time.sleep(1)
 
     def _join_loop_thread(self, thread: threading.Thread) -> None:

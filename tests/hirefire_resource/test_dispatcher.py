@@ -822,6 +822,28 @@ def test_stale_loop_generation_stops_after_restart():
     assert dispatcher._loop_active(2)
 
 
+def test_loop_until_stopped_logs_raising_tick_and_continues(caplog):
+    caplog.set_level(logging.ERROR)
+    dispatcher = Dispatcher()
+    dispatcher._running = True
+    dispatcher._pid = os.getpid()
+    dispatcher._generation = 1
+    calls = {"n": 0}
+
+    def tick(_generation):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("tick boom")
+        dispatcher._running = False
+
+    with patch("hirefire_resource.dispatcher.time.sleep"):
+        dispatcher._loop_until_stopped(1, tick)
+
+    assert calls["n"] >= 2
+    assert "tick boom" in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
 @mocketize
 def test_a_hung_worker_sampler_does_not_stall_web_dispatch():
     stub_lease(granted=True)
