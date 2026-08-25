@@ -988,6 +988,54 @@ def test_execute_still_samples_wrk_when_job_strategy_sample_invalid():
     assert working_called is True
 
 
+def test_execute_still_samples_wrk_when_job_strategy_raises(caplog):
+    import logging
+
+    caplog.set_level(logging.ERROR)
+    working_called = False
+
+    class Macro:
+        @staticmethod
+        def supports_plan_strategy(strategy):
+            return True
+
+        @staticmethod
+        def plan_options(strategy, options):
+            return {}
+
+        @staticmethod
+        def plan_connection_options():
+            return {}
+
+        @staticmethod
+        def job_queue_size(*queues, **options):
+            raise RuntimeError("jqs boom")
+
+        @staticmethod
+        def job_queue_working(*queues, **options):
+            nonlocal working_called
+            working_called = True
+            return 3
+
+    with patch.object(plan, "_load_macro", return_value=Macro):
+        plan.execute(
+            {
+                "name": "worker",
+                "adapter": "rq",
+                "strategy": "jqs",
+                "queues": ["default"],
+            }
+        )
+
+    data = HireFire.configuration.buffer.flush()
+    assert data.get("worker", {}).get("jqs") is None
+    assert list(data["worker"]["wrk"].values())[0] == 3
+    assert working_called is True
+    assert "Plan sampler for" in caplog.text
+    assert "raised" in caplog.text
+    assert "jqs boom" in caplog.text
+
+
 def test_execute_skips_wrk_when_macro_lacks_job_queue_working():
     class Macro:
         @staticmethod

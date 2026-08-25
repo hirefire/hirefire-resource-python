@@ -195,22 +195,30 @@ def _sample_job_strategy(
     options: dict[str, Any],
     live: Callable[[], bool] | None = None,
 ) -> bool:
-    method = getattr(macro, method_name)
-    value = method(*queues, **options)
-    if live is not None and not live():
-        return False
+    try:
+        method = getattr(macro, method_name)
+        value = method(*queues, **options)
+        if live is not None and not live():
+            return False
 
-    if not _valid_sample(value):
+        if not _valid_sample(value):
+            _log(
+                "error",
+                f"[HireFire] Plan sampler for {name!r} returned "
+                f"{_format_sample_value(value)}, expected a non-negative number. "
+                "Sample dropped.",
+            )
+            return False
+
+        _record_sample(name, strategy, value)
+        return True
+    except Exception as error:
         _log(
             "error",
-            f"[HireFire] Plan sampler for {name!r} returned "
-            f"{_format_sample_value(value)}, expected a non-negative number. "
-            "Sample dropped.",
+            f"[HireFire] Plan sampler for {name!r} raised "
+            f"{type(error).__name__}: {error}",
         )
         return False
-
-    _record_sample(name, strategy, value)
-    return True
 
 
 def _sample_working(
