@@ -15,6 +15,9 @@ after_sample_job_queues = _plan_hooks.after_sample_job_queues
 reinit_after_fork = _plan_hooks.reinit_after_fork
 
 
+_SAMPLE_REDIS_TIMEOUT = 5.0
+
+
 def _resolve_redis_url(redis_url: str | None) -> str:
     return (
         redis_url
@@ -24,6 +27,14 @@ def _resolve_redis_url(redis_url: str | None) -> str:
         or os.getenv("REDISCLOUD_URL")
         or os.getenv("OPENREDIS_URL")
         or "redis://localhost:6379/0"
+    )
+
+
+def _open_redis(redis_url: str) -> redis.Redis:
+    return redis.Redis.from_url(
+        redis_url,
+        socket_timeout=_SAMPLE_REDIS_TIMEOUT,
+        socket_connect_timeout=_SAMPLE_REDIS_TIMEOUT,
     )
 
 
@@ -60,7 +71,7 @@ def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
     """
     redis_url = _resolve_redis_url(redis_url)
 
-    redis_client = redis.Redis.from_url(redis_url)
+    redis_client = _open_redis(redis_url)
     try:
         queue_names = normalize_queues(*queues, allow_empty=True)
         if not queue_names:
@@ -91,9 +102,13 @@ def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
         max_latency = 0.0
 
         for enqueued_at in enqueued_at_times:
-            if enqueued_at:
-                latency = current_time - _iso_to_unix(_as_str(enqueued_at))
-                max_latency = max(max_latency, latency)
+            if not enqueued_at:
+                continue
+            enqueued_unix = _iso_to_unix(_as_str(enqueued_at))
+            if enqueued_unix is None:
+                continue
+            latency = current_time - enqueued_unix
+            max_latency = max(max_latency, latency)
 
         for job_data in job_ids[1::2]:
             if job_data:
@@ -170,7 +185,7 @@ def job_queue_size(*queues: str, redis_url: str | None = None) -> int:
     """
     redis_url = _resolve_redis_url(redis_url)
 
-    redis_client = redis.Redis.from_url(redis_url)
+    redis_client = _open_redis(redis_url)
     try:
         queue_names = normalize_queues(*queues, allow_empty=True)
         if not queue_names:
@@ -246,7 +261,7 @@ def job_queue_working(*queues: str, redis_url: str | None = None) -> int:
     """
     redis_url = _resolve_redis_url(redis_url)
 
-    redis_client = redis.Redis.from_url(redis_url)
+    redis_client = _open_redis(redis_url)
     try:
         queue_names = normalize_queues(*queues, allow_empty=True)
         if not queue_names:
@@ -290,11 +305,12 @@ def _as_str(value: bytes | str) -> str:
     return value
 
 
-def _iso_to_unix(iso_time: str) -> float:
-    dt = datetime.fromisoformat(iso_time.replace("Z", "+00:00"))
-    unix_time = float(dt.timestamp())
-
-    return unix_time
+def _iso_to_unix(iso_time: str) -> float | None:
+    try:
+        dt = datetime.fromisoformat(iso_time.replace("Z", "+00:00"))
+        return float(dt.timestamp())
+    except (ValueError, TypeError, OverflowError, OSError):
+        return None
 
 
 def plan_options(strategy: object, options: object) -> dict[str, Any]:

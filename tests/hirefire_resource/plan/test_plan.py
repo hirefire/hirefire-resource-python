@@ -828,6 +828,13 @@ def test_allowlisted_macros_reexport_sample_wave_hooks_as_noops():
         except ImportError:
             results[name] = "skip"
             continue
+        if name == "dramatiq":
+            assert macro.before_sample_job_queues is not hooks.before_sample_job_queues
+            token = macro.before_sample_job_queues()
+            macro.after_sample_job_queues(token)
+            macro.reinit_after_fork()
+            results[name] = "ok"
+            continue
         assert macro.before_sample_job_queues is hooks.before_sample_job_queues
         assert macro.after_sample_job_queues is hooks.after_sample_job_queues
         assert macro.reinit_after_fork is hooks.reinit_after_fork

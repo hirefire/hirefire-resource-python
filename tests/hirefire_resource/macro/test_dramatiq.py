@@ -11,12 +11,10 @@ from dramatiq.brokers.redis import RedisBroker
 from hirefire_resource import plan
 from hirefire_resource.errors import MissingQueueError
 from hirefire_resource.macro import dramatiq as dramatiq_macro
-from hirefire_resource.macro.dramatiq import (
-    async_job_queue_latency,
-    async_job_queue_size,
-    job_queue_latency,
-    job_queue_size,
-)
+from hirefire_resource.macro.dramatiq import (async_job_queue_latency,
+                                              async_job_queue_size,
+                                              job_queue_latency,
+                                              job_queue_size)
 
 redis_url = f"redis://127.0.0.1:{os.environ.get('REDIS_PORT', '6379')}/0"
 amqp_url = f"amqp://guest:guest@127.0.0.1:{os.environ.get('RABBITMQ_PORT', '5672')}"
@@ -679,6 +677,107 @@ def test_job_queue_size_due_delayed_hmget_batching_across_boundary(monkeypatch):
         )
     finally:
         client.close()
+
+
+def test_job_queue_size_caps_dq_walk_and_omits_due_past_the_limit(monkeypatch):
+    import json
+
+    limit = dramatiq_macro._DQ_WALK_LIMIT
+    client = redis.Redis.from_url(redis_url)
+    try:
+        now_ms = int(time.time() * 1000)
+        future = now_ms + 3_600_000
+        due = now_ms - 40_000
+        pipe = client.pipeline()
+        ids = []
+        for i in range(limit):
+            mid = f"future{i}"
+            ids.append(mid)
+            pipe.hset(
+                f"{NAMESPACE}:default.DQ.msgs",
+                mid,
+                json.dumps({"options": {"eta": future}, "message_timestamp": now_ms}),
+            )
+        pipe.rpush(f"{NAMESPACE}:default.DQ", *ids)
+        pipe.hset(
+            f"{NAMESPACE}:default.DQ.msgs",
+            "due-past-cap",
+            json.dumps({"options": {"eta": due}, "message_timestamp": now_ms}),
+        )
+        pipe.rpush(f"{NAMESPACE}:default.DQ", "due-past-cap")
+        pipe.execute()
+
+        ranges: list[tuple[int, int]] = []
+        real_from_url = redis.Redis.from_url
+
+        def tracking_from_url(url, **kwargs):
+            sample = real_from_url(url, **kwargs)
+            real_lrange = sample.lrange
+
+            def lrange(key, start, end):
+                ranges.append((start, end))
+                return real_lrange(key, start, end)
+
+            sample.lrange = lrange  # type: ignore[method-assign]
+            return sample
+
+        monkeypatch.setattr(dramatiq_macro.redis.Redis, "from_url", tracking_from_url)
+        assert job_queue_size("default", broker_url=redis_url) == 0
+        assert ranges == [(0, limit - 1)]
+    finally:
+        client.close()
+
+
+def test_dq_walk_is_memoized_for_one_sample_wave(monkeypatch):
+    client = redis.Redis.from_url(redis_url)
+    try:
+        _seed_delayed(client, "default", eta_offset_s=-40)
+        lrange_calls = [0]
+        real_from_url = redis.Redis.from_url
+
+        def tracking_from_url(url, **kwargs):
+            sample = real_from_url(url, **kwargs)
+            real_lrange = sample.lrange
+
+            def lrange(key, start, end):
+                lrange_calls[0] += 1
+                return real_lrange(key, start, end)
+
+            sample.lrange = lrange  # type: ignore[method-assign]
+            return sample
+
+        monkeypatch.setattr(dramatiq_macro.redis.Redis, "from_url", tracking_from_url)
+        dramatiq_macro.before_sample_job_queues()
+        try:
+            assert job_queue_size("default", broker_url=redis_url) == 1
+            assert job_queue_latency("default", broker_url=redis_url) == pytest.approx(
+                40, abs=5
+            )
+            assert lrange_calls[0] == 1
+        finally:
+            dramatiq_macro.after_sample_job_queues()
+
+        assert job_queue_size("default", broker_url=redis_url) == 1
+        assert job_queue_latency("default", broker_url=redis_url) == pytest.approx(
+            40, abs=5
+        )
+        assert lrange_calls[0] == 3
+    finally:
+        client.close()
+
+
+def test_sample_redis_sets_socket_timeouts(monkeypatch):
+    seen: dict[str, object] = {}
+    real_from_url = redis.Redis.from_url
+
+    def tracking_from_url(url, **kwargs):
+        seen.update(kwargs)
+        return real_from_url(url, **kwargs)
+
+    monkeypatch.setattr(dramatiq_macro.redis.Redis, "from_url", tracking_from_url)
+    assert job_queue_size("default", broker_url=redis_url) == 0
+    assert seen["socket_timeout"] == dramatiq_macro._SAMPLE_REDIS_TIMEOUT
+    assert seen["socket_connect_timeout"] == dramatiq_macro._SAMPLE_REDIS_TIMEOUT
 
 
 def test_job_queue_size_multi_queue_due_and_live_unequal():

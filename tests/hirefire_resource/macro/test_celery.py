@@ -10,15 +10,12 @@ from kombu import Queue
 
 from hirefire_resource import plan
 from hirefire_resource.errors import MissingQueueError
-from hirefire_resource.macro.celery import (
-    _job_queue_latency_rabbitmq,
-    _job_queue_latency_redis,
-    _resolve_broker_url,
-    async_job_queue_latency,
-    async_job_queue_size,
-    job_queue_latency,
-    job_queue_size,
-)
+from hirefire_resource.macro.celery import (_job_queue_latency_rabbitmq,
+                                            _job_queue_latency_redis,
+                                            _resolve_broker_url,
+                                            async_job_queue_latency,
+                                            async_job_queue_size,
+                                            job_queue_latency, job_queue_size)
 
 redis_url = f"redis://localhost:{os.environ.get('REDIS_PORT', '6379')}/0"
 amqp_url = f"amqp://guest:guest@localhost:{os.environ.get('RABBITMQ_PORT', '5672')}"
@@ -258,6 +255,32 @@ def test_mitigate_connection_reset_error_decorator():
     result = flaky_function()
     assert result == 42
     assert call_count[0] == 2
+
+
+def test_mitigate_connection_reset_error_preserves_docs_and_retries_once(
+    monkeypatch,
+):
+    from hirefire_resource.macro import celery as celery_macro
+
+    assert celery_macro.job_queue_size.__name__ == "job_queue_size"
+    assert celery_macro.job_queue_latency.__name__ == "job_queue_latency"
+    assert celery_macro.job_queue_size.__doc__
+    assert celery_macro.job_queue_latency.__doc__
+
+    slept: list[float] = []
+    monkeypatch.setattr(time, "sleep", lambda seconds: slept.append(seconds))
+    calls = [0]
+
+    @celery_macro.mitigate_connection_reset_error()
+    def flaky_function():
+        calls[0] += 1
+        if calls[0] == 1:
+            raise ConnectionResetError("reset")
+        return 7
+
+    assert flaky_function() == 7
+    assert calls[0] == 2
+    assert slept == []
 
 
 @pytest.mark.asyncio

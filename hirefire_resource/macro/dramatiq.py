@@ -5,12 +5,40 @@ import os
 import time
 from typing import Any
 
-from hirefire_resource.plan import hooks as _plan_hooks
 from hirefire_resource.utility import normalize_queues
 
-before_sample_job_queues = _plan_hooks.before_sample_job_queues
-after_sample_job_queues = _plan_hooks.after_sample_job_queues
-reinit_after_fork = _plan_hooks.reinit_after_fork
+_HMGET_BATCH = 200
+_DEFAULT_NAMESPACE = "dramatiq"
+_AMQP_SCHEMES = ("amqp://", "amqps://")
+_REDIS_SCHEMES = ("redis://", "rediss://")
+_SAMPLE_REDIS_TIMEOUT = 5.0
+# Cap how many .DQ ids we decode per queue per sample. The delay queue is an
+# unsorted list, so there is no cheap due filter. Walking the whole list can
+# overrun the 5s lease TTL and flap the grant. Extra due work past this cap is
+# omitted (same class of budget as Sidekiq max_scheduled). Not a plan option.
+_DQ_WALK_LIMIT = 2000
+
+_dq_wave: dict[tuple[str, str], tuple[int, int | None]] | None = None
+
+
+def before_sample_job_queues() -> object:
+    """Open a process-local .DQ walk memo for one Dispatcher sample wave."""
+    global _dq_wave
+    _dq_wave = {}
+    return True
+
+
+def after_sample_job_queues(token: object = None) -> None:
+    """Close the .DQ walk memo from :func:`before_sample_job_queues`."""
+    global _dq_wave
+    _dq_wave = None
+
+
+def reinit_after_fork() -> None:
+    """Drop an inherited .DQ walk memo after fork or abandoned state."""
+    global _dq_wave
+    _dq_wave = None
+
 
 try:
     import redis
@@ -37,11 +65,6 @@ except ImportError:
         pass
 
     PIKA_AVAILABLE = False
-
-_HMGET_BATCH = 200
-_DEFAULT_NAMESPACE = "dramatiq"
-_AMQP_SCHEMES = ("amqp://", "amqps://")
-_REDIS_SCHEMES = ("redis://", "rediss://")
 
 
 def job_queue_size(
@@ -358,7 +381,11 @@ def _resolve_connection(
     if kind == "redis":
         if redis is None:
             raise RuntimeError("redis package is required for Dramatiq Redis sampling")
-        client = redis.Redis.from_url(url)
+        client = redis.Redis.from_url(
+            url,
+            socket_timeout=_SAMPLE_REDIS_TIMEOUT,
+            socket_connect_timeout=_SAMPLE_REDIS_TIMEOUT,
+        )
         return {
             "kind": "redis",
             "client": client,
@@ -453,27 +480,9 @@ def _redis_job_queue_size(client: Any, queues: set[str], namespace: str) -> int:
     total = 0
     for queue in queues:
         total += int(client.llen(f"{namespace}:{queue}") or 0)
-        total += _redis_due_delayed_count(client, namespace, queue, now_ms)
+        due_count, _earliest = _redis_dq_stats(client, namespace, queue, now_ms)
+        total += due_count
     return total
-
-
-def _redis_due_delayed_count(
-    client: Any, namespace: str, queue: str, now_ms: int
-) -> int:
-    ids = client.lrange(f"{namespace}:{queue}.DQ", 0, -1)
-    if not ids:
-        return 0
-    count = 0
-    msgs_key = f"{namespace}:{queue}.DQ.msgs"
-    for offset in range(0, len(ids), _HMGET_BATCH):
-        batch = ids[offset : offset + _HMGET_BATCH]
-        bodies = client.hmget(msgs_key, *batch)
-        for body in bodies:
-            message = _decode_message(body)
-            eta = _message_eta_ms(message)
-            if eta is not None and eta <= now_ms:
-                count += 1
-    return count
 
 
 def _redis_job_queue_latency(client: Any, queues: set[str], namespace: str) -> float:
@@ -487,30 +496,39 @@ def _redis_job_queue_latency(client: Any, queues: set[str], namespace: str) -> f
             if ts is not None:
                 max_lat = max(max_lat, max(0.0, (now_ms - ts) / 1000.0))
 
-        earliest_due = _redis_earliest_due_eta(client, namespace, queue, now_ms)
+        _due_count, earliest_due = _redis_dq_stats(client, namespace, queue, now_ms)
         if earliest_due is not None:
             max_lat = max(max_lat, max(0.0, (now_ms - earliest_due) / 1000.0))
     return max_lat
 
 
-def _redis_earliest_due_eta(
+def _redis_dq_stats(
     client: Any, namespace: str, queue: str, now_ms: int
-) -> int | None:
-    ids = client.lrange(f"{namespace}:{queue}.DQ", 0, -1)
-    if not ids:
-        return None
+) -> tuple[int, int | None]:
+    cache_key = (namespace, queue)
+    if _dq_wave is not None and cache_key in _dq_wave:
+        return _dq_wave[cache_key]
+
+    ids = client.lrange(f"{namespace}:{queue}.DQ", 0, _DQ_WALK_LIMIT - 1)
+    due_count = 0
     earliest: int | None = None
-    msgs_key = f"{namespace}:{queue}.DQ.msgs"
-    for offset in range(0, len(ids), _HMGET_BATCH):
-        batch = ids[offset : offset + _HMGET_BATCH]
-        bodies = client.hmget(msgs_key, *batch)
-        for body in bodies:
-            eta = _message_eta_ms(_decode_message(body))
-            if eta is None or eta > now_ms:
-                continue
-            if earliest is None or eta < earliest:
-                earliest = eta
-    return earliest
+    if ids:
+        msgs_key = f"{namespace}:{queue}.DQ.msgs"
+        for offset in range(0, len(ids), _HMGET_BATCH):
+            batch = ids[offset : offset + _HMGET_BATCH]
+            bodies = client.hmget(msgs_key, *batch)
+            for body in bodies:
+                eta = _message_eta_ms(_decode_message(body))
+                if eta is None or eta > now_ms:
+                    continue
+                due_count += 1
+                if earliest is None or eta < earliest:
+                    earliest = eta
+
+    stats = (due_count, earliest)
+    if _dq_wave is not None:
+        _dq_wave[cache_key] = stats
+    return stats
 
 
 def _rabbitmq_open_channel(connection: Any) -> Any:

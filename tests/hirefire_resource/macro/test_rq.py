@@ -8,16 +8,13 @@ from redis import Redis
 from rq import Queue
 
 from hirefire_resource import HireFire, plan
-from hirefire_resource.macro.rq import (
-    _is_due_scheduled_score,
-    _resolve_redis_url,
-    async_job_queue_latency,
-    async_job_queue_size,
-    async_job_queue_working,
-    job_queue_latency,
-    job_queue_size,
-    job_queue_working,
-)
+from hirefire_resource.macro.rq import (_is_due_scheduled_score,
+                                        _resolve_redis_url,
+                                        async_job_queue_latency,
+                                        async_job_queue_size,
+                                        async_job_queue_working,
+                                        job_queue_latency, job_queue_size,
+                                        job_queue_working)
 
 redis_url = f"redis://localhost:{os.environ.get('REDIS_PORT', '6379')}/0"
 queue_name = "default"
@@ -457,6 +454,36 @@ def test_resolve_redis_url_explicit_wins_over_env(monkeypatch):
     _clear_redis_env(monkeypatch)
     monkeypatch.setenv("REDIS_URL", "redis://from-env/0")
     assert _resolve_redis_url("redis://explicit/0") == "redis://explicit/0"
+
+
+def test_job_queue_latency_skips_corrupt_enqueued_at():
+    r = Redis.from_url(redis_url)
+    r.sadd("rq:queues", "rq:queue:good", "rq:queue:bad")
+    r.rpush("rq:queue:good", "jobgood")
+    r.hset("rq:job:jobgood", "enqueued_at", "2020-01-01T00:00:00.000000Z")
+    r.rpush("rq:queue:bad", "jobbad")
+    r.hset("rq:job:jobbad", "enqueued_at", "not-a-timestamp")
+
+    latency = job_queue_latency("good", "bad", redis_url=redis_url)
+    assert latency > 0
+    assert job_queue_size("good", "bad", redis_url=redis_url) == 2
+    assert job_queue_working("good", "bad", redis_url=redis_url) == 0
+
+
+def test_sample_redis_sets_socket_timeouts(monkeypatch):
+    import hirefire_resource.macro.rq as rq_macro
+
+    seen: dict[str, object] = {}
+    real_from_url = Redis.from_url
+
+    def tracking_from_url(url, **kwargs):
+        seen.update(kwargs)
+        return real_from_url(url, **kwargs)
+
+    monkeypatch.setattr(rq_macro.redis.Redis, "from_url", tracking_from_url)
+    assert job_queue_size("default", redis_url=redis_url) == 0
+    assert seen["socket_timeout"] == rq_macro._SAMPLE_REDIS_TIMEOUT
+    assert seen["socket_connect_timeout"] == rq_macro._SAMPLE_REDIS_TIMEOUT
 
 
 def test_hirefire_rq_url_is_plan_only(monkeypatch):

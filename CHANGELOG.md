@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Job queue macros count queued jobs plus scheduled or retry jobs that are due. Jobs already being processed are no longer included in job queue size or job queue latency.
 - Celery job queue size counts only ready messages in the broker. Active, reserved, and inspect-based scheduled tasks are not included.
 - Required Python is 3.11+. Official Django support is 4+.
+- Dramatiq Redis delay-queue samples inspect at most 2000 messages per queue.
+- A Celery connection reset is retried once immediately. The sample no longer sleeps up to 9 seconds.
 
 ### Deprecated
 
@@ -40,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Working count is still sampled when job queue size or latency is invalid.
 - An oversized support sample-trace is dropped so ordinary metrics still ship.
 - Prefork `stop` keeps the parent pid so later children still reinitialize inherited state.
+- RQ job queue latency skips an unreadable job timestamp instead of dropping the whole sample.
+- RQ and Dramatiq Redis samples time out after 5 seconds when the broker does not respond.
 
 ## [1.0.4] - 2026-01-09
 

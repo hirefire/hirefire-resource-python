@@ -46,18 +46,19 @@ _F = TypeVar("_F", bound=Callable[..., Any])
 
 
 def mitigate_connection_reset_error(
-    retries: int = 10, delay: int = 1
+    retries: int = 2, delay: float = 0
 ) -> Callable[[_F], _F]:
     def decorator(func: _F) -> _F:
+        @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             for attempt in range(retries):
                 try:
                     return func(*args, **kwargs)
                 except ConnectionResetError:
-                    if attempt < retries - 1:
-                        time.sleep(delay)
-                    else:
+                    if attempt >= retries - 1:
                         raise
+                    if delay:
+                        time.sleep(delay)
 
         return cast(_F, wrapper)
 
