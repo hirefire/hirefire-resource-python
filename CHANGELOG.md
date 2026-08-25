@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Working count is still sampled when job queue size or latency is invalid.
 - The count of jobs still being processed is still reported when the queue size or latency reading fails.
+- Celery queue samples time out after 5 seconds when the broker does not respond.
 - An oversized support sample-trace is dropped so ordinary metrics still ship.
 - Prefork `stop` keeps the parent pid so later children still reinitialize inherited state.
 - RQ job queue latency skips an unreadable job timestamp instead of dropping the whole sample.

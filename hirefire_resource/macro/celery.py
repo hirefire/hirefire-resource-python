@@ -3,8 +3,9 @@ import functools
 import json
 import os
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any, Callable, TypeVar, cast
+from typing import Any, Callable, Iterator, TypeVar, cast
 
 from celery import Celery
 from celery.signals import before_task_publish
@@ -65,6 +66,57 @@ def mitigate_connection_reset_error(
     return decorator
 
 
+_SAMPLE_BROKER_TIMEOUT = 5.0
+
+
+def _sample_transport_options(url: str) -> dict[str, float]:
+    scheme = url.split(":", 1)[0].lower()
+    if scheme in ("redis", "rediss"):
+        return {
+            "socket_timeout": _SAMPLE_BROKER_TIMEOUT,
+            "socket_connect_timeout": _SAMPLE_BROKER_TIMEOUT,
+        }
+    if scheme in ("amqp", "amqps", "pyamqp"):
+        return {
+            "read_timeout": _SAMPLE_BROKER_TIMEOUT,
+            "write_timeout": _SAMPLE_BROKER_TIMEOUT,
+        }
+    return {
+        "socket_timeout": _SAMPLE_BROKER_TIMEOUT,
+        "socket_connect_timeout": _SAMPLE_BROKER_TIMEOUT,
+        "read_timeout": _SAMPLE_BROKER_TIMEOUT,
+        "write_timeout": _SAMPLE_BROKER_TIMEOUT,
+    }
+
+
+def _owned_celery_app(broker_url: str | None = None) -> Celery:
+    url = _resolve_broker_url(broker_url)
+    app = Celery(broker=url)
+    app.conf.broker_pool_limit = None
+    app.conf.broker_transport_options = _sample_transport_options(url)
+    app.conf.broker_connection_timeout = _SAMPLE_BROKER_TIMEOUT
+    app.conf.broker_connection_retry = False
+    app.conf.broker_connection_retry_on_startup = False
+    app.conf.broker_connection_max_retries = 0
+    return app
+
+
+@contextmanager
+def _sample_connection(app: Celery) -> Iterator[Any]:
+    # kombu Connection.connection hardcodes max_retries=1 and a 2s sleep.
+    # Owned samples must fail on the first 5s timeout with no extra budget.
+    connection = app.connection()
+    try:
+        connection._ensure_connection(
+            max_retries=0,
+            interval_start=0,
+            reraise_as_library_errors=True,
+        )
+        yield connection
+    finally:
+        connection.release()
+
+
 @mitigate_connection_reset_error()
 def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
     """Maximum job queue latency across the given Celery queues (Redis or RabbitMQ).
@@ -123,10 +175,10 @@ def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
         22.918
     """
     queue_names = normalize_queues(*queues)
-    app = Celery(broker=_resolve_broker_url(broker_url))
+    app = _owned_celery_app(broker_url)
 
     try:
-        with app.connection_or_acquire() as connection:
+        with _sample_connection(app) as connection:
             with connection.channel() as channel:
                 if hasattr(channel, "_size"):
                     fn = _job_queue_latency_redis
@@ -274,12 +326,16 @@ def job_queue_size(
         )
 
     if celery_app is None:
-        celery_app = Celery(broker=_resolve_broker_url(broker_url))
+        app = _owned_celery_app(broker_url)
+        conn_cm = _sample_connection(app)
+    else:
+        app = celery_app
+        conn_cm = app.connection_or_acquire()
 
     try:
-        with celery_app.connection_or_acquire() as connection:
+        with conn_cm as connection:
             with connection.channel() as channel:
-                return _job_queue_size_broker(celery_app, channel, queue_names)
+                return _job_queue_size_broker(app, channel, queue_names)
 
     except OperationalError:
         return 0
