@@ -20,6 +20,7 @@ class Dispatcher:
 
     RQT_BACKFILL_LIMIT = 60
     PAYLOAD_SIZE_LIMIT = 32_768
+    WARN_MAP_LIMIT = 128
     SAMPLE_COUNT_LIMIT = Buffer.SAMPLE_COUNT_LIMIT
     METRIC_VALUE_LIMIT = 1e15
     DEFAULT_DISPATCH_FREQUENCY = 1
@@ -193,7 +194,6 @@ class Dispatcher:
                 ]
             self._thread = None
             self._job_queue_thread = None
-            self._pid = None
 
         try:
             for thread in threads:
@@ -248,6 +248,7 @@ class Dispatcher:
             from hirefire_resource import plan
 
             plan.reinit_macros_after_fork()
+            self._configuration().reset_after_fork()
             self._lease.demote()
             self._client.close()
             self._lease.close()
@@ -317,7 +318,9 @@ class Dispatcher:
         if generation is not None and not self._loop_active(generation):
             return
 
-        for source in self._configuration().active_cpu_sources():
+        sources: list[Any] = []
+        self._guard(lambda: sources.extend(self._configuration().active_cpu_sources()))
+        for source in sources:
             self._guard(source.sample)
         self._dispatch_if_due(generation)
 
@@ -460,10 +463,17 @@ class Dispatcher:
                 job_queue, strategy, live=live, name=name.strip()
             )
 
+    def _remember_warn(self, store: dict[str, bool], key: str) -> bool:
+        if key in store:
+            return True
+        while len(store) >= self.WARN_MAP_LIMIT:
+            store.pop(next(iter(store)))
+        store[key] = True
+        return False
+
     def _warn_unloaded_adapter_once(self, name: str, adapter: object) -> None:
-        if name in self._unloaded_adapter_warned:
+        if self._remember_warn(self._unloaded_adapter_warned, name):
             return
-        self._unloaded_adapter_warned[name] = True
         safe_log(
             self._logger(),
             "error",
@@ -472,21 +482,19 @@ class Dispatcher:
         )
 
     def _warn_plan_override_once(self, name: str) -> None:
-        if name in self._plan_override_warned:
+        if self._remember_warn(self._plan_override_warned, name):
             return
-        self._plan_override_warned[name] = True
         safe_log(
             self._logger(),
             "warning",
             f"[HireFire] A HireFire UI adapter is configured for {name!r}, so "
             f"config.dyno({name!r}) with a local sampler is ignored. You can remove "
-            "that local configuration; the UI adapter is used instead.",
+            "that local configuration. The UI adapter is used instead.",
         )
 
     def _warn_unknown_adapter_once(self, name: str, adapter: object) -> None:
-        if name in self._unknown_adapter_warned:
+        if self._remember_warn(self._unknown_adapter_warned, name):
             return
-        self._unknown_adapter_warned[name] = True
         safe_log(
             self._logger(),
             "error",
@@ -497,9 +505,8 @@ class Dispatcher:
         self, name: str, adapter: object, strategy: object
     ) -> None:
         key = f"{name}\0{adapter}\0{strategy}"
-        if key in self._unsupported_strategy_warned:
+        if self._remember_warn(self._unsupported_strategy_warned, key):
             return
-        self._unsupported_strategy_warned[key] = True
         safe_log(
             self._logger(),
             "error",
@@ -509,9 +516,8 @@ class Dispatcher:
 
     def _warn_unknown_strategy_once(self, name: str, strategy: object) -> None:
         key = f"{name}\0{strategy}"
-        if key in self._unknown_strategy_warned:
+        if self._remember_warn(self._unknown_strategy_warned, key):
             return
-        self._unknown_strategy_warned[key] = True
         safe_log(
             self._logger(),
             "error",
@@ -559,6 +565,11 @@ class Dispatcher:
                 return
 
             body = json.dumps(payload, separators=(",", ":"))
+            if len(
+                body.encode("utf-8")
+            ) > self.PAYLOAD_SIZE_LIMIT and self._payload_has_sample_trace(payload):
+                payload = self._strip_sample_trace(payload)
+                body = json.dumps(payload, separators=(",", ":"))
             if len(body.encode("utf-8")) > self.PAYLOAD_SIZE_LIMIT:
                 if not (
                     generation is None
@@ -640,6 +651,7 @@ class Dispatcher:
     def _drop_oversized_payload(
         self, body: str, watermark: int | None, server: bool = False
     ) -> None:
+        self._pending_sample_trace = None
         if watermark is not None:
             self._last_rqt_second = watermark
         source = (
@@ -688,6 +700,23 @@ class Dispatcher:
 
         self._attach_sample_trace(entries)
         return entries, watermark
+
+    def _payload_has_sample_trace(self, payload: list[Any]) -> bool:
+        return bool(
+            payload and isinstance(payload[0], dict) and "sample_trace" in payload[0]
+        )
+
+    def _strip_sample_trace(self, payload: list[Any]) -> list[Any]:
+        self._pending_sample_trace = None
+        stripped: list[Any] = []
+        for entry in payload:
+            if isinstance(entry, dict) and "sample_trace" in entry:
+                copy = dict(entry)
+                copy.pop("sample_trace", None)
+                stripped.append(copy)
+            else:
+                stripped.append(entry)
+        return stripped
 
     def _attach_sample_trace(self, entries: list[Any]) -> None:
         if self._pending_sample_trace is None or not entries or not self._lease.trace():

@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Official support for Python 3.9 and 3.10.
 - Official support for Django 3.
 
+### Fixed
+
+- Working count is still sampled when job queue size or latency is invalid.
+- An oversized support sample-trace is dropped so ordinary metrics still ship.
+- Prefork `stop` keeps the parent pid so later children still reinitialize inherited state.
+
 ## [1.0.4] - 2026-01-09
 
 ### Added

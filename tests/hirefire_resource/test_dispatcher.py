@@ -494,6 +494,37 @@ def test_sample_trace_attached_when_grant_trace_true():
 
 
 @mocketize
+def test_oversized_sample_trace_is_stripped_so_metrics_still_ship(caplog):
+    stub_lease()
+    bodies = capture_ingest_bodies()
+    caplog.set_level(logging.ERROR)
+    dispatcher = configure_web_only()
+    dispatcher._lease.trace = lambda: True
+    dispatcher._pending_sample_trace = {
+        "wave_ms": 1.0,
+        "ops": [
+            {
+                "adapter": "rq",
+                "strategy": "jqs",
+                "queues": ["q" * 40_000],
+                "options": {},
+                "ms": 1.0,
+            }
+        ],
+    }
+
+    with freeze_time(at(1000)):
+        HireFire.configuration.buffer.sample("web", "rqt", 7)
+        dispatcher._tick()
+
+    assert len(bodies) == 1
+    assert "sample_trace" not in bodies[0][0]
+    assert "rqt" in bodies[0][0]["metrics"]
+    assert "Dropped metrics payload" not in caplog.text
+    assert dispatcher._pending_sample_trace is None
+
+
+@mocketize
 def test_sample_trace_absent_without_grant_trace():
     stub_lease(granted=True, trace=False)
     bodies = capture_ingest_bodies()
@@ -2375,6 +2406,57 @@ def test_sample_job_queues_runs_plan_inside_around_job_queue_sample():
 
     assert order == ["around-enter", "execute", "execute", "around-exit"]
     assert executed == ["celery", "rq"]
+
+
+@mocketize
+def test_first_start_does_not_clear_pre_start_rqt():
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    dispatcher = configure_web_only()
+    HireFire.configuration.buffer.sample("web", "rqt", 5)
+    with (
+        patch.object(dispatcher, "_tick"),
+        patch.object(dispatcher, "_job_queue_tick"),
+    ):
+        assert dispatcher.start()
+    flushed = HireFire.configuration.buffer.flush()
+    assert "web" in flushed and "rqt" in flushed["web"]
+    dispatcher.stop()
+
+
+@mocketize
+def test_start_after_parent_stop_reinitializes_inherited_state():
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    dispatcher = configure_web_only()
+    assert dispatcher.start()
+    first_cpu = HireFire.configuration.active_cpu_sources()[0]
+    buffer = HireFire.configuration.buffer
+    old_mutex = buffer._mutex
+
+    dispatcher.stop(flush=False)
+    parent_pid = dispatcher._pid
+    assert parent_pid is not None
+
+    with (
+        patch("os.getpid", return_value=parent_pid + 1),
+        patch.object(dispatcher, "_tick"),
+        patch.object(dispatcher, "_job_queue_tick"),
+    ):
+        assert dispatcher.start()
+        assert buffer._mutex is not old_mutex
+        assert HireFire.configuration.active_cpu_sources()[0] is not first_cpu
+        dispatcher.stop()
+
+
+@mocketize
+def test_abandon_inherited_state_resets_always_on_sources(monkeypatch):
+    stub_lease()
+    monkeypatch.setenv("DYNO", "web.1")
+    dispatcher = configure_web_only()
+    cpu = HireFire.configuration.active_cpu_sources()[0]
+    dispatcher.abandon_inherited_state()
+    assert HireFire.configuration.active_cpu_sources()[0] is not cpu
 
 
 @mocketize

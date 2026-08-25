@@ -939,7 +939,7 @@ def test_execute_samples_wrk_when_macro_implements_job_queue_working():
     assert list(data["worker"]["wrk"].values())[0] == 3
 
 
-def test_execute_skips_wrk_when_job_strategy_sample_invalid():
+def test_execute_still_samples_wrk_when_job_strategy_sample_invalid():
     working_called = False
 
     class Macro:
@@ -977,8 +977,8 @@ def test_execute_skips_wrk_when_job_strategy_sample_invalid():
 
     data = HireFire.configuration.buffer.flush()
     assert data.get("worker", {}).get("jqs") is None
-    assert data.get("worker", {}).get("wrk") is None
-    assert working_called is False
+    assert list(data["worker"]["wrk"].values())[0] == 3
+    assert working_called is True
 
 
 def test_execute_skips_wrk_when_macro_lacks_job_queue_working():

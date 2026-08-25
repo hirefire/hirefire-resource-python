@@ -173,10 +173,9 @@ def execute(entry: dict[str, Any], live: Callable[[], bool] | None = None) -> No
             macro, "plan_connection_options", lambda: {}
         )()
         options = {**plan_options, **connection_options}
-        if not _sample_job_strategy(
+        _sample_job_strategy(
             macro, name, strategy, method_name, queues, options, live=live
-        ):
-            return
+        )
         if hasattr(macro, "job_queue_working"):
             _sample_working(macro, name, queues, options, live=live)
     except Exception as error:
