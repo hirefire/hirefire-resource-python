@@ -11,10 +11,12 @@ from dramatiq.brokers.redis import RedisBroker
 from hirefire_resource import plan
 from hirefire_resource.errors import MissingQueueError
 from hirefire_resource.macro import dramatiq as dramatiq_macro
-from hirefire_resource.macro.dramatiq import (async_job_queue_latency,
-                                              async_job_queue_size,
-                                              job_queue_latency,
-                                              job_queue_size)
+from hirefire_resource.macro.dramatiq import (
+    async_job_queue_latency,
+    async_job_queue_size,
+    job_queue_latency,
+    job_queue_size,
+)
 
 redis_url = f"redis://127.0.0.1:{os.environ.get('REDIS_PORT', '6379')}/0"
 amqp_url = f"amqp://guest:guest@127.0.0.1:{os.environ.get('RABBITMQ_PORT', '5672')}"

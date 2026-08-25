@@ -10,12 +10,15 @@ from kombu import Queue
 
 from hirefire_resource import plan
 from hirefire_resource.errors import MissingQueueError
-from hirefire_resource.macro.celery import (_job_queue_latency_rabbitmq,
-                                            _job_queue_latency_redis,
-                                            _resolve_broker_url,
-                                            async_job_queue_latency,
-                                            async_job_queue_size,
-                                            job_queue_latency, job_queue_size)
+from hirefire_resource.macro.celery import (
+    _job_queue_latency_rabbitmq,
+    _job_queue_latency_redis,
+    _resolve_broker_url,
+    async_job_queue_latency,
+    async_job_queue_size,
+    job_queue_latency,
+    job_queue_size,
+)
 
 redis_url = f"redis://localhost:{os.environ.get('REDIS_PORT', '6379')}/0"
 amqp_url = f"amqp://guest:guest@localhost:{os.environ.get('RABBITMQ_PORT', '5672')}"

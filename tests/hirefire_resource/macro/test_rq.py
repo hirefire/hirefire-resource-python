@@ -8,13 +8,16 @@ from redis import Redis
 from rq import Queue
 
 from hirefire_resource import HireFire, plan
-from hirefire_resource.macro.rq import (_is_due_scheduled_score,
-                                        _resolve_redis_url,
-                                        async_job_queue_latency,
-                                        async_job_queue_size,
-                                        async_job_queue_working,
-                                        job_queue_latency, job_queue_size,
-                                        job_queue_working)
+from hirefire_resource.macro.rq import (
+    _is_due_scheduled_score,
+    _resolve_redis_url,
+    async_job_queue_latency,
+    async_job_queue_size,
+    async_job_queue_working,
+    job_queue_latency,
+    job_queue_size,
+    job_queue_working,
+)
 
 redis_url = f"redis://localhost:{os.environ.get('REDIS_PORT', '6379')}/0"
 queue_name = "default"
