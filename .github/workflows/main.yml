@@ -1,5 +1,8 @@
 name: Main
 
+# Every push runs CI, including branches with no PR. Same-repo PRs also fire
+# pull_request, so those commits run twice. Keep both. Do not merge the
+# concurrency groups (required-check status becomes unreliable).
 on:
   push:
     branches:

@@ -174,7 +174,7 @@ def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
         >>> job_queue_latency("celery", "mailer", broker_url="redis://localhost:6379/0")
         22.918
     """
-    queue_names = normalize_queues(*queues)
+    queue_names = normalize_queues(*queues, allow_empty=False)
     app = _owned_celery_app(broker_url)
 
     try:
@@ -316,7 +316,7 @@ def job_queue_size(
         >>> job_queue_size("celery", celery_app=celery_app)
         42
     """
-    queue_names = normalize_queues(*queues)
+    queue_names = normalize_queues(*queues, allow_empty=False)
 
     if celery_app is not None and broker_url is not None:
         raise ValueError(

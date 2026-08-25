@@ -52,9 +52,6 @@ class Buffer:
     def reinit_locks_after_fork(self) -> None:
         self._mutex = threading.Lock()
 
-    def _reinit_after_fork(self) -> None:
-        self.reinit_after_fork()
-
     def repopulate(self, name: str, strategy: str, data: dict[int, Any]) -> None:
         strategy = str(strategy)
         if strategy != "rqt":

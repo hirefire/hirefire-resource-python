@@ -22,6 +22,11 @@ def has_name(names, name):
     return any(n.split("/")[-1] == name for n in names)
 
 
+def require(condition, message, names):
+    if not condition:
+        sys.exit(f"{message}\npacked: {sorted(names)}")
+
+
 def project_version():
     for line in (ROOT / "pyproject.toml").read_text().splitlines():
         if line.startswith("version ="):
@@ -44,10 +49,14 @@ def main():
     sdist = newest(sdists)
     with tarfile.open(sdist, "r:gz") as tf:
         sdist_names = tf.getnames()
-    assert has_name(sdist_names, "CHANGELOG.md"), sdist_names
-    assert has_name(sdist_names, "LICENSE"), sdist_names
-    assert has_name(sdist_names, "README.md"), sdist_names
-    assert has_suffix(sdist_names, "hirefire_resource/py.typed"), sdist_names
+    require(has_name(sdist_names, "CHANGELOG.md"), "sdist missing CHANGELOG.md", sdist_names)
+    require(has_name(sdist_names, "LICENSE"), "sdist missing LICENSE", sdist_names)
+    require(has_name(sdist_names, "README.md"), "sdist missing README.md", sdist_names)
+    require(
+        has_suffix(sdist_names, "hirefire_resource/py.typed"),
+        "sdist missing hirefire_resource/py.typed",
+        sdist_names,
+    )
     print("sdist ok:", sdist.name)
 
     wheels = list(DIST.glob(f"*{version}*.whl"))
@@ -56,12 +65,18 @@ def main():
     wheel = newest(wheels)
     with zipfile.ZipFile(wheel) as zf:
         wheel_names = zf.namelist()
-    assert has_suffix(wheel_names, "hirefire_resource/py.typed"), wheel_names
-    assert has_name(wheel_names, "README.md"), wheel_names
-    assert has_name(wheel_names, "CHANGELOG.md"), wheel_names
-    assert has_name(wheel_names, "LICENSE") or any(
-        "LICENSE" in n for n in wheel_names
-    ), wheel_names
+    require(
+        has_suffix(wheel_names, "hirefire_resource/py.typed"),
+        "wheel missing hirefire_resource/py.typed",
+        wheel_names,
+    )
+    require(has_name(wheel_names, "README.md"), "wheel missing README.md", wheel_names)
+    require(has_name(wheel_names, "CHANGELOG.md"), "wheel missing CHANGELOG.md", wheel_names)
+    require(
+        any("LICENSE" in name for name in wheel_names),
+        "wheel missing LICENSE",
+        wheel_names,
+    )
     print("wheel ok:", wheel.name)
 
 

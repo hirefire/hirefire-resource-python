@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - CPU activity is sampled automatically.
 - Optional token-only setup with `HireFire.boot()`. Existing `config.dyno` job queue blocks still work.
 - Count of jobs still being processed (`job_queue_working` / `async_job_queue_working`) for RQ.
-- Dramatiq adapter: job queue size and job queue latency. Redis counts ready jobs plus due delayed jobs. RabbitMQ counts ready messages on the main queue only.
+- Dramatiq adapter: job queue size and job queue latency. Redis counts ready jobs plus due delayed jobs, inspecting at most 2000 delayed messages per queue. RabbitMQ counts ready messages on the main queue only.
 - Support Python 3.13 and 3.14.
 - Support Django 5 and 6, Starlette 1, and RQ 2.
 - The package now ships type hints.
@@ -24,7 +24,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Job queue macros count queued jobs plus scheduled or retry jobs that are due. Jobs already being processed are no longer included in job queue size or job queue latency.
 - Celery job queue size counts only ready messages in the broker. Active, reserved, and inspect-based scheduled tasks are not included.
 - Required Python is 3.11+. Official Django support is 4+.
-- Dramatiq Redis delay-queue samples inspect at most 2000 messages per queue.
 - A Celery connection reset is retried once immediately. The sample no longer sleeps up to 9 seconds.
 
 ### Deprecated
@@ -39,13 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- Working count is still sampled when job queue size or latency is invalid.
-- The count of jobs still being processed is still reported when the queue size or latency reading fails.
 - Celery queue samples time out after 5 seconds when the broker does not respond.
-- An oversized support sample-trace is dropped so ordinary metrics still ship.
-- Prefork `stop` keeps the parent pid so later children still reinitialize inherited state.
 - RQ job queue latency skips an unreadable job timestamp instead of dropping the whole sample.
-- RQ and Dramatiq Redis samples time out after 5 seconds when the broker does not respond.
+- RQ Redis samples time out after 5 seconds when the broker does not respond.
 
 ## [1.0.4] - 2026-01-09
 

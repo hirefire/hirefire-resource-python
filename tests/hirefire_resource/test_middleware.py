@@ -53,6 +53,27 @@ def test_process_request_queue_time_survives_a_raising_logger(
     assert "web" in data and "rqt" in data["web"]
 
 
+def test_raising_http_source_sample_does_not_start_the_dispatcher(
+    set_HIREFIRE_TOKEN, caplog, monkeypatch
+):
+    monkeypatch.setenv("DYNO", "web.1")
+    caplog.set_level(logging.ERROR)
+
+    class Boom:
+        def sample(self, _value):
+            raise RuntimeError("sample boom")
+
+    with patch.object(HireFire.configuration, "http_source", return_value=Boom()):
+        with patch.object(Dispatcher, "start") as start:
+            with patch.object(Dispatcher, "ensure_job_queue_loop") as ensure:
+                process_request_queue_time(recent_request_start())
+                start.assert_not_called()
+                ensure.assert_not_called()
+
+    assert not HireFire.configuration.dispatcher.running()
+    assert "Middleware error" in caplog.text
+
+
 def test_process_request_queue_time_without_a_request_start_is_a_noop(
     set_HIREFIRE_TOKEN, monkeypatch
 ):
@@ -159,6 +180,11 @@ def test_calculate_request_queue_time_normalizes_every_precision_variant():
         assert calculate_request_queue_time("1700000000250") == 750
         assert calculate_request_queue_time("1700000000250000") == 750
         assert calculate_request_queue_time("1700000000250000000") == 750
+
+
+def test_calculate_request_queue_time_clamps_a_future_request_start_to_zero():
+    with patch("time.time", return_value=1_700_000_001):
+        assert calculate_request_queue_time("1700000005000") == 0
 
 
 def test_calculate_request_queue_time_clamps_a_future_microsecond_start_to_zero():

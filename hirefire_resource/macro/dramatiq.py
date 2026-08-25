@@ -256,7 +256,7 @@ def supports_plan_strategy(strategy: object) -> bool:
 
 
 def _canonical_queues(*queues: str) -> set[str]:
-    names = normalize_queues(*queues)
+    names = normalize_queues(*queues, allow_empty=False)
     return {_canonical_queue_name(name) for name in names}
 
 
