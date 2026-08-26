@@ -378,6 +378,7 @@ def test_close_swallows_a_failing_connection_shutdown(client):
             raise OSError("already closed")
 
     client._connection = FailingConnection()
+    client._owner_pid = os.getpid()
 
     client.close()
 

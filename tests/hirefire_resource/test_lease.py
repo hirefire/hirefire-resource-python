@@ -873,6 +873,15 @@ def test_non_object_or_non_array_plan_body_yields_empty_job_queues():
         assert lease.job_queues == [], body
 
 
+def test_parse_grant_body_preserves_trace_for_non_array_job_queues():
+    grant = Lease()._parse_grant_body(
+        json.dumps({"version": 1, "trace": True, "job_queues": {}})
+    )
+
+    assert grant.trace is True
+    assert grant.job_queues == []
+
+
 @mocketize
 def test_hold_receives_parsed_job_queues():
     entry = {

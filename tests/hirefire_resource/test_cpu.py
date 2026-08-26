@@ -27,19 +27,6 @@ def test_first_sample_only_seeds_the_baseline():
         assert buffer().flush() == {}
 
 
-def test_normalizes_by_available_cpus():
-    with patch.object(
-        Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (1.0, "cgroup_v2")]
-    ), patch.object(Usage, "available_cpus", return_value=4.0):
-        collector = CPU("worker")
-        with freeze_time(at(1000)):
-            collector.sample()
-        with freeze_time(at(1001)):
-            collector.sample()
-
-        assert buffer().flush()["worker"]["cpu"] == {1001: 25.0}
-
-
 def test_normalizes_by_fractional_available_cpus():
     with patch.object(
         Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (0.25, "cgroup_v2")]

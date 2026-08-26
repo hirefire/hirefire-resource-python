@@ -107,3 +107,27 @@ async def test_falls_back_to_x_queue_start(client, set_HIREFIRE_TOKEN, monkeypat
             assert HireFire.configuration.buffer.flush()["web"]["rqt"] == {
                 _ts: {"sum": float(5), "count": 1}
             }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope_type", ["websocket", "lifespan"])
+async def test_non_http_scopes_pass_through_without_sampling(scope_type):
+    calls = []
+
+    async def inner(scope, receive, send):
+        calls.append(scope["type"])
+
+    async def receive():
+        return {}
+
+    async def send(_message):
+        pass
+
+    middleware = HireFireMiddleware(inner)
+    with patch(
+        "hirefire_resource.middleware.asgi.django.process_request_queue_time"
+    ) as process:
+        await middleware({"type": scope_type, "headers": []}, receive, send)
+
+    assert calls == [scope_type]
+    process.assert_not_called()

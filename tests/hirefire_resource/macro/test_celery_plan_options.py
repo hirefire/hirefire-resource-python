@@ -1,12 +1,34 @@
+from datetime import datetime
+
 import pytest
 
 celery = pytest.importorskip("celery")
 
 from hirefire_resource.macro import celery as celery_macro  # noqa: E402
+from hirefire_resource.macro.celery import run_at_header_signal  # noqa: E402
 
 
 def test_plan_connection_options_empty_without_env():
     assert celery_macro.plan_connection_options() == {}
+
+
+def test_run_at_header_signal_preserves_eta():
+    headers = {"eta": "2026-08-26T11:00:00+00:00", "task": "test_task"}
+
+    run_at_header_signal(headers=headers)
+
+    assert headers["run_at"] == headers["eta"]
+    assert headers["task"] == "test_task"
+
+
+def test_run_at_header_signal_sets_current_time_without_eta():
+    headers = {"task": "test_task"}
+
+    run_at_header_signal(headers=headers)
+
+    parsed = datetime.fromisoformat(headers["run_at"])
+    assert parsed.tzinfo is not None
+    assert headers["task"] == "test_task"
 
 
 def test_plan_connection_options_prefer_hirefire_celery_broker_url(monkeypatch):

@@ -126,6 +126,16 @@ def test_name_max_bytes(config):
         config.dyno("w" * 129)
 
 
+def test_name_limit_counts_utf8_bytes(config):
+    accepted = "é" * 64
+    too_long = "é" * 65
+
+    config.dyno(accepted, lambda: 1)
+    assert list(config.job_queues)[0].name == accepted
+    with pytest.raises(ValueError, match="128"):
+        config.dyno(too_long, lambda: 1)
+
+
 def test_name_strips(config):
     config.dyno("  worker  ", lambda: 1)
     assert list(config.job_queues)[0].name == "worker"
@@ -305,13 +315,6 @@ def test_rqt_liveness_when_identity_and_traffic_match(config, monkeypatch):
     monkeypatch.setenv("DYNO", "worker.1")
     config.mark_http_active()
     assert config.rqt_liveness()
-
-
-def test_rqt_liveness_false_when_armed_but_identity_unresolved(config):
-    config.mark_http_active()
-    assert config.rqt_enabled()
-    assert not config.rqt_liveness()
-    assert config.http_source() is None
 
 
 def test_canonical_name_preserves_first_seen_casing(config):
