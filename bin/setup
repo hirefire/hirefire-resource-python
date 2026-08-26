@@ -6,6 +6,4 @@ bin/services up
 
 mise install
 mise exec -- pip install poetry
-mise exec -- poetry self add poetry-plugin-shell
 mise exec -- poetry install
-mise exec -- poetry env use python3

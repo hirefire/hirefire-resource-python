@@ -47,6 +47,7 @@ class Dispatcher:
         self._unknown_adapter_warned: dict[str, bool] = {}
         self._unsupported_strategy_warned: dict[str, bool] = {}
         self._unknown_strategy_warned: dict[str, bool] = {}
+        self._empty_queues_warned: dict[str, bool] = {}
 
     def start(self) -> bool:
         """Starts the dispatcher loops.
@@ -126,7 +127,7 @@ class Dispatcher:
         return True
 
     def ensure_job_queue_loop(self) -> None:
-        """Ensures the job-queue loop is running when lease race entry becomes true."""
+        """Ensures the job-queue loop is running when lease race entry becomes true after a late configure."""
         jq_thread = self._job_queue_thread
         if (
             jq_thread is not None
@@ -168,12 +169,19 @@ class Dispatcher:
     def stop(self, flush: bool = True) -> bool:
         """Stops the dispatcher loops and closes transport resources.
 
+        Joins local loop threads for up to ``JOIN_TIMEOUT`` seconds each. A hung
+        sampler is abandoned rather than killed. A later :meth:`start` increments
+        the loop generation so an abandoned thread cannot resume work. Concurrent
+        :meth:`start` is rejected until close finishes.
+
         Args:
             flush: When ``True`` (default), best-effort final metric flush before close.
-                Prefork parents pass ``False``.
+                Prefork parents pass ``False`` so the master does not claim empty web
+                liveness after workers take over.
 
         Returns:
-            bool: ``True`` once stopped, ``False`` when not running or already stopping.
+            bool: ``True`` once the dispatcher has stopped, ``False`` when it was not
+            running.
         """
         threads: list[threading.Thread] = []
 
@@ -234,7 +242,11 @@ class Dispatcher:
             return self._healthy_running_locked()
 
     def abandon_inherited_state(self) -> None:
-        """Child-side cleanup after a fork that does not restart reporting."""
+        """Child-side cleanup after a fork that does not restart reporting.
+
+        Clears inherited loop flags, buffer, and lease so a short-lived child cannot
+        flush the parent's samples.
+        """
         try:
             with self._mutex:
                 self._running = False
@@ -269,6 +281,7 @@ class Dispatcher:
         self._unknown_adapter_warned = {}
         self._unsupported_strategy_warned = {}
         self._unknown_strategy_warned = {}
+        self._empty_queues_warned = {}
 
     def _reinit_locks_after_fork(self) -> None:
         self._mutex = threading.Lock()
@@ -364,6 +377,7 @@ class Dispatcher:
         self._unknown_adapter_warned = {}
         self._unsupported_strategy_warned = {}
         self._unknown_strategy_warned = {}
+        self._empty_queues_warned = {}
 
     def _enter_race(self) -> bool:
         from hirefire_resource import plan
@@ -380,11 +394,7 @@ class Dispatcher:
             return True
 
         for entry in plan_job_queues:
-            if (
-                self._adapter_present(entry)
-                and plan.executable(entry.get("adapter"))
-                and plan.supports_strategy(entry.get("adapter"), entry.get("strategy"))
-            ):
+            if self._adapter_present(entry) and plan.sampleable_entry(entry):
                 return True
         return False
 
@@ -435,6 +445,11 @@ class Dispatcher:
         if plan.executable(adapter):
             if not plan.supports_strategy(adapter, strategy):
                 self._warn_unsupported_strategy_once(name, adapter, strategy)
+                return
+            if plan.queues_required(adapter) and not plan.named_plan_queues(
+                entry.get("queues")
+            ):
+                self._warn_empty_queues_once(name, adapter)
                 return
             if local_job_queues.find_by_name(name) is not None:
                 self._warn_plan_override_once(name)
@@ -530,6 +545,17 @@ class Dispatcher:
             "error",
             f"[HireFire] Unknown plan strategy {strategy!r} for "
             f"{name!r}. Entry skipped.",
+        )
+
+    def _warn_empty_queues_once(self, name: str, adapter: object) -> None:
+        key = f"{name}\0{adapter}"
+        if self._remember_warn(self._empty_queues_warned, key):
+            return
+        safe_log(
+            self._logger(),
+            "error",
+            f"[HireFire] Plan adapter {adapter!r} for {name!r} "
+            "requires named queues. Entry skipped.",
         )
 
     @staticmethod
@@ -790,11 +816,6 @@ class Dispatcher:
             n = count if count <= self.SAMPLE_COUNT_LIMIT else self.SAMPLE_COUNT_LIMIT
             return [mean, n]
         if not isinstance(bucket, (int, float)) or isinstance(bucket, bool):
-            safe_log(
-                self._logger(),
-                "error",
-                f"[HireFire] Omitting {strategy} second: non-finite or out-of-range value.",
-            )
             return None
         if not math.isfinite(bucket) or bucket < 0 or bucket > self.METRIC_VALUE_LIMIT:
             safe_log(

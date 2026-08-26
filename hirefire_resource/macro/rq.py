@@ -301,7 +301,7 @@ def _registered_queue_names(redis_client: redis.Redis) -> set[str]:
 
 def _as_str(value: bytes | str) -> str:
     if isinstance(value, bytes):
-        return value.decode("utf-8")
+        return value.decode("utf-8", "replace")
     return value
 
 

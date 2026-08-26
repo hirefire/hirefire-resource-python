@@ -63,6 +63,36 @@ def supports_strategy(adapter: object, strategy: object) -> bool:
     return bool(supports(strategy))
 
 
+def queues_required(adapter: object) -> bool:
+    macro = _load_macro(adapter)
+    if macro is None:
+        return False
+    hook = getattr(macro, "queues_required", None)
+    if hook is None:
+        return False
+    return bool(hook())
+
+
+def named_plan_queues(queues: object) -> bool:
+    if not isinstance(queues, list):
+        return False
+    for queue in queues:
+        name = "" if queue is None else str(queue).strip()
+        if name and len(name.encode("utf-8")) <= MAX_QUEUE_NAME_BYTES:
+            return True
+    return False
+
+
+def sampleable_entry(entry: dict[str, Any]) -> bool:
+    adapter = entry.get("adapter")
+    strategy = entry.get("strategy")
+    if not executable(adapter) or not supports_strategy(adapter, strategy):
+        return False
+    if not queues_required(adapter):
+        return True
+    return named_plan_queues(entry.get("queues"))
+
+
 @contextmanager
 def around_job_queue_sample() -> Iterator[None]:
     tokens: dict[str, object] = {}
@@ -158,10 +188,11 @@ def execute(entry: dict[str, Any], live: Callable[[], bool] | None = None) -> No
     if queues is None:
         return
 
-    if adapter in ("celery", "dramatiq") and queues == []:
+    if queues_required(adapter) and queues == []:
         _log(
             "error",
-            f"[HireFire] Plan queue list for {name!r} had no valid names. Entry skipped.",
+            f"[HireFire] Plan adapter {adapter!r} for {name!r} "
+            "requires named queues. Entry skipped.",
         )
         return
 

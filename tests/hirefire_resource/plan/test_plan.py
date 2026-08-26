@@ -4,6 +4,77 @@ from unittest.mock import patch
 from hirefire_resource import HireFire, plan
 
 
+def test_queues_required_calls_loaded_macro_hook():
+    class Required:
+        @staticmethod
+        def queues_required():
+            return True
+
+    class Optional:
+        @staticmethod
+        def queues_required():
+            return False
+
+    def load(adapter):
+        if adapter == "celery":
+            return Required
+        if adapter == "rq":
+            return Optional
+        return None
+
+    with patch("hirefire_resource.plan._load_macro", side_effect=load):
+        assert plan.queues_required("celery") is True
+        assert plan.queues_required("rq") is False
+        assert plan.queues_required("missing") is False
+
+
+def test_execute_skips_queues_required_adapter_with_empty_queues():
+    calls = []
+
+    class Macro:
+        @staticmethod
+        def queues_required():
+            return True
+
+        @staticmethod
+        def supports_plan_strategy(strategy):
+            return True
+
+        @staticmethod
+        def job_queue_size(*_args, **_kwargs):
+            calls.append("size")
+            return 4
+
+        @staticmethod
+        def job_queue_working(*_args, **_kwargs):
+            calls.append("wrk")
+            return 1
+
+        @staticmethod
+        def plan_options(_strategy, _options):
+            return {}
+
+        @staticmethod
+        def plan_connection_options():
+            return {}
+
+    with patch("hirefire_resource.plan.known_adapter", return_value=True), patch(
+        "hirefire_resource.plan._load_macro", return_value=Macro
+    ), patch("hirefire_resource.plan.queues_required", return_value=True):
+        plan.execute(
+            {
+                "name": "mail",
+                "adapter": "celery",
+                "strategy": "jqs",
+                "queues": [],
+                "options": {},
+            }
+        )
+
+    assert calls == []
+    assert HireFire.configuration.buffer.flush() == {}
+
+
 def test_known_adapters_and_strategies():
     assert plan.known_adapter("celery")
     assert plan.known_adapter("rq")
@@ -379,6 +450,10 @@ def test_execute_skips_dramatiq_empty_queues(caplog):
 
     class Macro:
         @staticmethod
+        def queues_required():
+            return True
+
+        @staticmethod
         def supports_plan_strategy(strategy):
             return True
 
@@ -407,7 +482,7 @@ def test_execute_skips_dramatiq_empty_queues(caplog):
 
     assert called["n"] == 0
     assert HireFire.configuration.buffer.flush() == {}
-    assert "no valid names" in caplog.text
+    assert "requires named queues" in caplog.text
 
 
 def test_execute_skips_celery_empty_queues(caplog):
@@ -417,6 +492,10 @@ def test_execute_skips_celery_empty_queues(caplog):
     called = {"n": 0}
 
     class Macro:
+        @staticmethod
+        def queues_required():
+            return True
+
         @staticmethod
         def supports_plan_strategy(strategy):
             return True
@@ -446,7 +525,7 @@ def test_execute_skips_celery_empty_queues(caplog):
 
     assert called["n"] == 0
     assert HireFire.configuration.buffer.flush() == {}
-    assert "no valid names" in caplog.text
+    assert "requires named queues" in caplog.text
 
 
 def test_execute_dramatiq_passes_plan_connection_options():

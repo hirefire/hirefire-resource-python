@@ -76,8 +76,17 @@ def test_dyno_with_a_sampler_configures_a_job_queue(config):
 def test_dyno_without_sampler_raises_for_a_non_web_name(config):
     with pytest.raises(MissingSamplerError) as exc:
         config.dyno("worker")
+    message = str(exc.value).lower()
     assert "needs a sampler" in str(exc.value)
-    assert "tracking" not in str(exc.value).lower() or "service" not in str(exc.value)
+    assert "tracking" not in message
+    assert "service" not in message
+
+
+def test_dyno_rejects_non_callable_sampler_without_reserving_name(config):
+    with pytest.raises(TypeError, match="must be callable"):
+        config.dyno("worker", 1)
+    config.dyno("worker", lambda: 1)
+    assert list(config.job_queues)[0].name == "worker"
 
 
 def test_dyno_rejects_tracking_keyword(config):
@@ -93,12 +102,6 @@ def test_bare_web_then_job_queue_under_web(config):
 
 
 def test_duplicate_job_queue_rejected_case_insensitive(config):
-    config.dyno("worker", lambda: 1)
-    with pytest.raises(DuplicateDynoError):
-        config.dyno("Worker", lambda: 2)
-
-
-def test_duplicate_job_queue_rejected(config):
     config.dyno("worker", lambda: 1)
     with pytest.raises(DuplicateDynoError):
         config.dyno("Worker", lambda: 2)

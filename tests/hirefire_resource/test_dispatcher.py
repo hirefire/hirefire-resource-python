@@ -845,6 +845,7 @@ def test_loop_until_stopped_logs_raising_tick_and_continues(caplog):
 
 
 @mocketize
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
 def test_a_hung_worker_sampler_does_not_stall_web_dispatch():
     stub_lease(granted=True)
     Entry.single_register(Entry.POST, INGEST_URL, status=200)
@@ -872,6 +873,7 @@ def test_a_hung_worker_sampler_does_not_stall_web_dispatch():
     finally:
         release.set()
         dispatcher.stop()
+        dispatcher._client.close()
 
 
 @mocketize
@@ -1827,6 +1829,126 @@ def test_empty_plan_with_local_samplers_still_holds_lease():
 
 
 @mocketize
+def test_hold_lease_false_when_queue_required_entry_has_no_queues():
+    plan = {
+        "version": 1,
+        "job_queues": [
+            {
+                "name": "worker",
+                "strategy": "jqs",
+                "adapter": "celery",
+                "queues": [],
+                "options": {},
+            }
+        ],
+    }
+    stub_lease(granted=True, plan=plan)
+    dispatcher = HireFire.configuration.dispatcher
+    with (
+        patch(
+            "hirefire_resource.plan.any_allowlisted_job_queue_library_loaded",
+            return_value=True,
+        ),
+        patch("hirefire_resource.plan.executable", return_value=True),
+        patch("hirefire_resource.plan.supports_strategy", return_value=True),
+        patch(
+            "hirefire_resource.plan.queues_required",
+            side_effect=lambda adapter: str(adapter) == "celery",
+        ),
+    ):
+        assert dispatcher._enter_race()
+        assert not dispatcher._hold_lease(
+            [
+                {
+                    "name": "worker",
+                    "strategy": "jqs",
+                    "adapter": "celery",
+                    "queues": [],
+                }
+            ]
+        )
+        dispatcher._job_queue_tick()
+        assert not dispatcher._lease.granted()
+
+
+@mocketize
+def test_mixed_plan_skips_empty_queues_required_entry_without_invoking_adapter():
+    executed = []
+    plan = {
+        "version": 1,
+        "job_queues": [
+            {
+                "name": "worker",
+                "strategy": "jqs",
+                "adapter": "rq",
+                "queues": [],
+                "options": {},
+            },
+            {
+                "name": "mail",
+                "strategy": "jqs",
+                "adapter": "celery",
+                "queues": [],
+                "options": {},
+            },
+        ],
+    }
+    stub_lease(granted=True, plan=plan)
+    dispatcher = HireFire.configuration.dispatcher
+
+    def execute(entry, live=None):
+        executed.append(entry.get("adapter"))
+
+    with (
+        patch("hirefire_resource.plan.executable", return_value=True),
+        patch("hirefire_resource.plan.supports_strategy", return_value=True),
+        patch(
+            "hirefire_resource.plan.queues_required",
+            side_effect=lambda adapter: str(adapter) == "celery",
+        ),
+        patch("hirefire_resource.plan.execute", side_effect=execute),
+    ):
+        mixed = [
+            {
+                "name": "worker",
+                "strategy": "jqs",
+                "adapter": "rq",
+                "queues": [],
+            },
+            {
+                "name": "mail",
+                "strategy": "jqs",
+                "adapter": "celery",
+                "queues": [],
+            },
+        ]
+        assert dispatcher._hold_lease(mixed)
+        dispatcher._job_queue_tick()
+
+    assert executed == ["rq"]
+
+
+@mocketize
+def test_hold_lease_true_when_enumerating_adapter_has_empty_queue_list():
+    dispatcher = HireFire.configuration.dispatcher
+    with (
+        patch("hirefire_resource.plan.executable", return_value=True),
+        patch("hirefire_resource.plan.supports_strategy", return_value=True),
+        patch("hirefire_resource.plan.queues_required", return_value=False),
+    ):
+        assert dispatcher._hold_lease(
+            [
+                {
+                    "name": "worker",
+                    "strategy": "jqs",
+                    "adapter": "rq",
+                    "queues": [],
+                }
+            ]
+        )
+
+
+@mocketize
 def test_hold_lease_false_when_only_unsupported_strategy_entries():
     plan = {
         "version": 1,
@@ -2513,3 +2635,101 @@ def test_start_after_fork_calls_reinit_macros_after_fork():
             reinit.assert_called_once_with()
     finally:
         dispatcher.stop()
+
+
+def test_encode_leaf_omits_non_numeric_non_rqt_silently(caplog):
+    dispatcher = Dispatcher()
+    with caplog.at_level(logging.ERROR):
+        assert dispatcher._encode_leaf("jqs", "10") is None
+        assert dispatcher._encode_leaf("jql", None) is None
+    assert "Omitting" not in caplog.text
+
+
+@mocketize
+def test_concurrent_start_during_stop_is_rejected_then_retryable():
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    dispatcher = HireFire.configuration.dispatcher
+    assert dispatcher.start()
+
+    stop_done = threading.Event()
+    results: list[bool] = []
+
+    def stopper():
+        dispatcher.stop()
+        stop_done.set()
+
+    def starter():
+        results.append(dispatcher.start())
+
+    stop_thread = threading.Thread(target=stopper)
+    starters = [threading.Thread(target=starter) for _ in range(8)]
+    stop_thread.start()
+    for thread in starters:
+        thread.start()
+    stop_thread.join(5)
+    for thread in starters:
+        thread.join(5)
+
+    assert stop_done.is_set()
+    dispatcher.stop()
+    assert not dispatcher.running()
+    assert dispatcher.start()
+    assert dispatcher.running()
+    dispatcher.stop()
+
+
+@mocketize
+def test_unsupported_strategy_once_log_is_isolated_per_name_adapter_strategy(caplog):
+    class Macro:
+        @staticmethod
+        def supports_plan_strategy(strategy):
+            return False
+
+        @staticmethod
+        def job_queue_size(*_a, **_k):
+            return 1
+
+    plan = {
+        "version": 1,
+        "job_queues": [
+            {
+                "name": "worker",
+                "strategy": "jql",
+                "adapter": "celery",
+                "queues": ["default"],
+                "options": {},
+            },
+            {
+                "name": "mailer",
+                "strategy": "jql",
+                "adapter": "celery",
+                "queues": ["default"],
+                "options": {},
+            },
+            {
+                "name": "worker",
+                "strategy": "jql",
+                "adapter": "dramatiq",
+                "queues": ["default"],
+                "options": {},
+            },
+        ],
+    }
+    stub_lease(granted=True, plan=plan)
+    dispatcher = HireFire.configuration.dispatcher
+    HireFire.configuration.dyno("other", lambda: 0)
+    with (
+        caplog.at_level(logging.ERROR),
+        patch("hirefire_resource.plan.executable", return_value=True),
+        patch("hirefire_resource.plan._load_macro", return_value=Macro),
+        patch("hirefire_resource.plan.supports_strategy", return_value=False),
+    ):
+        dispatcher._job_queue_tick()
+        dispatcher._job_queue_tick()
+
+    assert caplog.text.count("does not support") == 3
+    warned = dispatcher._unsupported_strategy_warned
+    assert "worker\0celery\0jql" in warned
+    assert "mailer\0celery\0jql" in warned
+    assert "worker\0dramatiq\0jql" in warned

@@ -31,6 +31,10 @@ after_sample_job_queues = _plan_hooks.after_sample_job_queues
 reinit_after_fork = _plan_hooks.reinit_after_fork
 
 
+def queues_required() -> bool:
+    return True
+
+
 def _get_queue_arguments_from_app(
     app: Any, queues: set[str] | tuple[str, ...]
 ) -> dict[str, Any]:
@@ -103,8 +107,6 @@ def _owned_celery_app(broker_url: str | None = None) -> Celery:
 
 @contextmanager
 def _sample_connection(app: Celery) -> Iterator[Any]:
-    # kombu Connection.connection hardcodes max_retries=1 and a 2s sleep.
-    # Owned samples must fail on the first 5s timeout with no extra budget.
     connection = app.connection()
     try:
         connection._ensure_connection(
@@ -412,12 +414,6 @@ def run_at_header_signal(
     properties: Any = None,
     **kwargs: Any,
 ) -> None:
-    """Celery ``before_task_publish`` handler that sets the ``run_at`` task header.
-
-    Connected automatically when this module is imported. Sets ``run_at`` from the
-    task's ``eta`` when present, otherwise the current UTC time. Required for
-    :func:`job_queue_latency`. Callers do not invoke this directly.
-    """
     headers = headers or {}
     eta = headers.get("eta")
 
@@ -449,7 +445,7 @@ def _job_queue_latency_redis(channel: Any, queue: str) -> float:
 
 def _as_str(value: bytes | str) -> str:
     if isinstance(value, bytes):
-        return value.decode("utf-8")
+        return value.decode("utf-8", "replace")
     return value
 
 

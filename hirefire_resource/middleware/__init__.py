@@ -5,6 +5,7 @@ from collections.abc import Callable
 
 from hirefire_resource import HireFire
 from hirefire_resource.log import safe_log
+from hirefire_resource.utility import round_half_up
 
 REQUEST_QUEUE_TIME_LIMIT = 60_000
 
@@ -23,13 +24,6 @@ def process_request_queue_time(
     *,
     extract: Callable[[], object | None] | None = None,
 ) -> None:
-    """Parse a request-start header and record a queue-time sample when configured.
-
-    When a token is present, records a queue-time sample (milliseconds) under the process
-    HTTP name and starts the dispatcher. Explicit http registration is optional.
-    Failures in this path (including header extract when ``extract`` is used) are
-    logged and swallowed so the host app is unaffected.
-    """
     try:
         if extract is not None:
             request_start = extract()  # type: ignore[assignment]
@@ -72,7 +66,9 @@ def calculate_request_queue_time(request_start: str) -> int | None:
     else:
         milliseconds = value / 1_000_000
 
-    request_queue_time = max(int(time.time() * 1000) - round(milliseconds), 0)
+    request_queue_time = max(
+        int(time.time() * 1000) - int(round_half_up(milliseconds)), 0
+    )
     if request_queue_time <= REQUEST_QUEUE_TIME_LIMIT:
         return request_queue_time
     return None

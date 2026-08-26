@@ -15,6 +15,10 @@ def test_supports_known_strategies():
     assert not hooks.supports_plan_strategy("cpu")
 
 
+def test_default_queues_required_is_false():
+    assert hooks.queues_required() is False
+
+
 def test_sample_wave_defaults_are_noops():
     assert hooks.before_sample_job_queues() is None
     assert hooks.after_sample_job_queues("anything") is None

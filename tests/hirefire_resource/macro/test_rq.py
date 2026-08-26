@@ -459,6 +459,19 @@ def test_resolve_redis_url_explicit_wins_over_env(monkeypatch):
     assert _resolve_redis_url("redis://explicit/0") == "redis://explicit/0"
 
 
+def test_job_queue_latency_skips_non_utf8_live_id():
+    r = Redis.from_url(redis_url)
+    r.sadd("rq:queues", "rq:queue:good", "rq:queue:bad")
+    r.rpush("rq:queue:good", "jobgood")
+    r.hset("rq:job:jobgood", "enqueued_at", "2020-01-01T00:00:00.000000Z")
+    r.rpush("rq:queue:bad", b"\xff\xfe")
+
+    latency = job_queue_latency("good", "bad", redis_url=redis_url)
+    assert latency > 0
+    assert job_queue_size("good", "bad", redis_url=redis_url) == 2
+    assert job_queue_working("good", "bad", redis_url=redis_url) == 0
+
+
 def test_job_queue_latency_skips_corrupt_enqueued_at():
     r = Redis.from_url(redis_url)
     r.sadd("rq:queues", "rq:queue:good", "rq:queue:bad")

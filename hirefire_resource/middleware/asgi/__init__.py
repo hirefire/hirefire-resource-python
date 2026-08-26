@@ -9,11 +9,6 @@ Send = Callable[[MutableMapping[str, Any]], Awaitable[None]]
 
 
 def request_start_from_scope(scope: Mapping[str, Any]) -> str | None:
-    """Prefer X-Request-Start, then X-Queue-Start.
-
-    Blank / whitespace-only preferred values are absent so they do not block
-    Queue-Start fallback (matches WSGI and Ruby).
-    """
     request_start = None
     queue_start = None
     for header_name, header_value in scope.get("headers", []):

@@ -410,7 +410,6 @@ def test_parse_job_queues_from_grant_body():
 
 @mocketize
 def test_parse_json_null_adapter_is_strategy_only_not_literal_none():
-    """Server strategy-only rows send adapter:null. Must not become str('None')."""
     body = json.dumps(
         {
             "version": 1,

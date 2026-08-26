@@ -34,7 +34,7 @@ jobs:
           python-version: "3.14"
       - name: List matrix cells
         id: list
-        run: echo "list=$(pip install tox >/dev/null && tox -l | jq -R -c -s 'split("\n") | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
+        run: echo "list=$(pip install 'tox>=4,<5' >/dev/null && tox -l | jq -R -c -s 'split("\n") | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
 
   check:
     runs-on: ubuntu-latest
@@ -67,10 +67,20 @@ jobs:
         image: redis:7
         ports:
           - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
       rabbitmq:
         image: rabbitmq:3
         ports:
           - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     strategy:
       fail-fast: false
       matrix:
@@ -88,7 +98,7 @@ jobs:
         with:
           python-version: ${{ steps.python.outputs.version }}
       - name: Install tox
-        run: pip install tox
+        run: pip install 'tox>=4,<5'
       - name: Run tests
         run: tox -e ${{ matrix.env }}
 
@@ -112,11 +122,19 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.14"
-      - name: Install dependencies
+      - name: Install poetry
         run: |
           python -m pip install --upgrade pip
           pip install poetry
-          poetry install
+      - name: Verify tag is on master
+        run: |
+          git fetch --depth=1 origin master
+          tagged="$(git rev-parse HEAD)"
+          master="$(git rev-parse origin/master)"
+          if [ "$tagged" != "$master" ]; then
+            echo "Tag must point at origin/master ($master), got $tagged"
+            exit 1
+          fi
       - name: Verify tag matches package version
         env:
           TAG: ${{ github.ref_name }}

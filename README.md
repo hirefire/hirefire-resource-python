@@ -23,6 +23,8 @@ Job Queue Latency, and Job Queue Size. Set `HIREFIRE_TOKEN` for the library to r
 - RQ 1+
 - Dramatiq 2+
 
+Django 6 requires Python 3.12+.
+
 The test suite runs against these minimum versions and the current latest release of each runtime and library. Older versions may still work, but are not officially supported.
 
 **Types:**
@@ -57,7 +59,7 @@ Requires [Docker](https://www.docker.com/) and [mise](https://mise.jdx.dev/). Re
 2. If `pyproject.toml` dependencies changed, refresh `poetry.lock` with `poetry lock`.
 3. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` (today's date) and add a fresh empty `## [Unreleased]` above it.
 4. Commit changes with `git commit`.
-5. Create a `git tag` matching the new version (e.g., `v1.0.0`).
+5. Create a `git tag` matching the new version (e.g., `v2.0.0`).
 6. Push the new git tag. Continuous Integration will handle the distribution process.
 
 ## License

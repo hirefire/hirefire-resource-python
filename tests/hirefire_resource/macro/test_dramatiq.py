@@ -424,6 +424,21 @@ def test_job_queue_latency_working_and_xq_excluded():
         client.close()
 
 
+def test_job_queue_latency_corrupt_head_does_not_hide_sibling():
+    client = redis.Redis.from_url(redis_url)
+    try:
+        _seed_live(client, "default", age_s=180)
+        mid = str(uuid.uuid4())
+        client.rpush(f"{NAMESPACE}:broken", mid)
+        client.hset(f"{NAMESPACE}:broken.msgs", mid, b"not-json-{{{")
+        assert job_queue_latency(
+            "default", "broken", broker_url=redis_url
+        ) == pytest.approx(180, abs=5)
+        assert job_queue_size("default", "broken", broker_url=redis_url) == 2
+    finally:
+        client.close()
+
+
 def test_job_queue_latency_corrupt_live_head_is_zero_size_still_counts():
     client = redis.Redis.from_url(redis_url)
     try:
@@ -728,6 +743,30 @@ def test_job_queue_size_caps_dq_walk_and_omits_due_past_the_limit(monkeypatch):
         assert ranges == [(0, limit - 1)]
     finally:
         client.close()
+
+
+def test_dq_wave_cache_does_not_reuse_stats_across_broker_urls():
+    url0 = redis_url
+    url1 = redis_url.rsplit("/", 1)[0] + "/1"
+    client0 = redis.Redis.from_url(url0)
+    client1 = redis.Redis.from_url(url1)
+    try:
+        client0.flushdb()
+        client1.flushdb()
+        _seed_delayed(client0, "default", eta_offset_s=-10)
+        _seed_delayed(client1, "default", eta_offset_s=-10)
+        _seed_delayed(client1, "default", eta_offset_s=-20)
+        dramatiq_macro.before_sample_job_queues()
+        try:
+            assert job_queue_size("default", broker_url=url0) == 1
+            assert job_queue_size("default", broker_url=url1) == 2
+        finally:
+            dramatiq_macro.after_sample_job_queues()
+    finally:
+        client0.flushdb()
+        client1.flushdb()
+        client0.close()
+        client1.close()
 
 
 def test_dq_walk_is_memoized_for_one_sample_wave(monkeypatch):

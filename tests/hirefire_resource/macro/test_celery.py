@@ -24,8 +24,6 @@ redis_url = f"redis://localhost:{os.environ.get('REDIS_PORT', '6379')}/0"
 amqp_url = f"amqp://guest:guest@localhost:{os.environ.get('RABBITMQ_PORT', '5672')}"
 broker_urls = [redis_url, amqp_url]
 
-# AMQP send_task is fire-and-forget without confirms. Immediate message_count
-# then reads N-1 under CI load. Redis publish is request/response (no-op).
 _SIZE_WAIT_S = 2.0
 _SIZE_POLL_S = 0.02
 
@@ -445,7 +443,7 @@ def test_job_queue_size_with_mismatched_priority_arguments(celery_app):
 
         wrong_app = Celery(broker=broker_url)
         wrong_app.conf.task_queues = [
-            Queue(queue_name, queue_arguments={"x-max-priority": 10}),  # Wrong!
+            Queue(queue_name, queue_arguments={"x-max-priority": 10}),
         ]
 
         result_wrong = job_queue_size(queue_name, celery_app=wrong_app)
@@ -453,7 +451,7 @@ def test_job_queue_size_with_mismatched_priority_arguments(celery_app):
 
         correct_app = Celery(broker=broker_url)
         correct_app.conf.task_queues = [
-            Queue(queue_name, queue_arguments={"x-max-priority": 20}),  # Correct!
+            Queue(queue_name, queue_arguments={"x-max-priority": 20}),
         ]
 
         _assert_size(2, queue_name, celery_app=correct_app)
@@ -495,6 +493,22 @@ def test_job_queue_latency_redis_skips_corrupt_payload():
         client = FakeClient()
 
     assert _job_queue_latency_redis(FakeChannel(), "celery") == 0
+
+
+def test_job_queue_latency_redis_corrupt_queue_does_not_hide_sibling():
+    run_at = (datetime.now(timezone.utc) - timedelta(seconds=8)).isoformat()
+    payload = '{"headers": {"run_at": "' + run_at + '"}}'
+
+    class FakeClient:
+        def lindex(self, queue, index):
+            return "not-json" if queue == "bad" else payload
+
+    class FakeChannel:
+        client = FakeClient()
+
+    channel = FakeChannel()
+    assert _job_queue_latency_redis(channel, "bad") == 0
+    assert math.isclose(_job_queue_latency_redis(channel, "good"), 8, abs_tol=1)
 
 
 def test_job_queue_latency_rabbitmq_requeues_after_parse_error():

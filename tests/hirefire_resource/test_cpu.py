@@ -27,6 +27,32 @@ def test_first_sample_only_seeds_the_baseline():
         assert buffer().flush() == {}
 
 
+def test_normalizes_by_available_cpus():
+    with patch.object(
+        Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (1.0, "cgroup_v2")]
+    ), patch.object(Usage, "available_cpus", return_value=4.0):
+        collector = CPU("worker")
+        with freeze_time(at(1000)):
+            collector.sample()
+        with freeze_time(at(1001)):
+            collector.sample()
+
+        assert buffer().flush()["worker"]["cpu"] == {1001: 25.0}
+
+
+def test_normalizes_by_fractional_available_cpus():
+    with patch.object(
+        Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (0.25, "cgroup_v2")]
+    ), patch.object(Usage, "available_cpus", return_value=0.5):
+        collector = CPU("clock")
+        with freeze_time(at(1000)):
+            collector.sample()
+        with freeze_time(at(1001)):
+            collector.sample()
+
+        assert buffer().flush()["clock"]["cpu"] == {1001: 50.0}
+
+
 def test_second_sample_buffers_normalized_percentage():
     with patch.object(
         Usage, "reading", side_effect=[(10.0, "cgroup_v2"), (10.5, "cgroup_v2")]
@@ -51,6 +77,19 @@ def test_sample_rounds_percentage_to_two_decimal_places():
             collector.sample()
 
         assert buffer().flush()["clock"]["cpu"] == {1001: 33.33}
+
+
+def test_sample_rounds_exact_half_up_to_two_decimal_places():
+    with patch.object(
+        Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (0.01125, "cgroup_v2")]
+    ), patch.object(Usage, "available_cpus", return_value=1.0):
+        collector = CPU("clock")
+        with freeze_time(at(1000)):
+            collector.sample()
+        with freeze_time(at(1001)):
+            collector.sample()
+
+        assert buffer().flush()["clock"]["cpu"] == {1001: 1.13}
 
 
 def test_zero_utilization_buffers_zero():
@@ -202,24 +241,6 @@ def test_recovers_after_an_initially_unavailable_usage_source():
         assert buffer().flush()["clock"]["cpu"] == {1002: 50.0}
 
 
-def test_total_seconds_prefers_cgroup_v2():
-    with patch.object(
-        Usage,
-        "read",
-        side_effect=reading(
-            {Usage.CGROUP_V2_USAGE: "usage_usec 2500000\nuser_usec 1000000"}
-        ),
-    ):
-        assert abs(Usage.total_seconds() - 2.5) < 0.0001
-
-
-def test_total_seconds_falls_back_to_cgroup_v1():
-    with patch.object(
-        Usage, "read", side_effect=reading({Usage.CGROUP_V1_USAGE: "3000000000"})
-    ):
-        assert abs(Usage.total_seconds() - 3.0) < 0.0001
-
-
 def test_reading_labels_the_active_source():
     with patch.object(
         Usage,
@@ -247,10 +268,9 @@ def test_reading_returns_none_when_every_source_fails():
         Usage, "process_seconds", return_value=None
     ):
         assert Usage.reading() == (None, None)
-        assert Usage.total_seconds() is None
 
 
-def test_total_seconds_falls_back_to_proc_namespace_sum():
+def test_reading_falls_back_to_proc_namespace_sum():
     mapping = {
         "/proc/1/stat": "1 (ruby) S 0 1 1 0 -1 0 0 0 0 0 500 250 0 0 20 0 1 0 9 0 0",
         "/proc/2/stat": "2 (puma (worker)) S 1 1 1 0 -1 0 0 0 0 0 150 100 0 0 20 0 1 0 9 0 0",
@@ -258,7 +278,9 @@ def test_total_seconds_falls_back_to_proc_namespace_sum():
     with patch.object(Usage, "read", side_effect=reading(mapping)), patch(
         "hirefire_resource.source.cpu.usage.glob.glob", return_value=list(mapping)
     ), patch.object(Usage, "clock_ticks", return_value=100):
-        assert abs(Usage.total_seconds() - 10.0) < 0.0001
+        seconds, source = Usage.reading()
+        assert abs(seconds - 10.0) < 0.0001
+        assert source == "proc"
 
 
 def test_proc_namespace_seconds_none_without_proc():
@@ -271,11 +293,13 @@ def test_stat_ticks_parses_around_comm_with_spaces_and_parens():
     assert Usage.stat_ticks(line) == 750
 
 
-def test_total_seconds_falls_back_to_process_clock():
+def test_reading_falls_back_to_process_clock():
     with patch.object(Usage, "read", return_value=None), patch(
         "hirefire_resource.source.cpu.usage.glob.glob", return_value=[]
     ):
-        assert isinstance(Usage.total_seconds(), float)
+        seconds, source = Usage.reading()
+        assert isinstance(seconds, float)
+        assert source == "process"
 
 
 def test_available_cpus_reads_cgroup_v2_quota():
@@ -437,7 +461,9 @@ def test_cgroup_v2_without_a_usage_usec_line_falls_through_to_v1():
         Usage.CGROUP_V1_USAGE: "3000000000",
     }
     with patch.object(Usage, "read", side_effect=reading(mapping)):
-        assert abs(Usage.total_seconds() - 3.0) < 0.0001
+        seconds, source = Usage.reading()
+        assert abs(seconds - 3.0) < 0.0001
+        assert source == "cgroup_v1"
 
 
 def test_available_cpus_ignores_v1_unlimited_quota():
@@ -484,13 +510,67 @@ def test_a_garbled_proc_stat_entry_is_skipped_and_the_rest_counted():
         assert abs(Usage.proc_namespace_seconds() - 7.5) < 0.0001
 
 
-def test_total_seconds_falls_through_on_malformed_cgroup_v2():
+def test_reading_falls_through_on_malformed_cgroup_v2():
     mapping = {
         Usage.CGROUP_V2_USAGE: "usage_usec notanumber",
         Usage.CGROUP_V1_USAGE: "3000000000",
     }
     with patch.object(Usage, "read", side_effect=reading(mapping)):
-        assert abs(Usage.total_seconds() - 3.0) < 0.0001
+        seconds, source = Usage.reading()
+        assert abs(seconds - 3.0) < 0.0001
+        assert source == "cgroup_v1"
+
+
+def test_cgroup_v2_zero_usage_is_accepted_not_fallthrough():
+    with patch.object(
+        Usage, "read", side_effect=reading({Usage.CGROUP_V2_USAGE: "usage_usec 0"})
+    ):
+        seconds, source = Usage.reading()
+        assert abs(seconds - 0.0) < 0.0001
+        assert source == "cgroup_v2"
+
+
+def test_cgroup_v1_zero_usage_is_accepted_not_fallthrough():
+    with patch.object(Usage, "read", side_effect=reading({Usage.CGROUP_V1_USAGE: "0"})):
+        seconds, source = Usage.reading()
+        assert abs(seconds - 0.0) < 0.0001
+        assert source == "cgroup_v1"
+
+
+def test_cgroup_v2_nan_usage_falls_through():
+    mapping = {
+        Usage.CGROUP_V2_USAGE: "usage_usec NaN",
+        Usage.CGROUP_V1_USAGE: "3000000000",
+    }
+    with patch.object(Usage, "read", side_effect=reading(mapping)):
+        seconds, source = Usage.reading()
+        assert abs(seconds - 3.0) < 0.0001
+        assert source == "cgroup_v1"
+
+
+def test_cgroup_v2_infinity_usage_falls_through():
+    mapping = {
+        Usage.CGROUP_V2_USAGE: "usage_usec Infinity",
+        Usage.CGROUP_V1_USAGE: "3000000000",
+    }
+    with patch.object(Usage, "read", side_effect=reading(mapping)):
+        seconds, source = Usage.reading()
+        assert abs(seconds - 3.0) < 0.0001
+        assert source == "cgroup_v1"
+
+
+def test_available_cpus_ignores_nan_v2_quota():
+    with patch.object(
+        Usage, "read", side_effect=reading({Usage.CGROUP_V2_QUOTA: "NaN 100000"})
+    ):
+        assert Usage.available_cpus() == os.cpu_count()
+
+
+def test_available_cpus_ignores_infinity_v2_quota():
+    with patch.object(
+        Usage, "read", side_effect=reading({Usage.CGROUP_V2_QUOTA: "Infinity 100000"})
+    ):
+        assert Usage.available_cpus() == os.cpu_count()
 
 
 def test_available_cpus_falls_through_on_malformed_quota():

@@ -1,4 +1,5 @@
 import glob
+import math
 import os
 import time
 
@@ -16,10 +17,6 @@ class Usage:
         536_870_912: 1.0,
         1_073_741_824: 2.0,
     }
-
-    @classmethod
-    def total_seconds(cls) -> float | None:
-        return cls.reading()[0]
 
     @classmethod
     def reading(cls) -> tuple[float | None, str | None]:
@@ -182,6 +179,9 @@ class Usage:
         if value is None:
             return None
         try:
-            return float(value)
-        except ValueError:
+            parsed = float(value)
+        except (TypeError, ValueError):
             return None
+        if not math.isfinite(parsed):
+            return None
+        return parsed

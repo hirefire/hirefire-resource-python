@@ -46,7 +46,8 @@ class HireFire:
 
         Equivalent to :meth:`configure` with an empty block. Use for zero-config
         installs that rely on always-on request queue time and CPU, plus lease plan
-        macros for job-queue metrics.
+        macros for job-queue metrics. Full :meth:`configure` remains available for
+        local job-queue samplers via :meth:`Configuration.dyno`.
 
         Returns:
             Configuration: The configuration.
@@ -67,7 +68,16 @@ class HireFire:
 
     @classmethod
     def after_fork_in_parent(cls) -> None:
-        """Parent after-fork: stop without flush when prefork web handoff is armed."""
+        """Called in the parent after fork.
+
+        For prefork web masters, stops the dispatcher without a final flush so the
+        master does not claim empty web liveness under the workers' process name.
+        Children restart via :meth:`after_fork_in_child` or middleware.
+
+        Job-only parents are left running: stopping them would kill fleet job
+        metrics after the first job fork, and middleware cannot restart a pure
+        worker.
+        """
         try:
             if not cls.configuration.prefork_web_handoff():
                 return
@@ -81,10 +91,11 @@ class HireFire:
 
     @classmethod
     def after_fork_in_child(cls) -> None:
-        """Child after-fork three-way handoff.
+        """Called in the child after fork.
 
-        Prefork web handoff with token: start + ensure. Handoff without token: no-op.
-        Otherwise abandon inherited state.
+        Prefork web workers restart reporting when a token is present.
+        Fork-per-job children abandon inherited dispatcher state so they do not
+        enter the lease race and do not flush the parent's buffer.
         """
         try:
             cls.configuration._reinit_locks_after_fork()
@@ -112,6 +123,12 @@ class HireFire:
 
     @classmethod
     def install_fork_hooks(cls) -> None:
+        """Installs ``os.register_at_fork`` hooks so prefork clusters behave correctly.
+
+        The parent stops reporting (a prefork master must not keep empty web
+        liveness), and each child restarts without needing middleware. Safe to
+        call more than once.
+        """
         if cls._fork_hooks_installed:
             return
         if not hasattr(os, "register_at_fork"):

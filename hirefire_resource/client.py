@@ -88,9 +88,12 @@ class Client:
 
     def _reinit_after_fork(self) -> None:
         self._mutex = threading.Lock()
+        connection = self._connection
         self._connection = None
         self._owner_pid = None
         self._last_used_at = None
+        if connection is not None:
+            self._abandon_inherited_connection(connection)
 
     def _execute(
         self,
@@ -169,10 +172,27 @@ class Client:
         if connection is None:
             return
         if owner_pid != os.getpid():
+            self._abandon_inherited_connection(connection)
             return
         try:
             connection.close()
         except OSError:
+            pass
+
+    @staticmethod
+    def _abandon_inherited_connection(connection: http.client.HTTPConnection) -> None:
+        sock = getattr(connection, "sock", None)
+        if sock is None:
+            return
+        detach = getattr(sock, "detach", None)
+        if callable(detach):
+            try:
+                detach()
+            except OSError:
+                pass
+        try:
+            connection.sock = None
+        except Exception:
             pass
 
     def _base_url(self) -> str:

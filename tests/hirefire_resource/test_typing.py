@@ -61,7 +61,10 @@ def test_job_queue_macros_have_inline_annotations_in_source():
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
 
-            if not node.name.startswith("job_queue"):
+            if not (
+                node.name.startswith("job_queue")
+                or node.name.startswith("async_job_queue")
+            ):
                 continue
 
             found += 1
@@ -74,4 +77,10 @@ def test_job_queue_macros_have_inline_annotations_in_source():
                 node.args.vararg.annotation is not None
             ), f"{path.name}:{node.name} untyped *queues"
 
-    assert found >= 6, found
+            kwonly = {
+                arg.arg: arg.annotation is not None for arg in node.args.kwonlyargs
+            }
+            assert kwonly, f"{path.name}:{node.name} missing keyword-only options"
+            assert all(kwonly.values()), f"{path.name}:{node.name} untyped keyword-only"
+
+    assert found == 14, found

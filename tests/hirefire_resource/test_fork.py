@@ -16,6 +16,48 @@ def _materialize():
     return config, dispatcher
 
 
+def test_reinit_after_fork_detaches_socket_without_closing_parent_fd():
+    import http.client
+    import socket
+
+    from hirefire_resource.client import Client
+
+    client = Client()
+    sock = socket.socket()
+    fd = sock.fileno()
+    connection = http.client.HTTPConnection("127.0.0.1")
+    connection.sock = sock
+    client._connection = connection
+    client._owner_pid = os.getpid()
+    client._last_used_at = 1.0
+
+    client._reinit_after_fork()
+
+    assert client._connection is None
+    os.fstat(fd)
+
+
+def test_reset_connection_on_pid_mismatch_detaches_without_close():
+    import http.client
+    import socket
+
+    from hirefire_resource.client import Client
+
+    client = Client()
+    sock = socket.socket()
+    fd = sock.fileno()
+    connection = http.client.HTTPConnection("127.0.0.1")
+    connection.sock = sock
+    client._connection = connection
+    client._owner_pid = os.getpid() - 1
+    client._last_used_at = 1.0
+
+    client._reset_connection()
+
+    assert client._connection is None
+    os.fstat(fd)
+
+
 def test_after_fork_in_child_replaces_locks_and_drops_connections():
     config, dispatcher = _materialize()
     client = dispatcher._client
@@ -185,6 +227,9 @@ def test_install_fork_hooks_is_idempotent():
     assert HireFire._fork_hooks_installed
 
 
+@pytest.mark.filterwarnings(
+    "ignore:This process .* is multi-threaded:DeprecationWarning"
+)
 @pytest.mark.skipif(not hasattr(os, "fork"), reason="fork() is POSIX-only")
 @pytest.mark.skipif(
     not hasattr(os, "register_at_fork"), reason="register_at_fork unavailable"
@@ -219,6 +264,9 @@ def test_real_fork_restarts_child_and_stops_parent(monkeypatch, set_HIREFIRE_TOK
     assert not HireFire.configuration.dispatcher.running()
 
 
+@pytest.mark.filterwarnings(
+    "ignore:This process .* is multi-threaded:DeprecationWarning"
+)
 @pytest.mark.skipif(not hasattr(os, "fork"), reason="fork() is POSIX-only")
 @pytest.mark.skipif(
     not hasattr(os, "register_at_fork"), reason="register_at_fork unavailable"
@@ -260,6 +308,9 @@ def test_real_fork_keeps_job_only_parent_running(monkeypatch, set_HIREFIRE_TOKEN
     assert HireFire.configuration.dispatcher.running()
 
 
+@pytest.mark.filterwarnings(
+    "ignore:This process .* is multi-threaded:DeprecationWarning"
+)
 @pytest.mark.skipif(not hasattr(os, "fork"), reason="fork() is POSIX-only")
 def test_forked_child_recovers_a_lock_held_across_the_fork():
     buffer = HireFire.configuration.buffer

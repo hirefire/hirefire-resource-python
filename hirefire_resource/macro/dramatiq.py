@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import functools
 import json
 import os
@@ -12,13 +13,10 @@ _DEFAULT_NAMESPACE = "dramatiq"
 _AMQP_SCHEMES = ("amqp://", "amqps://")
 _REDIS_SCHEMES = ("redis://", "rediss://")
 _SAMPLE_REDIS_TIMEOUT = 5.0
-# Cap how many .DQ ids we decode per queue per sample. The delay queue is an
-# unsorted list, so there is no cheap due filter. Walking the whole list can
-# overrun the 5s lease TTL and flap the grant. Extra due work past this cap is
-# omitted (same class of budget as Sidekiq max_scheduled). Not a plan option.
+_SAMPLE_AMQP_TIMEOUT = 5.0
 _DQ_WALK_LIMIT = 2000
 
-_dq_wave: dict[tuple[str, str], tuple[int, int | None]] | None = None
+_dq_wave: dict[tuple[object, str, str], tuple[int, int | None]] | None = None
 
 
 def before_sample_job_queues() -> object:
@@ -43,7 +41,7 @@ def reinit_after_fork() -> None:
 try:
     import redis
     from redis.exceptions import RedisError
-except ImportError:  # pragma: no cover - optional dep for type checkers / bare core
+except ImportError:  # pragma: no cover
     redis = None
 
     class RedisError(Exception):  # type: ignore[no-redef]
@@ -53,6 +51,19 @@ except ImportError:  # pragma: no cover - optional dep for type checkers / bare 
 try:
     import pika
     from pika.exceptions import AMQPChannelError, AMQPConnectionError
+
+    try:
+        from pika.adapters.utils.connection_workflow import (
+            AMQPConnectorException,
+            AMQPConnectorStackTimeout,
+        )
+    except ImportError:  # pragma: no cover
+
+        class AMQPConnectorException(Exception):  # type: ignore[no-redef]
+            pass
+
+        class AMQPConnectorStackTimeout(AMQPConnectorException):  # type: ignore[no-redef]
+            pass
 
     PIKA_AVAILABLE = True
 except ImportError:
@@ -64,7 +75,21 @@ except ImportError:
     class AMQPChannelError(Exception):  # type: ignore[no-redef]
         pass
 
+    class AMQPConnectorException(Exception):  # type: ignore[no-redef]
+        pass
+
+    class AMQPConnectorStackTimeout(AMQPConnectorException):  # type: ignore[no-redef]
+        pass
+
     PIKA_AVAILABLE = False
+
+_UNREACHABLE_ERRORS: tuple[type[BaseException], ...] = (
+    RedisError,
+    AMQPConnectionError,
+    AMQPConnectorException,
+    AMQPConnectorStackTimeout,
+    OSError,
+)
 
 
 def job_queue_size(
@@ -122,10 +147,13 @@ def job_queue_size(
         )
         if resolved["kind"] == "redis":
             return _redis_job_queue_size(
-                resolved["client"], queue_names, resolved["namespace"]
+                resolved["client"],
+                queue_names,
+                resolved["namespace"],
+                resolved["identity"],
             )
         return _rabbitmq_job_queue_size(resolved["connection"], queue_names)
-    except (RedisError, AMQPConnectionError, OSError):
+    except _UNREACHABLE_ERRORS:
         return 0
     finally:
         if resolved is not None:
@@ -199,10 +227,13 @@ def job_queue_latency(
         )
         if resolved["kind"] == "redis":
             return _redis_job_queue_latency(
-                resolved["client"], queue_names, resolved["namespace"]
+                resolved["client"],
+                queue_names,
+                resolved["namespace"],
+                resolved["identity"],
             )
         return _rabbitmq_job_queue_latency(resolved["connection"], queue_names)
-    except (RedisError, AMQPConnectionError, OSError):
+    except _UNREACHABLE_ERRORS:
         return 0.0
     finally:
         if resolved is not None:
@@ -253,6 +284,10 @@ def supports_plan_strategy(strategy: object) -> bool:
     from hirefire_resource import plan
 
     return plan.known_strategy(strategy)
+
+
+def queues_required() -> bool:
+    return True
 
 
 def _canonical_queues(*queues: str) -> set[str]:
@@ -354,6 +389,7 @@ def _resolve_connection(
                 "owned": False,
                 "namespace": _resolve_namespace(namespace, broker, redis_path=True),
                 "connection": None,
+                "identity": id(client),
             }
         if _is_rabbitmq_broker(broker):
             parameters = getattr(broker, "parameters", None)
@@ -361,7 +397,9 @@ def _resolve_connection(
                 raise ValueError(
                     "Dramatiq RabbitmqBroker requires pika and connection parameters"
                 )
-            connection = pika.BlockingConnection(parameters=parameters)
+            connection = pika.BlockingConnection(
+                parameters=_sample_pika_parameters(source=parameters)
+            )
             return {
                 "kind": "rabbitmq",
                 "connection": connection,
@@ -392,11 +430,12 @@ def _resolve_connection(
             "owned": True,
             "namespace": _resolve_namespace(namespace, None, redis_path=True),
             "connection": None,
+            "identity": url,
         }
 
     if pika is None:
         raise RuntimeError("pika package is required for Dramatiq RabbitMQ sampling")
-    connection = pika.BlockingConnection(pika.URLParameters(url))
+    connection = pika.BlockingConnection(parameters=_sample_pika_parameters(url=url))
     return {
         "kind": "rabbitmq",
         "connection": connection,
@@ -404,6 +443,35 @@ def _resolve_connection(
         "client": None,
         "namespace": _DEFAULT_NAMESPACE,
     }
+
+
+def _sample_pika_parameters(
+    *, url: str | None = None, source: Any | None = None
+) -> Any:
+    if source is not None:
+        if isinstance(source, (list, tuple)):
+            return [_bound_pika_parameters(copy.copy(item)) for item in source]
+        return _bound_pika_parameters(copy.copy(source))
+    if pika is None:
+        raise RuntimeError("pika package is required for Dramatiq RabbitMQ sampling")
+    return _bound_pika_parameters(pika.URLParameters(url))
+
+
+def _bound_pika_parameters(parameters: Any) -> Any:
+    if isinstance(parameters, dict):
+        bounded = dict(parameters)
+        bounded["socket_timeout"] = _SAMPLE_AMQP_TIMEOUT
+        bounded["stack_timeout"] = _SAMPLE_AMQP_TIMEOUT
+        bounded["blocked_connection_timeout"] = _SAMPLE_AMQP_TIMEOUT
+        bounded["connection_attempts"] = 1
+        bounded["retry_delay"] = 0
+        return bounded
+    parameters.socket_timeout = _SAMPLE_AMQP_TIMEOUT
+    parameters.stack_timeout = _SAMPLE_AMQP_TIMEOUT
+    parameters.blocked_connection_timeout = _SAMPLE_AMQP_TIMEOUT
+    parameters.connection_attempts = 1
+    parameters.retry_delay = 0
+    return parameters
 
 
 def _close_resolved(resolved: dict[str, Any]) -> None:
@@ -475,17 +543,23 @@ def _message_eta_ms(message: Any) -> int | None:
         return None
 
 
-def _redis_job_queue_size(client: Any, queues: set[str], namespace: str) -> int:
+def _redis_job_queue_size(
+    client: Any, queues: set[str], namespace: str, identity: object
+) -> int:
     now_ms = _now_ms()
     total = 0
     for queue in queues:
         total += int(client.llen(f"{namespace}:{queue}") or 0)
-        due_count, _earliest = _redis_dq_stats(client, namespace, queue, now_ms)
+        due_count, _earliest = _redis_dq_stats(
+            client, namespace, queue, now_ms, identity
+        )
         total += due_count
     return total
 
 
-def _redis_job_queue_latency(client: Any, queues: set[str], namespace: str) -> float:
+def _redis_job_queue_latency(
+    client: Any, queues: set[str], namespace: str, identity: object
+) -> float:
     now_ms = _now_ms()
     max_lat = 0.0
     for queue in queues:
@@ -496,16 +570,18 @@ def _redis_job_queue_latency(client: Any, queues: set[str], namespace: str) -> f
             if ts is not None:
                 max_lat = max(max_lat, max(0.0, (now_ms - ts) / 1000.0))
 
-        _due_count, earliest_due = _redis_dq_stats(client, namespace, queue, now_ms)
+        _due_count, earliest_due = _redis_dq_stats(
+            client, namespace, queue, now_ms, identity
+        )
         if earliest_due is not None:
             max_lat = max(max_lat, max(0.0, (now_ms - earliest_due) / 1000.0))
     return max_lat
 
 
 def _redis_dq_stats(
-    client: Any, namespace: str, queue: str, now_ms: int
+    client: Any, namespace: str, queue: str, now_ms: int, identity: object
 ) -> tuple[int, int | None]:
-    cache_key = (namespace, queue)
+    cache_key = (identity, namespace, queue)
     if _dq_wave is not None and cache_key in _dq_wave:
         return _dq_wave[cache_key]
 

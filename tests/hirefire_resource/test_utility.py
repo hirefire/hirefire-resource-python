@@ -4,6 +4,11 @@ from hirefire_resource.errors import MissingQueueError
 from hirefire_resource.utility import normalize_queues
 
 
+def test_normalize_queues_coerces_none_and_numbers():
+    assert normalize_queues(None, 1, "mailer", allow_empty=False) == {"1", "mailer"}
+    assert normalize_queues(None, allow_empty=True) == set()
+
+
 def test_normalize_queues_trims_and_dedupes():
     assert normalize_queues(" default ", "default", "mailer", allow_empty=False) == {
         "default",

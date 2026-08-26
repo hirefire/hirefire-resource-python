@@ -111,6 +111,11 @@ class Configuration:
         name = self._coerce_name(name)
 
         if sampler is not None:
+            if not callable(sampler):
+                raise TypeError(
+                    f"config.dyno({name!r}) sampler must be callable, "
+                    f"got {type(sampler).__name__}."
+                )
             self._register(name, "job_queue", sampler)
             return
 
