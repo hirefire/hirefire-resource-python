@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - CPU activity is sampled automatically.
 - Optional token-only setup with `HireFire.boot()`. Existing `config.dyno` job queue blocks still work.
 - Count of jobs still being processed (`job_queue_working` / `async_job_queue_working`) for RQ.
-- Dramatiq adapter: job queue size and job queue latency (Redis ready plus due delayed, RabbitMQ ready on the main queue only).
+- Dramatiq adapter: job queue size and job queue latency (Redis queued plus delayed jobs that are due, RabbitMQ on the main queue only).
 - Support Python 3.13 and 3.14.
 - Support Django 5 and 6, Starlette 1, and RQ 2.
 - The package now ships type hints.
