@@ -36,6 +36,11 @@ class HireFire:
 
         Yields:
             Configuration: The configuration to declare processes on.
+
+        Example::
+
+            with HireFire.configure() as config:
+                config.dyno("worker", sampler)
         """
         yield cls.configuration
         cls._start_if_token()
@@ -51,6 +56,10 @@ class HireFire:
 
         Returns:
             Configuration: The configuration.
+
+        Example::
+
+            HireFire.boot()
         """
         with cls.configure():
             pass
@@ -62,8 +71,7 @@ class HireFire:
 
         Mainly for tests and reconfiguration between runs.
         """
-        if cls.configuration is not None:
-            cls.configuration.stop_dispatcher()
+        cls.configuration.stop_dispatcher()
         cls.configuration = Configuration()
 
     @classmethod

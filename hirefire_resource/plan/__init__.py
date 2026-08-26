@@ -197,13 +197,10 @@ def execute(entry: dict[str, Any], live: Callable[[], bool] | None = None) -> No
         return
 
     try:
-        plan_options: dict[str, Any] = getattr(
-            macro, "plan_options", lambda _s, _o: {}
-        )(strategy, entry.get("options"))
-        connection_options: dict[str, Any] = getattr(
-            macro, "plan_connection_options", lambda: {}
-        )()
-        options = {**plan_options, **connection_options}
+        options = {
+            **macro.plan_options(strategy, entry.get("options")),
+            **macro.plan_connection_options(),
+        }
         _sample_job_strategy(
             macro, name, strategy, method_name, queues, options, live=live
         )
@@ -344,9 +341,7 @@ def _valid_sample(value: object) -> bool:
 
 
 def _coerce_sample(value: int | float) -> int | float:
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return value
-    return float(value)
+    return value
 
 
 def _format_sample_value(value: object) -> str:

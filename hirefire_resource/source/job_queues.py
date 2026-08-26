@@ -94,11 +94,7 @@ class JobQueues:
         )
 
     def _coerce_sample(self, value: int | float) -> int | float:
-        if isinstance(value, bool):
-            return float(value)
-        if isinstance(value, (int, float)):
-            return value
-        return float(value)
+        return value
 
     def _format_sample_value(self, value: object) -> str:
         try:

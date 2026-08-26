@@ -31,14 +31,10 @@ class SampleTraceWave:
         queues = entry.get("queues")
         options = entry.get("options")
         strategy = entry.get("strategy")
-        if strategy is None:
-            strategy_s = ""
-        else:
-            strategy_s = str(strategy)
         self._ops.append(
             {
                 "adapter": entry.get("adapter"),
-                "strategy": strategy_s,
+                "strategy": "" if strategy is None else str(strategy),
                 "queues": queues if isinstance(queues, list) else [],
                 "options": options if isinstance(options, dict) else {},
                 "ms": round(float(ms), 3),

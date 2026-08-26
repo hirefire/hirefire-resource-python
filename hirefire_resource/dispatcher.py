@@ -15,8 +15,14 @@ if TYPE_CHECKING:
     import logging
 
 
+def _plan() -> Any:
+    from hirefire_resource import plan
+
+    return plan
+
+
 class Dispatcher:
-    """Periodic reporter that samples job queues and CPU and flushes buffered metrics."""
+    """Periodic reporter that samples job queues and CPU and flushes buffered metrics to the API."""
 
     RQT_BACKFILL_LIMIT = 60
     PAYLOAD_SIZE_LIMIT = 32_768
@@ -85,9 +91,7 @@ class Dispatcher:
                 after_fork = self._pid is not None and self._pid != os.getpid()
                 if after_fork:
                     self._buffer().reinit_after_fork()
-                    from hirefire_resource import plan
-
-                    plan.reinit_macros_after_fork()
+                    _plan().reinit_macros_after_fork()
                     self._reset_dispatch_state_after_fork()
                 else:
                     self._reset_dispatch_state_for_restart()
@@ -257,9 +261,7 @@ class Dispatcher:
                 self._pid = None
                 self._generation += 1
             self._buffer().reinit_after_fork()
-            from hirefire_resource import plan
-
-            plan.reinit_macros_after_fork()
+            _plan().reinit_macros_after_fork()
             self._configuration().reset_after_fork()
             self._lease.demote()
             self._client.close()
@@ -270,18 +272,6 @@ class Dispatcher:
                 "error",
                 f"[HireFire] Could not abandon inherited dispatcher state: {error}",
             )
-
-    def _reinit_after_fork(self) -> None:
-        self._reinit_locks_after_fork()
-        self._last_rqt_second = None
-        self._next_dispatch_at = None
-        self._dispatch_frequency = self.DEFAULT_DISPATCH_FREQUENCY
-        self._unloaded_adapter_warned = {}
-        self._plan_override_warned = {}
-        self._unknown_adapter_warned = {}
-        self._unsupported_strategy_warned = {}
-        self._unknown_strategy_warned = {}
-        self._empty_queues_warned = {}
 
     def _reinit_locks_after_fork(self) -> None:
         self._mutex = threading.Lock()
@@ -380,29 +370,23 @@ class Dispatcher:
         self._empty_queues_warned = {}
 
     def _enter_race(self) -> bool:
-        from hirefire_resource import plan
-
         return (
             self._configuration().job_queues.any()
-            or plan.any_allowlisted_job_queue_library_loaded()
+            or _plan().any_allowlisted_job_queue_library_loaded()
         )
 
     def _hold_lease(self, plan_job_queues: list[dict[str, Any]]) -> bool:
-        from hirefire_resource import plan
-
         if self._configuration().job_queues.any():
             return True
 
         for entry in plan_job_queues:
-            if self._adapter_present(entry) and plan.sampleable_entry(entry):
+            if self._adapter_present(entry) and _plan().sampleable_entry(entry):
                 return True
         return False
 
     def _sample_job_queues(self, live: Callable[[], bool] | None = None) -> None:
-        from hirefire_resource import plan
-
         wave = SampleTraceWave.start()
-        with plan.around_job_queue_sample():
+        with _plan().around_job_queue_sample():
             local_job_queues = self._configuration().job_queues
             for entry in self._lease.job_queues:
                 if live is not None and not live():
@@ -433,14 +417,13 @@ class Dispatcher:
         local_job_queues: Any,
         live: Callable[[], bool] | None = None,
     ) -> None:
-        from hirefire_resource import plan
-
         if live is not None and not live():
             return
 
         name = str(entry.get("name", ""))
         adapter = entry.get("adapter")
         strategy = entry.get("strategy")
+        plan = _plan()
 
         if plan.executable(adapter):
             if not plan.supports_strategy(adapter, strategy):
@@ -467,15 +450,13 @@ class Dispatcher:
         local_job_queues: Any,
         live: Callable[[], bool] | None = None,
     ) -> None:
-        from hirefire_resource import plan
-
         if live is not None and not live():
             return
 
         name = str(entry.get("name", ""))
         strategy = str(entry.get("strategy", ""))
 
-        if not plan.known_strategy(strategy):
+        if not _plan().known_strategy(strategy):
             self._warn_unknown_strategy_once(name, strategy)
             return
 

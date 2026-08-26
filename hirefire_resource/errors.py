@@ -1,8 +1,6 @@
 class MissingQueueError(Exception):
-    """Raised when a queue macro is called without any queue names.
-
-    Celery macros require at least one queue. RQ macros may omit queues to measure
-    every queue present.
+    """Raised when a queue macro is called without any queue names and the backend requires them
+    (e.g. Celery).
     """
 
     def __init__(self) -> None:
@@ -10,16 +8,13 @@ class MissingQueueError(Exception):
 
 
 class MissingSamplerError(Exception):
-    """Raised when ``dyno`` is given without a sampler.
-
-    Bare ``dyno("web")`` is a deprecated no-op (request queue time is sampled from
-    HTTP traffic). Any other name needs a job-queue sampler.
+    """Raised when :meth:`Configuration.dyno` cannot resolve a source because a name
+    was given without a sampler (except bare ``"web"``, which is a no-op for
+    backwards compatibility).
     """
 
 
 class DuplicateDynoError(Exception):
-    """Raised when a dyno name was already declared for the same source kind.
-
-    Names are compared case-insensitively. Job-queue samplers share a name
-    namespace per process.
+    """Raised when a dyno name was already declared for the same source kind
+    (names are compared case-insensitively).
     """

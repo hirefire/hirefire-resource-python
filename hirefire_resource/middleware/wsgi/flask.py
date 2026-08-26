@@ -8,9 +8,12 @@ from hirefire_resource.middleware.wsgi import request_start_from_environ
 class HireFireMiddleware:
     """Flask middleware that samples request queue time.
 
-    Install with ``app.wsgi_app = HireFireMiddleware(app)``. Records a queue-time
-    sample from ``X-Request-Start`` (or ``X-Queue-Start``) on each request when a
-    token is present.
+    Install with ``app.wsgi_app = HireFireMiddleware(app)``. Reads
+    ``X-Request-Start`` (or ``X-Queue-Start``) on each request.
+
+    When a token is present, records a queue-time sample under the process HTTP
+    name and starts the dispatcher. Explicit http registration is optional.
+    Failures are logged and swallowed so the host app is unaffected.
     """
 
     def __init__(self, app: Any) -> None:

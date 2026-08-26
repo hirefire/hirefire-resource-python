@@ -34,9 +34,9 @@ def plan_connection_options() -> dict[str, Any]:
 
 
 def supports_plan_strategy(strategy: object) -> bool:
-    """Whether this adapter can sample ``strategy`` (``"jql"`` / ``"jqs"``).
-
-    Defaults to true for known strategies.
+    """Whether this adapter can sample ``strategy`` (``"jql"`` / ``"jqs"``). Defaults
+    to true for known strategies. Macros that cannot measure latency override
+    this hook.
     """
     from hirefire_resource import plan
 
@@ -69,7 +69,6 @@ def after_sample_job_queues(token: object = None) -> None:
 
     Default is a no-op. Called from ``finally`` even when a sampler raises.
     """
-    return None
 
 
 def reinit_after_fork() -> None:
@@ -77,7 +76,6 @@ def reinit_after_fork() -> None:
 
     Default is a no-op. Called next to buffer reinit on the same dispatcher sites.
     """
-    return None
 
 
 def extract_plan_options(

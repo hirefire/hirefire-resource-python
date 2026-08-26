@@ -18,7 +18,6 @@ __all__ = [
     "Configuration",
     "DuplicateDynoError",
     "MissingSamplerError",
-    "MAX_NAME_BYTES",
 ]
 
 MAX_NAME_BYTES = 128
@@ -29,12 +28,10 @@ class Configuration:
 
     Always-on sources (request queue time on the HTTP middleware path, and CPU when process
     identity resolves) do not require an explicit :meth:`dyno` declaration. Local job-queue
-    sampler callables remain the escape hatch for custom probes.
+    sampler callables remain the escape hatch for custom probes and legacy root installs
+    until lease plans cover them fully.
 
     Attributes:
-        http: Always ``None``. Kept for readers that still check ``configuration.http``.
-            Request queue time uses always-on sources under :meth:`http_name` (process identity).
-        job_queues: Local job-queue sources declared via sampler callables on :meth:`dyno`.
         logger: Logger used for HireFire diagnostic messages. Defaults to a stdout logger.
             Set to ``None`` (or a logger missing the log methods) to silence diagnostics.
     """
@@ -107,6 +104,11 @@ class Configuration:
             ValueError: The name is empty or exceeds 128 UTF-8 bytes.
             MissingSamplerError: A name other than ``"web"`` given without a sampler.
             DuplicateDynoError: The name was already declared for the same source kind.
+
+        Example::
+
+            config.dyno("web")  # no-op BC, safe to remove
+            config.dyno("worker", sampler)
         """
         name = self._coerce_name(name)
 
@@ -141,7 +143,7 @@ class Configuration:
 
     @property
     def dispatcher(self) -> Dispatcher:
-        """Periodic reporter that samples job queues and CPU and flushes buffered metrics."""
+        """Periodic reporter that samples job queues and CPU and flushes buffered metrics to the API."""
         if self._dispatcher is None:
             with self._mutex:
                 if self._dispatcher is None:
@@ -221,14 +223,6 @@ class Configuration:
         self._warn_identity_name_too_long_once(name)
         return None
 
-    def _reinit_after_fork(self) -> None:
-        self._mutex = threading.Lock()
-        if self._buffer is not None:
-            self._buffer.reinit_after_fork()
-        if self._dispatcher is not None:
-            self._dispatcher._reinit_after_fork()
-        self.reset_after_fork()
-
     def _reinit_locks_after_fork(self) -> None:
         self._mutex = threading.Lock()
         if self._buffer is not None:
@@ -264,22 +258,9 @@ class Configuration:
 
         if source == "job_queue":
             assert sampler is not None
-            self.job_queues.append(JobQueue(self._canonical_name(name), sampler))
+            self.job_queues.append(JobQueue(name, sampler))
 
         self._sources_by_name[key] = kinds + [source]
-
-    def _canonical_name(self, name: str) -> str:
-        existing_key = next(
-            (key for key in self._sources_by_name if key.lower() == name.lower()),
-            None,
-        )
-        if existing_key is None:
-            return name
-
-        for worker in self.job_queues:
-            if worker.name.lower() == name.lower():
-                return worker.name
-        return name
 
     def _warn_identity_name_too_long_once(self, name: str) -> None:
         if self._identity_name_too_long_warned:
