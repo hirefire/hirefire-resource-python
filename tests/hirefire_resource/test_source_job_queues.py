@@ -14,40 +14,29 @@ def _strategy_value(data, name, strategy):
     return list(data[name][strategy].values())[0]
 
 
-def _sample_all(strategy="jql"):
-    job_queues = HireFire.configuration.job_queues
-    for job_queue in job_queues:
-        job_queues.sample_job_queue(job_queue, strategy)
-
-
-def test_sample_job_queue_jql():
+def test_sample_job_queue():
     with HireFire.configure() as config:
         config.dyno("worker", lambda: 42)
         config.dyno("mailer", lambda: 18)
 
-    _sample_all("jql")
+    job_queues = HireFire.configuration.job_queues
+    job_queues.sample_job_queue(job_queues.find_by_name("worker"), "jql")
+    job_queues.sample_job_queue(job_queues.find_by_name("mailer"), "jqs")
 
     data = buffer().flush()
     assert _strategy_value(data, "worker", "jql") == 42
-    assert _strategy_value(data, "mailer", "jql") == 18
+    assert _strategy_value(data, "mailer", "jqs") == 18
 
 
-def test_sample_job_queue_jqs():
+def test_sample_job_queue_rejects_unknown_strategy(caplog):
+    caplog.set_level(logging.ERROR)
     with HireFire.configure() as config:
-        config.dyno("worker", lambda: 7)
+        config.dyno("worker", lambda: 42)
 
-    _sample_all("jqs")
-    assert _strategy_value(buffer().flush(), "worker", "jqs") == 7
-
-
-def test_find_by_name_case_insensitive():
-    with HireFire.configure() as config:
-        config.dyno("Worker", lambda: 1)
-
-    found = HireFire.configuration.job_queues.find_by_name("worker")
-    assert found is not None
-    assert found.name == "Worker"
-    assert found is HireFire.configuration.job_queues.find_by_name("WORKER")
+    job_queue = HireFire.configuration.job_queues.find_by_name("worker")
+    HireFire.configuration.job_queues.sample_job_queue(job_queue, "rpm")
+    assert buffer().flush() == {}
+    assert "Unknown job-queue strategy" in caplog.text
 
 
 def test_find_by_name_returns_none_for_missing():
@@ -55,6 +44,16 @@ def test_find_by_name_returns_none_for_missing():
         config.dyno("worker", lambda: 1)
 
     assert HireFire.configuration.job_queues.find_by_name("missing") is None
+
+
+def test_find_by_name_is_case_insensitive_and_preserves_canonical_name():
+    with HireFire.configure() as config:
+        config.dyno("Worker", lambda: 1)
+
+    found = HireFire.configuration.job_queues.find_by_name("worker")
+    assert found is not None
+    assert found.name == "Worker"
+    assert found is HireFire.configuration.job_queues.find_by_name("WORKER")
 
 
 def test_latest_sample_wins_across_multiple_samples():
@@ -79,7 +78,9 @@ def test_raising_sampler_is_isolated_and_logged(caplog):
         config.dyno("worker", boom)
         config.dyno("mailer", lambda: 18)
 
-    _sample_all()
+    job_queues = HireFire.configuration.job_queues
+    job_queues.sample_job_queue(job_queues.find_by_name("worker"), "jql")
+    job_queues.sample_job_queue(job_queues.find_by_name("mailer"), "jql")
 
     data = buffer().flush()
     assert "worker" not in data or "jql" not in data.get("worker", {})
@@ -89,42 +90,74 @@ def test_raising_sampler_is_isolated_and_logged(caplog):
 
 def test_invalid_sample_values_are_dropped_and_logged(caplog):
     caplog.set_level(logging.ERROR)
-    values = iter(["10", None, -1, float("inf"), float("nan"), 7])
+    values = iter(["10", None, -1, float("inf"), float("nan"), True, False, 7])
     with HireFire.configure() as config:
         config.dyno("worker", lambda: next(values))
 
-    for _ in range(5):
-        _sample_all()
+    job_queue = HireFire.configuration.job_queues.find_by_name("worker")
+    for _ in range(7):
+        HireFire.configuration.job_queues.sample_job_queue(job_queue, "jql")
     assert buffer().flush() == {}
     assert "expected a non-negative number" in caplog.text
 
-    _sample_all()
+    HireFire.configuration.job_queues.sample_job_queue(job_queue, "jql")
     assert _strategy_value(buffer().flush(), "worker", "jql") == 7
 
 
-def test_a_boolean_sample_is_dropped(caplog):
-    caplog.set_level(logging.ERROR)
+def test_a_raising_logger_does_not_escape_sampling():
     with HireFire.configure() as config:
-        config.dyno("worker", lambda: True)
+        config.dyno("worker", lambda: (_ for _ in ()).throw(RuntimeError("down")))
 
-    _sample_all()
+    class RaisingLogger:
+        def error(self, message):
+            raise IOError("closed stream")
+
+    HireFire.configuration.logger = RaisingLogger()
+    job_queue = HireFire.configuration.job_queues.find_by_name("worker")
+    HireFire.configuration.job_queues.sample_job_queue(job_queue, "jql")
+
+
+def test_samples_write_to_the_owning_configuration_not_the_global(monkeypatch):
+    monkeypatch.setenv("HIREFIRE_TOKEN", "old-token")
+    old = Configuration()
+    old.dyno("worker", lambda: 7)
+    job_queue = old.job_queues.find_by_name("worker")
+
+    HireFire.reset()
+    monkeypatch.setenv("HIREFIRE_TOKEN", "new-token")
+    HireFire.configuration.dyno("web")
+
+    old.job_queues.sample_job_queue(job_queue, "jql")
+
+    assert "worker" not in HireFire.configuration.buffer.flush()
+    assert _strategy_value(old.buffer.flush(), "worker", "jql") == 7
+
+
+def test_sample_job_queue_reports_under_explicit_name():
+    with HireFire.configure() as config:
+        config.dyno("Worker", lambda: 4)
+
+    job_queue = HireFire.configuration.job_queues.find_by_name("worker")
+    HireFire.configuration.job_queues.sample_job_queue(job_queue, "jqs", name="worker")
+
+    data = buffer().flush()
+    assert _strategy_value(data, "worker", "jqs") == 4
+    assert "Worker" not in data
+
+
+def test_live_gate_drops_a_sample_that_returns_after_stop():
+    with HireFire.configure() as config:
+        config.dyno("worker", lambda: 9)
+
+    job_queue = HireFire.configuration.job_queues.find_by_name("worker")
+    HireFire.configuration.job_queues.sample_job_queue(
+        job_queue, "jql", live=lambda: False
+    )
 
     assert buffer().flush() == {}
-    assert "expected a non-negative number" in caplog.text
 
 
-def test_unknown_strategy_dropped(caplog):
-    caplog.set_level(logging.ERROR)
-    with HireFire.configure() as config:
-        config.dyno("worker", lambda: 1)
-
-    job_queue = list(HireFire.configuration.job_queues)[0]
-    HireFire.configuration.job_queues.sample_job_queue(job_queue, "nope")
-    assert buffer().flush() == {}
-    assert "Unknown job-queue strategy" in caplog.text
-
-
-def test_iteration_and_names():
+def test_enumerable():
     job_queues = JobQueues()
     job_queues.append(JobQueue("worker", lambda: 1))
     job_queues.append(JobQueue("mailer", lambda: 2))
@@ -145,57 +178,6 @@ def test_zero_sample_is_accepted():
     with HireFire.configure() as config:
         config.dyno("worker", lambda: 0)
 
-    _sample_all()
+    job_queue = HireFire.configuration.job_queues.find_by_name("worker")
+    HireFire.configuration.job_queues.sample_job_queue(job_queue, "jql")
     assert _strategy_value(buffer().flush(), "worker", "jql") == 0
-
-
-def test_a_raising_logger_does_not_escape_sampling():
-    with HireFire.configure() as config:
-        config.dyno("worker", lambda: (_ for _ in ()).throw(RuntimeError("down")))
-
-    class RaisingLogger:
-        def error(self, message):
-            raise IOError("closed stream")
-
-    HireFire.configuration.logger = RaisingLogger()
-    _sample_all()
-
-
-def test_samples_write_to_the_owning_configuration_not_the_global(monkeypatch):
-    monkeypatch.setenv("HIREFIRE_TOKEN", "old-token")
-    old = Configuration()
-    old.dyno("worker", lambda: 7)
-    job_queue = old.job_queues.find_by_name("worker")
-
-    HireFire.reset()
-    monkeypatch.setenv("HIREFIRE_TOKEN", "new-token")
-    HireFire.configuration.dyno("web")
-
-    old.job_queues.sample_job_queue(job_queue, "jql")
-
-    assert "worker" not in HireFire.configuration.buffer.flush()
-    assert _strategy_value(old.buffer.flush(), "worker", "jql") == 7
-
-
-def test_live_gate_drops_a_sample_that_returns_after_stop():
-    with HireFire.configure() as config:
-        config.dyno("worker", lambda: 9)
-
-    job_queue = HireFire.configuration.job_queues.find_by_name("worker")
-    HireFire.configuration.job_queues.sample_job_queue(
-        job_queue, "jql", live=lambda: False
-    )
-
-    assert buffer().flush() == {}
-
-
-def test_sample_job_queue_reports_under_explicit_name():
-    with HireFire.configure() as config:
-        config.dyno("Worker", lambda: 4)
-
-    job_queue = HireFire.configuration.job_queues.find_by_name("worker")
-    HireFire.configuration.job_queues.sample_job_queue(job_queue, "jqs", name="worker")
-
-    data = buffer().flush()
-    assert _strategy_value(data, "worker", "jqs") == 4
-    assert "Worker" not in data

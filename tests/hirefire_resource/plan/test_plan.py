@@ -75,11 +75,14 @@ def test_execute_skips_queues_required_adapter_with_empty_queues():
     assert HireFire.configuration.buffer.flush() == {}
 
 
-def test_known_adapters_and_strategies():
+def test_known_adapters():
     assert plan.known_adapter("celery")
     assert plan.known_adapter("rq")
     assert plan.known_adapter("dramatiq")
     assert not plan.known_adapter("sidekiq")
+
+
+def test_known_strategy():
     assert plan.known_strategy("jql")
     assert plan.known_strategy("jqs")
     assert not plan.known_strategy("cpu")
@@ -128,18 +131,31 @@ def test_library_loaded_detects_dramatiq_from_sys_modules():
         assert not plan.library_loaded("dramatiq")
 
 
-def test_normalize_queues_rules():
-    assert plan.normalize_queues(None, name="worker") == []
+def test_normalize_queues_truncates_and_strips():
+    queues = [f" q{i} " for i in range(plan.MAX_QUEUES + 2)]
+    queues.append("")
+    queues.append("x" * (plan.MAX_QUEUE_NAME_BYTES + 1))
+    normalized = plan.normalize_queues(queues, name="worker")
+    assert len(normalized) == plan.MAX_QUEUES
+    assert normalized[0] == "q0"
     assert plan.normalize_queues(["a", "b"], name="worker") == ["a", "b"]
-    assert plan.normalize_queues("nope", name="worker") is None
-    assert plan.normalize_queues(["", "  "], name="worker") is None
     assert plan.normalize_queues([None, "ok", None], name="worker") == ["ok"]
+
+
+def test_normalize_queues_skips_when_all_names_invalid():
+    assert plan.normalize_queues(["", "  "], name="worker") is None
     assert plan.normalize_queues([None, None], name="worker") is None
-    long_name = "q" * 200
-    assert plan.normalize_queues([long_name, "ok"], name="worker") == ["ok"]
 
 
-def test_execute_samples_buffer_with_mock_macro():
+def test_normalize_queues_skips_non_array():
+    assert plan.normalize_queues("nope", name="worker") is None
+
+
+def test_normalize_queues_none_means_all_queues():
+    assert plan.normalize_queues(None, name="worker") == []
+
+
+def test_execute_calls_macro_and_buffers_nested_metric():
     class Macro:
         @staticmethod
         def supports_plan_strategy(strategy):
@@ -716,7 +732,7 @@ def test_reinit_macros_after_fork_notifies_every_adapter():
     assert called == ["a", "b"]
 
 
-def test_around_job_queue_sample_continues_when_before_raises_and_skips_its_after(
+def test_around_job_queue_sample_rescues_raising_before_hook_and_still_runs_body_and_after(
     caplog,
 ):
     import logging
@@ -766,7 +782,7 @@ def test_around_job_queue_sample_continues_when_before_raises_and_skips_its_afte
     assert "before-a" in caplog.text
 
 
-def test_around_job_queue_sample_continues_remaining_afters_when_one_after_raises(
+def test_around_job_queue_sample_rescues_raising_after_hook_and_still_runs_other_afters(
     caplog,
 ):
     import logging
@@ -814,7 +830,7 @@ def test_around_job_queue_sample_continues_remaining_afters_when_one_after_raise
     assert "after-a" in caplog.text
 
 
-def test_reinit_macros_after_fork_continues_when_one_adapter_raises(caplog):
+def test_reinit_macros_after_fork_rescues_raising_adapter_and_continues(caplog):
     import logging
 
     caplog.set_level(logging.ERROR)
@@ -1191,7 +1207,7 @@ def test_execute_keeps_jqs_when_job_queue_working_raises(caplog):
     assert "wrk boom" in caplog.text
 
 
-def test_execute_drops_invalid_wrk_keeps_jqs(caplog):
+def test_execute_drops_invalid_wrk_without_clearing_jqs(caplog):
     import logging
 
     caplog.set_level(logging.ERROR)

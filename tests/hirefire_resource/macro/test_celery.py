@@ -241,7 +241,6 @@ def test_job_queue_size_blank_queue_names_raise():
 
 
 def test_mitigate_connection_reset_error_decorator():
-    """Sanity check: verify the retry decorator works correctly."""
     from hirefire_resource.macro.celery import mitigate_connection_reset_error
 
     call_count = [0]
@@ -311,7 +310,6 @@ async def test_job_queue_size_with_jobs_async(celery_app):
 
 @pytest.fixture
 def priority_celery_app():
-    """Create a Celery app with priority queue configuration."""
     app = _celery(amqp_url)
 
     queue_arguments = {"x-max-priority": 10}
@@ -326,7 +324,6 @@ def priority_celery_app():
 
 @pytest.fixture
 def setup_priority_queue(priority_celery_app):
-    """Create the priority queue in RabbitMQ with x-max-priority argument."""
     with priority_celery_app.connection_or_acquire() as connection:
         channel = connection.default_channel
         channel.queue_delete(queue="priority_queue")
@@ -398,22 +395,6 @@ async def test_async_job_queue_size_raises_error_when_both_broker_url_and_celery
 
 
 def test_job_queue_size_with_mismatched_priority_arguments(celery_app):
-    """
-    Test that verifies the fix for priority queue argument mismatches.
-
-    Creates a queue in RabbitMQ with x-max-priority: 20, then tests:
-    1. Querying with wrong arguments (x-max-priority: 10) - may fail in strict RabbitMQ
-    2. Querying with correct arguments (x-max-priority: 20) - should always work
-
-    In the test environment, passive=True declarations are lenient
-    and don't validate x-max-priority mismatches. However, some RabbitMQ versions/
-    configurations ARE strict and return PRECONDITION_FAILED for mismatches.
-
-    This test proves that using celery_app (which passes correct arguments) works
-    reliably across all RabbitMQ versions.
-
-    This test only runs on AMQP (RabbitMQ), not Redis.
-    """
     broker_url = celery_app.conf.broker_url
 
     if not broker_url.startswith("amqp"):
@@ -433,9 +414,9 @@ def test_job_queue_size_with_mismatched_priority_arguments(celery_app):
             channel = connection.default_channel
             channel.queue_declare(
                 queue=queue_name,
-                durable=True,  # Match Celery's default
-                auto_delete=False,  # Match Celery's default
-                arguments={"x-max-priority": 20},  # Created with priority 20
+                durable=True,
+                auto_delete=False,
+                arguments={"x-max-priority": 20},
             )
 
         temp_app.send_task("test_task", queue=queue_name)
@@ -533,7 +514,6 @@ def test_job_queue_latency_rabbitmq_requeues_after_parse_error():
 
 
 def _inflating_inspect_control():
-    """Control/inspect that would inflate old size with active, reserved, and due scheduled."""
     due_eta = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat()
     active_task = {
         "delivery_info": {"routing_key": "celery"},

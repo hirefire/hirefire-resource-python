@@ -1,9 +1,3 @@
-"""Closed-world platform goldens for hirefire_resource.source.cpu.usage.Usage.
-
-Fixture bodies are verbatim extracts from hirefire-resource/cpu-platform-samples.md
-(capture date 2026-07-27). Do not invent platform samples here.
-"""
-
 from __future__ import annotations
 
 import os
@@ -70,11 +64,7 @@ def closed_world(
     nproc: int = NPROC_SENTINEL,
     clock_ticks: int = 100,
 ):
-    """Default every Usage.read → None (no host /proc or cgroup leak), inject
-    only the fixture map. glob never sees the real host. process_seconds is
-    None so usage never falls through to the process clock unless a test
-    re-stubs. processor_count always stubs (default NPROC_SENTINEL).
-    """
+    # Host /proc and cgroup must not leak: Usage.read defaults to None, glob is stubbed, process clock is off.
     mapping = dict(reads or {})
     paths = list(proc_paths or [])
 

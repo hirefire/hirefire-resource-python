@@ -1,5 +1,3 @@
-"""Guard: every middleware/ and macro/ test must be named by a tox env."""
-
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]

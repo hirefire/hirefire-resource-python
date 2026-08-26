@@ -9,7 +9,7 @@ import pytest
 from mocket import Mocket, mocketize
 from mocket.mockhttp import Entry
 
-from hirefire_resource.client import Client, RequestError
+from hirefire_resource.client import PAYLOAD_TOO_LARGE, Client, RequestError
 from hirefire_resource.version import VERSION
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa: F401
 
@@ -87,16 +87,6 @@ def test_submit_samples_returns_none_on_unauthorized(client, set_HIREFIRE_TOKEN)
 
 
 @mocketize
-def test_submit_samples_returns_payload_too_large_on_413(client, set_HIREFIRE_TOKEN):
-    from hirefire_resource.client import PAYLOAD_TOO_LARGE
-
-    Entry.single_register(
-        Entry.POST, "https://data.hirefire.io/metrics/ingest", status=413
-    )
-    assert client.submit_samples(PAYLOAD) == PAYLOAD_TOO_LARGE
-
-
-@mocketize
 def test_submit_samples_raises_on_server_error(client, set_HIREFIRE_TOKEN):
     Entry.single_register(Entry.POST, INGEST_URL, status=500)
 
@@ -112,6 +102,14 @@ def test_submit_samples_raises_on_unexpected_status(client, set_HIREFIRE_TOKEN):
 
     with pytest.raises(RequestError):
         client.submit_samples(PAYLOAD)
+
+
+@mocketize
+def test_submit_samples_returns_payload_too_large_on_413(client, set_HIREFIRE_TOKEN):
+    Entry.single_register(
+        Entry.POST, "https://data.hirefire.io/metrics/ingest", status=413
+    )
+    assert client.submit_samples(PAYLOAD) == PAYLOAD_TOO_LARGE
 
 
 def test_submit_samples_raises_on_timeout(client, set_HIREFIRE_TOKEN):
@@ -137,6 +135,116 @@ def test_submit_samples_raises_on_transport_errors(client, set_HIREFIRE_TOKEN):
                 client.submit_samples(PAYLOAD)
 
         assert "Network error" in str(exc_info.value)
+
+
+def test_reuses_a_single_connection_across_requests(
+    client, set_HIREFIRE_TOKEN, fake_connections
+):
+    fake_connections.scripts = [[FakeResponse(200), FakeResponse(200)]]
+
+    client.submit_samples("[]")
+    first = client._connection
+    client.submit_samples("[]")
+
+    assert client._connection is first
+    assert len(fake_connections.created) == 1
+    assert first.sock is not None
+
+
+def test_reconnects_and_retries_once_on_a_stale_keep_alive_socket(
+    client, set_HIREFIRE_TOKEN, fake_connections
+):
+    fake_connections.scripts = [
+        [FakeResponse(200), ConnectionResetError("peer reset")],
+        [FakeResponse(200)],
+    ]
+
+    client.submit_samples("[]")
+    established = client._connection
+
+    result = client.submit_samples("[]")
+
+    assert result is not None
+    assert client._connection is not established
+    assert len(fake_connections.created) == 2
+
+
+def test_does_not_retry_a_cold_connection_failure(
+    client, set_HIREFIRE_TOKEN, fake_connections
+):
+    fake_connections.scripts = [[ConnectionResetError("peer reset")]]
+
+    with pytest.raises(RequestError):
+        client.submit_samples("[]")
+
+    assert len(fake_connections.created) == 1
+
+
+def test_opens_a_fresh_connection_in_a_forked_child(
+    client, set_HIREFIRE_TOKEN, fake_connections
+):
+    fake_connections.scripts = [[FakeResponse(200)], [FakeResponse(200)]]
+
+    client.submit_samples("[]")
+    inherited = client._connection
+
+    client._owner_pid = os.getpid() - 1
+
+    client.submit_samples("[]")
+
+    assert client._connection is not inherited
+    assert client._owner_pid == os.getpid()
+    assert len(fake_connections.created) == 2
+
+
+def test_reconnects_and_retries_once_on_a_desynced_keep_alive_response(
+    client, set_HIREFIRE_TOKEN, fake_connections
+):
+    fake_connections.scripts = [
+        [FakeResponse(200), http.client.BadStatusLine("garbled")],
+        [FakeResponse(200)],
+    ]
+
+    client.submit_samples("[]")
+    established = client._connection
+
+    result = client.submit_samples("[]")
+
+    assert result is not None
+    assert client._connection is not established
+    assert len(fake_connections.created) == 2
+
+
+@mocketize
+def test_close_finishes_and_clears_the_persistent_connection(
+    client, set_HIREFIRE_TOKEN
+):
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    client.submit_samples("[]")
+    assert client._connection is not None
+
+    client.close()
+
+    assert client._connection is None
+
+
+def test_close_is_safe_without_a_connection(client):
+    client.close()
+
+    assert client._connection is None
+
+
+def test_close_swallows_a_failing_connection_shutdown(client):
+    class FailingConnection:
+        def close(self):
+            raise OSError("already closed")
+
+    client._connection = FailingConnection()
+    client._owner_pid = os.getpid()
+
+    client.close()
+
+    assert client._connection is None
 
 
 @mocketize
@@ -181,6 +289,15 @@ def test_raises_with_empty_token(client, monkeypatch):
     assert "HIREFIRE_TOKEN" in str(exc_info.value)
 
 
+def test_blank_and_slash_only_data_url_falls_back_to_default(monkeypatch):
+    monkeypatch.setenv("HIREFIRE_DATA_URL", "   ")
+    assert Client()._base_url() == "https://data.hirefire.io"
+    monkeypatch.setenv("HIREFIRE_DATA_URL", "///")
+    assert Client()._base_url() == "https://data.hirefire.io"
+    monkeypatch.setenv("HIREFIRE_DATA_URL", " https://example.test/path/ ")
+    assert Client()._base_url() == "https://example.test/path"
+
+
 @mocketize
 def test_custom_data_url(set_HIREFIRE_TOKEN, monkeypatch):
     monkeypatch.setenv("HIREFIRE_DATA_URL", "https://custom.hirefire.io")
@@ -206,8 +323,10 @@ def test_custom_data_url_over_plain_http(set_HIREFIRE_TOKEN, monkeypatch):
 
 
 @mocketize
-def test_honors_a_path_prefix_in_the_data_url(set_HIREFIRE_TOKEN, monkeypatch):
-    monkeypatch.setenv("HIREFIRE_DATA_URL", "https://custom.hirefire.io/prefix")
+def test_custom_data_url_with_a_trailing_slash_does_not_double_the_path(
+    set_HIREFIRE_TOKEN, monkeypatch
+):
+    monkeypatch.setenv("HIREFIRE_DATA_URL", "https://custom.hirefire.io/prefix/")
     Entry.single_register(
         Entry.POST, "https://custom.hirefire.io/prefix/metrics/ingest", status=200
     )
@@ -218,10 +337,8 @@ def test_honors_a_path_prefix_in_the_data_url(set_HIREFIRE_TOKEN, monkeypatch):
 
 
 @mocketize
-def test_a_trailing_slash_in_the_data_url_does_not_double_the_path(
-    set_HIREFIRE_TOKEN, monkeypatch
-):
-    monkeypatch.setenv("HIREFIRE_DATA_URL", "https://custom.hirefire.io/prefix/")
+def test_custom_data_url_honors_a_path_prefix(set_HIREFIRE_TOKEN, monkeypatch):
+    monkeypatch.setenv("HIREFIRE_DATA_URL", "https://custom.hirefire.io/prefix")
     Entry.single_register(
         Entry.POST, "https://custom.hirefire.io/prefix/metrics/ingest", status=200
     )
@@ -245,18 +362,20 @@ def test_request_lease_sends_the_agent_header(client, set_HIREFIRE_TOKEN):
     assert Mocket.last_request().headers.get("hirefire-agent") == f"Python-{VERSION}"
 
 
-def test_reuses_a_single_connection_across_requests(
+def test_does_not_retry_twice_on_persistent_stale_errors(
     client, set_HIREFIRE_TOKEN, fake_connections
 ):
-    fake_connections.scripts = [[FakeResponse(200), FakeResponse(200)]]
+    fake_connections.scripts = [
+        [FakeResponse(200), ConnectionResetError("peer reset")],
+        [ConnectionResetError("peer reset again")],
+    ]
 
     client.submit_samples("[]")
-    first = client._connection
-    client.submit_samples("[]")
 
-    assert client._connection is first
-    assert len(fake_connections.created) == 1
-    assert first.sock is not None
+    with pytest.raises(RequestError):
+        client.submit_samples("[]")
+
+    assert len(fake_connections.created) == 2
 
 
 def test_reconnects_when_the_keep_alive_socket_sat_idle_past_the_timeout(
@@ -289,127 +408,6 @@ def test_reuses_a_keep_alive_socket_still_within_the_timeout(
 
     assert client._connection is established
     assert len(fake_connections.created) == 1
-
-
-def test_reconnects_and_retries_once_on_a_stale_keep_alive_socket(
-    client, set_HIREFIRE_TOKEN, fake_connections
-):
-    fake_connections.scripts = [
-        [FakeResponse(200), ConnectionResetError("peer reset")],
-        [FakeResponse(200)],
-    ]
-
-    client.submit_samples("[]")
-    established = client._connection
-
-    result = client.submit_samples("[]")
-
-    assert result is not None
-    assert client._connection is not established
-    assert len(fake_connections.created) == 2
-
-
-def test_reconnects_and_retries_once_on_a_desynced_keep_alive_response(
-    client, set_HIREFIRE_TOKEN, fake_connections
-):
-    fake_connections.scripts = [
-        [FakeResponse(200), http.client.BadStatusLine("garbled")],
-        [FakeResponse(200)],
-    ]
-
-    client.submit_samples("[]")
-    established = client._connection
-
-    result = client.submit_samples("[]")
-
-    assert result is not None
-    assert client._connection is not established
-    assert len(fake_connections.created) == 2
-
-
-def test_does_not_retry_a_cold_connection_failure(
-    client, set_HIREFIRE_TOKEN, fake_connections
-):
-    fake_connections.scripts = [[ConnectionResetError("peer reset")]]
-
-    with pytest.raises(RequestError):
-        client.submit_samples("[]")
-
-    assert len(fake_connections.created) == 1
-
-
-def test_opens_a_fresh_connection_in_a_forked_child(
-    client, set_HIREFIRE_TOKEN, fake_connections
-):
-    fake_connections.scripts = [[FakeResponse(200)], [FakeResponse(200)]]
-
-    client.submit_samples("[]")
-    inherited = client._connection
-
-    client._owner_pid = os.getpid() - 1
-
-    client.submit_samples("[]")
-
-    assert client._connection is not inherited
-    assert client._owner_pid == os.getpid()
-    assert len(fake_connections.created) == 2
-
-
-@mocketize
-def test_close_clears_the_persistent_connection(client, set_HIREFIRE_TOKEN):
-    Entry.single_register(Entry.POST, INGEST_URL, status=200)
-    client.submit_samples("[]")
-    assert client._connection is not None
-
-    client.close()
-
-    assert client._connection is None
-
-
-def test_close_is_safe_without_a_connection(client):
-    client.close()
-
-    assert client._connection is None
-
-
-def test_close_swallows_a_failing_connection_shutdown(client):
-    class FailingConnection:
-        def close(self):
-            raise OSError("already closed")
-
-    client._connection = FailingConnection()
-    client._owner_pid = os.getpid()
-
-    client.close()
-
-    assert client._connection is None
-
-
-def test_blank_data_url_falls_back_to_default(monkeypatch):
-    from hirefire_resource.client import Client
-
-    monkeypatch.setenv("HIREFIRE_DATA_URL", "   ")
-    assert Client()._base_url() == "https://data.hirefire.io"
-    monkeypatch.setenv("HIREFIRE_DATA_URL", "///")
-    assert Client()._base_url() == "https://data.hirefire.io"
-    monkeypatch.setenv("HIREFIRE_DATA_URL", " https://example.test/path/ ")
-    assert Client()._base_url() == "https://example.test/path"
-
-
-def test_does_not_retry_twice_on_persistent_stale_errors(
-    client, set_HIREFIRE_TOKEN, fake_connections
-):
-    fake_connections.scripts = [
-        [FakeResponse(200), ConnectionResetError("peer reset")],
-        [ConnectionResetError("peer reset again")],
-    ]
-
-    client.submit_samples("[]")
-
-    with pytest.raises(RequestError):
-        client.submit_samples("[]")
-
-    assert len(fake_connections.created) == 2
 
 
 @mocketize

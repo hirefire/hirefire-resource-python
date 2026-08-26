@@ -96,7 +96,7 @@ def test_after_fork_in_child_replaces_locks_and_drops_connections():
     assert client._last_used_at is None
 
 
-def test_after_fork_in_child_job_only_abandons_and_clears_buffer():
+def test_after_fork_in_child_job_only_abandons_inherited_state():
     config, dispatcher = _materialize()
     buffer = config.buffer
     buffer.sample("web", "rqt", 7)
@@ -117,7 +117,7 @@ def test_after_fork_in_child_job_only_abandons_and_clears_buffer():
     assert lease._next_sample_at != float("inf")
 
 
-def test_handoff_without_token_is_noop(monkeypatch):
+def test_after_fork_in_child_web_without_token_does_not_start_or_abandon(monkeypatch):
     monkeypatch.setenv("DYNO", "web.1")
     config, dispatcher = _materialize()
     buffer = config.buffer
@@ -132,7 +132,7 @@ def test_handoff_without_token_is_noop(monkeypatch):
     assert buffer.flush()["web"]["rqt"]
 
 
-def test_handoff_with_token_starts(monkeypatch, set_HIREFIRE_TOKEN):
+def test_after_fork_in_child_starts_when_token_present(monkeypatch, set_HIREFIRE_TOKEN):
     monkeypatch.setenv("DYNO", "web.1")
     config, dispatcher = _materialize()
 
@@ -171,9 +171,7 @@ def test_after_fork_in_child_does_not_import_celery_macro(monkeypatch):
         sys.modules.update(removed)
 
 
-def test_after_fork_in_parent_stops_without_flush_for_web(
-    monkeypatch, set_HIREFIRE_TOKEN
-):
+def test_after_fork_in_parent_stops_without_flush(monkeypatch, set_HIREFIRE_TOKEN):
     monkeypatch.setenv("DYNO", "web.1")
     config = HireFire.configuration
     with patch.object(config, "stop_dispatcher") as mock_stop:
@@ -181,7 +179,7 @@ def test_after_fork_in_parent_stops_without_flush_for_web(
         mock_stop.assert_called_once_with(flush=False)
 
 
-def test_after_fork_in_parent_noop_for_job_only(monkeypatch):
+def test_after_fork_in_parent_is_noop_for_job_only_process(monkeypatch):
     monkeypatch.setenv("DYNO", "worker.1")
     config = HireFire.configuration
     with patch.object(config, "stop_dispatcher") as mock_stop:

@@ -22,5 +22,5 @@ def test_skips_a_logger_that_does_not_respond_to_the_level():
     safe_log(object(), "error", "boom")
 
 
-def test_tolerates_a_none_logger():
+def test_safe_with_none_logger():
     safe_log(None, "error", "boom")

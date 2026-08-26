@@ -16,7 +16,7 @@ def config():
     return Configuration()
 
 
-def test_default_logger(config):
+def test_default_logger_points_to_stdout(config):
     assert isinstance(config.logger, logging.Logger)
     assert config.logger.name == "hirefire_resource"
     assert any(isinstance(h, logging.StreamHandler) for h in config.logger.handlers)
@@ -32,7 +32,7 @@ def test_can_set_logger(config):
     assert config.logger is custom_logger
 
 
-def test_http_defaults_to_none(config):
+def test_web_default_to_none(config):
     assert config.http is None
 
 
@@ -62,7 +62,7 @@ def test_dyno_bare_web_warns_once(config, caplog):
     assert "does nothing" in caplog.text
 
 
-def test_dyno_with_a_sampler_configures_a_job_queue(config):
+def test_dyno_with_a_callable_configures_a_job_queue(config):
     config.dyno("worker", lambda: 1.23)
     config.dyno("mailer", lambda: 2.46)
     workers = list(config.job_queues)
@@ -73,7 +73,7 @@ def test_dyno_with_a_sampler_configures_a_job_queue(config):
     assert workers[1].sample() == 2.46
 
 
-def test_dyno_without_sampler_raises_for_a_non_web_name(config):
+def test_dyno_without_callable_raises_for_a_non_web_name(config):
     with pytest.raises(MissingSamplerError) as exc:
         config.dyno("worker")
     message = str(exc.value).lower()
@@ -101,7 +101,7 @@ def test_bare_web_then_job_queue_under_web(config):
     assert config.job_queues.any()
 
 
-def test_duplicate_job_queue_rejected_case_insensitive(config):
+def test_duplicate_name_guard_is_case_insensitive(config):
     config.dyno("worker", lambda: 1)
     with pytest.raises(DuplicateDynoError):
         config.dyno("Worker", lambda: 2)
@@ -121,12 +121,12 @@ def test_empty_name_raises(config):
         config.dyno("   ")
 
 
-def test_name_max_bytes(config):
+def test_dyno_rejects_name_over_max_bytes(config):
     with pytest.raises(ValueError):
         config.dyno("w" * 129)
 
 
-def test_name_limit_counts_utf8_bytes(config):
+def test_dyno_name_limit_counts_utf8_bytes(config):
     accepted = "é" * 64
     too_long = "é" * 65
 
@@ -136,48 +136,48 @@ def test_name_limit_counts_utf8_bytes(config):
         config.dyno(too_long, lambda: 1)
 
 
-def test_name_strips(config):
+def test_dyno_strips_name_whitespace(config):
     config.dyno("  worker  ", lambda: 1)
     assert list(config.job_queues)[0].name == "worker"
 
 
-def test_token_from_env(config, monkeypatch):
+def test_token_defaults_to_env(config, monkeypatch):
     monkeypatch.setenv("HIREFIRE_TOKEN", "from-env")
     assert config.token == "from-env"
 
 
-def test_token_override(config, monkeypatch):
+def test_token_can_be_overridden(config, monkeypatch):
     monkeypatch.setenv("HIREFIRE_TOKEN", "from-env")
     config.token = "from-code"
     assert config.token == "from-code"
 
 
-def test_token_empty_env_absent(config, monkeypatch):
+def test_token_empty_env_is_treated_as_absent(config, monkeypatch):
     monkeypatch.setenv("HIREFIRE_TOKEN", "")
     assert config.token is None
 
 
-def test_token_empty_assignment_force_off(config, monkeypatch):
+def test_token_empty_string_is_treated_as_absent(config, monkeypatch):
     monkeypatch.setenv("HIREFIRE_TOKEN", "from-env")
     config.token = ""
     assert config.token is None
 
 
-def test_token_nil_clears_to_env(config, monkeypatch):
+def test_token_none_falls_back_to_env(config, monkeypatch):
     monkeypatch.setenv("HIREFIRE_TOKEN", "from-env")
     config.token = "override"
     config.token = None
     assert config.token == "from-env"
 
 
-def test_token_strips_whitespace(config, monkeypatch):
+def test_token_strips_surrounding_whitespace(config, monkeypatch):
     monkeypatch.setenv("HIREFIRE_TOKEN", "  abc  ")
     assert config.token == "abc"
     config.token = "  def  \n"
     assert config.token == "def"
 
 
-def test_token_whitespace_only_assignment_is_absent(config, monkeypatch):
+def test_token_whitespace_only_is_treated_as_absent(config, monkeypatch):
     monkeypatch.setenv("HIREFIRE_TOKEN", "from-env")
     config.token = "  \t  "
     assert config.token is None
@@ -195,7 +195,9 @@ def test_soft_identity_re_resolves(config, monkeypatch):
     assert config.soft_identity() == "worker"
 
 
-def test_soft_identity_too_long(config, monkeypatch, caplog):
+def test_soft_identity_over_max_bytes_disables_http_and_cpu_and_warns_once(
+    config, monkeypatch, caplog
+):
     caplog.set_level(logging.ERROR)
     monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "w" * 129)
     assert config.soft_identity() is None
@@ -207,32 +209,34 @@ def test_soft_identity_too_long(config, monkeypatch, caplog):
     assert caplog.text.count("exceeds 128 bytes") == 1
 
 
-def test_rqt_enabled_platform_role(config, monkeypatch):
+def test_rqt_enabled_for_heroku_web_process_without_explicit_web(config, monkeypatch):
     monkeypatch.setenv("DYNO", "web.1")
     assert config.rqt_enabled()
     assert config.rqt_liveness()
 
 
-def test_rqt_enabled_render_role(config, monkeypatch):
+def test_rqt_enabled_for_render_web_service_type(config, monkeypatch):
     monkeypatch.setenv("RENDER_SERVICE_NAME", "api")
     monkeypatch.setenv("RENDER_SERVICE_TYPE", "web")
     assert config.rqt_enabled()
     assert config.rqt_liveness()
 
 
-def test_rqt_not_armed_by_service_name_alone(config, monkeypatch):
+def test_rqt_not_enabled_by_explicit_service_name_web_on_worker_dyno(
+    config, monkeypatch
+):
     monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "web")
     monkeypatch.setenv("DYNO", "worker.1")
     assert not config.rqt_enabled()
 
 
-def test_rqt_not_enabled_by_bare_web(config):
+def test_bare_web_does_not_arm_rqt(config):
     config.dyno("web")
     assert not config.rqt_enabled()
     assert not config.rqt_liveness()
 
 
-def test_rqt_enabled_mark_http_active(config, monkeypatch):
+def test_rqt_enabled_after_middleware_marks_http_active(config, monkeypatch):
     monkeypatch.setenv("DYNO", "worker.1")
     config.mark_http_active()
     assert config.rqt_enabled()
@@ -240,19 +244,19 @@ def test_rqt_enabled_mark_http_active(config, monkeypatch):
     assert config.http_name() == "worker"
 
 
-def test_rqt_liveness_requires_identity_match(config, monkeypatch):
+def test_rqt_liveness_allowed_when_identity_matches(config, monkeypatch):
     monkeypatch.setenv("DYNO", "web.1")
     assert config.rqt_liveness()
 
 
-def test_rqt_liveness_false_when_identity_unresolved(config):
+def test_rqt_liveness_denied_when_identity_unresolved(config):
     config.mark_http_active()
     assert config.rqt_enabled()
     assert not config.rqt_liveness()
     assert config.http_source() is None
 
 
-def test_http_source_always_on_rebuilds_on_name_change(config, monkeypatch):
+def test_http_source_rebuilds_when_identity_name_changes(config, monkeypatch):
     monkeypatch.setenv("DYNO", "web.1")
     first = config.http_source()
     assert first is not None
@@ -264,20 +268,20 @@ def test_http_source_always_on_rebuilds_on_name_change(config, monkeypatch):
     assert second is not first
 
 
-def test_active_cpu_sources_always_on(config, monkeypatch):
+def test_always_on_cpu_when_identity_resolves(config, monkeypatch):
     monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "clock")
     sources = config.active_cpu_sources()
     assert len(sources) == 1
     assert sources[0].name == "clock"
 
 
-def test_active_cpu_sources_unresolved(config, caplog):
+def test_cpu_disabled_when_identity_unresolved(config, caplog):
     caplog.set_level(logging.WARNING)
     assert config.active_cpu_sources() == []
     assert "CPU metrics disabled" in caplog.text
 
 
-def test_reset_after_fork_clears_always_on(config, monkeypatch):
+def test_reset_after_fork_clears_always_on_sources(config, monkeypatch):
     monkeypatch.setenv("DYNO", "web.1")
     assert config.http_source() is not None
     assert config.active_cpu_sources()
@@ -298,7 +302,7 @@ def test_buffer_and_dispatcher_lazy(config):
     assert config.dispatcher is config.dispatcher
 
 
-def test_stop_dispatcher_flush_forwarded(config):
+def test_stop_dispatcher_stops_memoized_dispatcher(config):
     dispatcher = config.dispatcher
     called = {}
 

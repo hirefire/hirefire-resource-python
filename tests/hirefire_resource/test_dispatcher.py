@@ -3,6 +3,7 @@ import logging
 import os
 import threading
 import time
+from contextlib import contextmanager
 from unittest.mock import patch
 
 import pytest
@@ -10,7 +11,7 @@ from freezegun import freeze_time
 from mocket import Mocket, mocketize
 from mocket.mockhttp import Entry, Response
 
-from hirefire_resource import HireFire
+from hirefire_resource import HireFire, plan
 from hirefire_resource.client import RequestError
 from hirefire_resource.dispatcher import Dispatcher
 from hirefire_resource.source.cpu.usage import Usage
@@ -83,8 +84,6 @@ def configure_web_and_workers(monkeypatch=None):
     if monkeypatch is not None:
         monkeypatch.setenv("DYNO", "web.1")
     else:
-        import os
-
         os.environ["DYNO"] = "web.1"
     config = HireFire.configuration
     config.dyno("worker", lambda: 42)
@@ -93,9 +92,6 @@ def configure_web_and_workers(monkeypatch=None):
 
 
 def inject_oversized_series(name="web", strategy="rqt"):
-    """Force JSON body over PAYLOAD_SIZE_LIMIT via many fat process names."""
-    import time
-
     buffer = HireFire.configuration.buffer
     now = int(time.time())
     with buffer._mutex:
@@ -114,8 +110,6 @@ def configure_web_only(monkeypatch=None):
     if monkeypatch is not None:
         monkeypatch.setenv("DYNO", "web.1")
     else:
-        import os
-
         os.environ["DYNO"] = "web.1"
     config = HireFire.configuration
     return config.dispatcher
@@ -414,7 +408,7 @@ def test_combined_web_and_worker_dispatch():
 
 
 @mocketize
-def test_dispatch_tick_does_not_run_worker_sampling():
+def test_dispatch_tick_does_not_run_job_queue_sampling():
     stub_lease(granted=True)
     bodies = capture_ingest_bodies()
     sampled = []
@@ -564,7 +558,7 @@ def test_lease_denied_skips_worker_collection():
 
 
 @mocketize
-def test_dispatches_cpu_as_nested_bare_number(monkeypatch):
+def test_dispatches_cpu_samples_in_the_nested_format(monkeypatch):
     bodies = capture_ingest_bodies()
     with (
         patch.object(Usage, "available_cpus", return_value=1.0),
@@ -701,7 +695,7 @@ def test_unresolved_identity_does_not_synthesize_liveness():
 
 
 @mocketize
-def test_always_on_cpu_uses_soft_identity_not_unrelated_name(monkeypatch):
+def test_always_on_cpu_uses_identity_name_through_the_tick(monkeypatch):
     stub_lease()
     bodies = capture_ingest_bodies()
     monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "web")
@@ -1019,7 +1013,7 @@ def test_ignores_an_unparseable_dispatch_frequency():
 
 
 @mocketize
-def test_dispatch_pacing_uses_the_monotonic_clock_not_the_wall_clock():
+def test_dispatch_pacing_follows_the_monotonic_clock_not_the_wall_clock():
     stub_lease()
     bodies = capture_ingest_bodies()
 
@@ -1067,17 +1061,10 @@ def test_413_advances_watermark_without_repopulate(caplog):
 
 @mocketize
 def test_payload_size_limit_is_32768():
-    from hirefire_resource.dispatcher import Dispatcher
-
     assert Dispatcher.PAYLOAD_SIZE_LIMIT == 32_768
 
 
 def test_healthy_running_snapshots_thread_ref():
-    """Unlocked health checks must not AttributeError if stop clears the ref mid-check.
-
-    Ruby uses ``@thread&.alive?``. Two separate loads of ``self._thread`` can
-    observe a live Thread then None under concurrent ``stop()``.
-    """
     dispatcher = Dispatcher()
     dispatcher._running = True
     dispatcher._stopping = False
@@ -1598,8 +1585,6 @@ def test_plan_adapter_overrides_local_sampler():
 
 @mocketize
 def test_unknown_plan_adapter_skips_without_local_fallback(caplog):
-    import logging
-
     caplog.set_level(logging.ERROR)
     plan = {
         "version": 1,
@@ -1625,8 +1610,6 @@ def test_unknown_plan_adapter_skips_without_local_fallback(caplog):
 
 @mocketize
 def test_known_unloaded_adapter_skips_without_local_fallback(caplog):
-    import logging
-
     caplog.set_level(logging.ERROR)
     plan = {
         "version": 1,
@@ -1709,9 +1692,7 @@ def test_executable_plan_without_local_dyno_holds_lease_and_samples():
 
 
 @mocketize
-def test_plan_adapter_warns_once_when_local_dyno_overridden(caplog):
-    from hirefire_resource import plan
-
+def test_plan_override_warns_once(caplog):
     with HireFire.configure() as config:
         config.dyno("worker", lambda: 99)
     dispatcher = HireFire.configuration.dispatcher
@@ -1739,9 +1720,7 @@ def test_plan_adapter_warns_once_when_local_dyno_overridden(caplog):
 
 
 @mocketize
-def test_strategy_only_plan_uses_local_sampler_without_override_warn(caplog):
-    import logging
-
+def test_strategy_only_plan_uses_local_sampler(caplog):
     caplog.set_level(logging.WARNING)
     plan = {
         "version": 1,
@@ -2061,8 +2040,6 @@ def test_hold_demotion_logs_and_web_dispatch_continues(monkeypatch):
 
 @mocketize
 def test_unsupported_plan_strategy_logs_once_and_skips_macro(caplog):
-    import logging
-
     caplog.set_level(logging.ERROR)
     calls = {"n": 0}
 
@@ -2119,8 +2096,6 @@ def test_unsupported_plan_strategy_logs_once_and_skips_macro(caplog):
 
 @mocketize
 def test_partial_plan_holds_and_samples_only_executable_entries(caplog):
-    import logging
-
     caplog.set_level(logging.ERROR)
 
     class Macro:
@@ -2254,9 +2229,7 @@ def test_partial_plan_unsupported_jql_and_supported_jqs_holds_and_samples_size()
 
 
 @mocketize
-def test_payload_size_limit_strict_greater_drop(caplog):
-    import logging
-
+def test_payload_size_limit_is_32768_with_strict_greater_drop(caplog):
     caplog.set_level(logging.ERROR)
     limit = Dispatcher.PAYLOAD_SIZE_LIMIT
     assert limit == 32_768
@@ -2504,10 +2477,6 @@ def test_wire_payload_nested_multi_strategy_shape(monkeypatch):
 
 @mocketize
 def test_sample_job_queues_runs_plan_inside_around_job_queue_sample():
-    from contextlib import contextmanager
-
-    from hirefire_resource import plan
-
     order: list[str] = []
     executed: list[str] = []
 
@@ -2604,8 +2573,6 @@ def test_abandon_inherited_state_resets_always_on_sources(monkeypatch):
 
 @mocketize
 def test_abandon_inherited_state_calls_reinit_macros_after_fork():
-    from hirefire_resource import plan
-
     dispatcher = configure_web_only()
     with patch.object(plan, "reinit_macros_after_fork") as reinit:
         dispatcher.abandon_inherited_state()
@@ -2614,8 +2581,6 @@ def test_abandon_inherited_state_calls_reinit_macros_after_fork():
 
 @mocketize
 def test_start_after_fork_calls_reinit_macros_after_fork():
-    from hirefire_resource import plan
-
     stub_lease()
     Entry.single_register(Entry.POST, INGEST_URL, status=200)
 
@@ -2645,7 +2610,7 @@ def test_encode_leaf_omits_non_numeric_non_rqt_silently(caplog):
 
 
 @mocketize
-def test_concurrent_start_during_stop_is_rejected_then_retryable():
+def test_concurrent_start_during_stop_is_rejected_then_retryable_even_if_a_starter_wins_after_stopping_clears():
     stub_lease()
     Entry.single_register(Entry.POST, INGEST_URL, status=200)
     dispatcher = HireFire.configuration.dispatcher

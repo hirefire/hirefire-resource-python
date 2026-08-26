@@ -1,10 +1,14 @@
 from hirefire_resource.source.job_queue import JobQueue
 
 
-def test_name_and_sample():
+def test_name():
     job_queue = JobQueue("worker", lambda: 1 + 1)
     assert job_queue.name == "worker"
-    assert job_queue.sample() == 2
+
+
+def test_sample_returns_the_sampler_result():
+    job_queue = JobQueue("worker", lambda: 1)
+    assert job_queue.sample() == 1
 
 
 def test_name_normalized_to_string():

@@ -1,15 +1,12 @@
 from hirefire_resource.plan import hooks
 
 
-def test_default_plan_options_empty():
+def test_default_plan_hooks_empty():
     assert hooks.plan_options("jql", {"skip_retries": True}) == {}
-
-
-def test_default_connection_options_empty():
     assert hooks.plan_connection_options() == {}
 
 
-def test_supports_known_strategies():
+def test_default_supports_plan_strategy():
     assert hooks.supports_plan_strategy("jql")
     assert hooks.supports_plan_strategy("jqs")
     assert not hooks.supports_plan_strategy("cpu")
@@ -19,13 +16,13 @@ def test_default_queues_required_is_false():
     assert hooks.queues_required() is False
 
 
-def test_sample_wave_defaults_are_noops():
+def test_hooks_default_sample_wave_methods_are_noops():
     assert hooks.before_sample_job_queues() is None
     assert hooks.after_sample_job_queues("anything") is None
     assert hooks.reinit_after_fork() is None
 
 
-def test_extract_plan_options_schema():
+def test_extract_allowlists_and_coerces():
     schema = {
         "jql": {"flag": "boolean", "n": "non_negative_integer"},
         "jqs": {"flag": "boolean"},
@@ -38,7 +35,7 @@ def test_extract_plan_options_schema():
     assert out == {"flag": True, "n": 10}
 
 
-def test_coerce_plan_value_strict():
+def test_coerce_plan_value():
     assert hooks.coerce_plan_value("boolean", True) is True
     assert hooks.coerce_plan_value("boolean", False) is False
     assert hooks.coerce_plan_value("boolean", "true") is None
@@ -50,7 +47,7 @@ def test_coerce_plan_value_strict():
     assert hooks.coerce_plan_value("non_negative_integer", True) is None
 
 
-def test_extract_drops_invalid_and_non_hash():
+def test_extract_drops_invalid_and_non_dict():
     schema = {
         "jqs": {
             "skip_working": "boolean",

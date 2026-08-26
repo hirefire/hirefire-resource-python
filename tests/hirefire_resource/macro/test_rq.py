@@ -202,7 +202,6 @@ def test_job_queue_latency_with_decode_responses():
 
 
 def test_is_due_scheduled_score_is_inclusive():
-    """Pure residual for the JQL due filter (score ≤ now). Fails under strict `<`."""
     now = 1_722_600_000.25
     assert _is_due_scheduled_score(now - 1.0, now) is True
     assert _is_due_scheduled_score(now, now) is True
@@ -211,7 +210,6 @@ def test_is_due_scheduled_score_is_inclusive():
 
 
 def test_job_queue_size_excludes_wip_and_future_scheduled():
-    """Waiting-only: live + due scheduled. WIP and future schedule are out."""
     r = Redis.from_url(redis_url)
     now = time.time()
 
@@ -232,7 +230,6 @@ def test_job_queue_size_excludes_wip_and_future_scheduled():
 
 
 def test_job_queue_size_includes_scheduled_score_equal_to_now():
-    """JQS ZCOUNT max is inclusive (score ≤ now) at a whole second."""
     frozen = datetime(2026, 8, 2, 12, 0, 0, tzinfo=timezone.utc)
     with freeze_time(frozen):
         now = time.time()
@@ -245,7 +242,6 @@ def test_job_queue_size_includes_scheduled_score_equal_to_now():
 
 
 def test_job_queue_size_includes_fractional_second_due_score():
-    """JQS uses float now for ZCOUNT max, not int(time.time()) truncation."""
     frozen = datetime(2026, 8, 2, 12, 0, 0, 750_000, tzinfo=timezone.utc)
     with freeze_time(frozen):
         now = time.time()
@@ -262,7 +258,6 @@ def test_job_queue_size_includes_fractional_second_due_score():
 
 
 def test_job_queue_latency_scheduled_due_age_and_empty_edge():
-    """Scheduled latency is age of earliest due. Exact-now due contributes 0 age."""
     frozen = datetime(2026, 8, 2, 12, 0, 0, tzinfo=timezone.utc)
     with freeze_time(frozen):
         now = time.time()
@@ -298,7 +293,6 @@ def test_job_queue_latency_excludes_wip_and_future_scheduled():
 
 
 def test_job_queue_size_and_latency_waiting_only_mixed():
-    """Live + due only when WIP and future are also present."""
     r = Redis.from_url(redis_url)
     now = time.time()
 

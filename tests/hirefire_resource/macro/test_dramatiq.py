@@ -122,7 +122,6 @@ def _seed_working(
     *,
     namespace: str = NAMESPACE,
 ) -> None:
-    """Simulate fetched-not-acked work: id only in acks set, body remains in msgs."""
     mid = str(uuid.uuid4())
     body = _encode(queue=queue, options={"redis_message_id": mid})
     client.hset(f"{namespace}:{queue}.msgs", mid, body)
@@ -344,11 +343,6 @@ def test_job_queue_latency_live_head_age():
 
 
 def test_job_queue_latency_uses_lindex_zero_not_max_ready_age():
-    """Live JQL is LINDEX 0 only (FIFO head), not max age across the ready list.
-
-    Seed younger first, then older (RPUSH). Head is young. A wrong scan of all
-    ready bodies for max(message_timestamp age) would report the older tail.
-    """
     client = redis.Redis.from_url(redis_url)
     try:
         _seed_live(client, "default", age_s=25, count=1)
@@ -453,7 +447,6 @@ def test_job_queue_latency_corrupt_live_head_is_zero_size_still_counts():
 
 
 def test_job_queue_size_eta_equal_to_now_is_due(monkeypatch):
-    """Inclusive filter: options.eta <= now_ms (equality is due, not future)."""
     fixed_now = 1_722_600_000_000
     monkeypatch.setattr(dramatiq_macro, "_now_ms", lambda: fixed_now)
 
@@ -484,7 +477,6 @@ def test_job_queue_size_eta_equal_to_now_is_due(monkeypatch):
 
 
 def test_job_queue_size_missing_eta_on_dq_skipped():
-    """Defensive: DQ body without options.eta is not treated as due."""
     client = redis.Redis.from_url(redis_url)
     try:
         mid = str(uuid.uuid4())
@@ -517,7 +509,6 @@ def test_job_queue_size_corrupt_dq_body_skipped():
 
 
 def test_job_queue_size_never_uses_do_qsize(monkeypatch):
-    """HireFire must not call Dramatiq do_qsize (msgs+acks includes working)."""
     broker = RedisBroker(url=redis_url, namespace=NAMESPACE)
     try:
         broker.declare_queue("default")
@@ -578,7 +569,6 @@ def test_job_queue_size_never_uses_do_qsize(monkeypatch):
 
 
 def test_job_queue_size_redis_command_keys_are_waiting_structures_only(monkeypatch):
-    """Pin Redis key names: live list + DQ (+ msgs). Never XQ, acks, or do_qsize."""
     client = redis.Redis.from_url(redis_url)
     try:
         _seed_live(client, "default", count=1, age_s=30)
@@ -659,7 +649,6 @@ def test_job_queue_size_redis_command_keys_are_waiting_structures_only(monkeypat
 
 
 def test_job_queue_size_due_delayed_hmget_batching_across_boundary(monkeypatch):
-    """Due scan must page HMGET across _HMGET_BATCH (not only the first page)."""
     batch = dramatiq_macro._HMGET_BATCH
     assert batch >= 2
     client = redis.Redis.from_url(redis_url)
@@ -885,7 +874,6 @@ def test_job_queue_size_invalid_eta_type_skipped():
 
 
 def test_job_queue_latency_missing_or_future_message_timestamp_is_zero(monkeypatch):
-    """Missing timestamp → no invented age. Future timestamp clamps to 0."""
     import json
 
     fixed_now = 1_722_600_000_000
@@ -928,7 +916,6 @@ def test_job_queue_latency_missing_or_future_message_timestamp_is_zero(monkeypat
 
 
 def test_job_queue_size_json_fallback_when_message_decode_fails(monkeypatch):
-    """Decode falls back to json.loads when dramatiq.Message.decode raises."""
     import json
 
     client = redis.Redis.from_url(redis_url)
@@ -964,7 +951,6 @@ def test_job_queue_size_json_fallback_when_message_decode_fails(monkeypatch):
 
 
 def test_job_queue_size_waiting_only_mixed_structure():
-    """Live + due only when future, acks, and XQ are also present."""
     client = redis.Redis.from_url(redis_url)
     try:
         _seed_live(client, "default", count=2, age_s=40)
@@ -1110,7 +1096,6 @@ async def test_async_broker_xor_broker_url():
 
 
 def test_resolve_broker_url_multi_key_precedence(monkeypatch):
-    """Full ladder: first set key wins. AMQP family before Redis family."""
     _clear_broker_env(monkeypatch)
     monkeypatch.setenv("OPENREDIS_URL", "redis://openredis/0")
     monkeypatch.setenv("REDISCLOUD_URL", "redis://rediscloud/0")
@@ -1158,7 +1143,6 @@ def test_resolve_broker_url_explicit_wins_over_env(monkeypatch):
 
 
 def test_hirefire_dramatiq_url_is_plan_only_not_macro_ladder(monkeypatch):
-    """HIREFIRE_DRAMATIQ_URL is applied via plan_connection_options, not _resolve_broker_url."""
     _clear_broker_env(monkeypatch)
     monkeypatch.setenv("HIREFIRE_DRAMATIQ_URL", "redis://hirefire-override/0")
     monkeypatch.setenv("REDIS_URL", "redis://platform/0")
@@ -1362,7 +1346,6 @@ def test_rabbitmq_missing_queue_size_and_latency_zero():
 
 
 def test_rabbitmq_missing_middle_queue_still_counts_siblings():
-    """Channel recovery after 404 must not drop later queues in the same sample."""
     q_a = f"hf_dramatiq_mid_a_{uuid.uuid4().hex[:8]}"
     q_b = f"hf_dramatiq_mid_b_{uuid.uuid4().hex[:8]}"
     missing = f"hf_dramatiq_mid_missing_{uuid.uuid4().hex[:8]}"
@@ -1559,7 +1542,6 @@ def test_rabbitmq_xq_not_counted_as_waiting():
 
 
 def test_rabbitmq_samples_only_main_queue_names_not_dq_or_xq(monkeypatch):
-    """JQS/JQL must passive-declare / basic_get only the canonical queue name."""
     declared: list[tuple[str, bool]] = []
     got: list[tuple[str, bool]] = []
 
@@ -1619,7 +1601,6 @@ def test_rabbitmq_samples_only_main_queue_names_not_dq_or_xq(monkeypatch):
 
 
 def test_rabbitmq_multi_queue_latency_max(monkeypatch):
-    """Multi-queue RMQ JQL must take max head age across queues, not first only."""
     ages = {"slow": 200, "fast": 40}
     got: list[str] = []
 
@@ -1705,8 +1686,6 @@ def test_rabbitmq_url_owned_connection_closed(monkeypatch):
 
 
 def test_rabbitmq_connect_fail_returns_zero_and_does_not_raise(monkeypatch):
-    """Production-relevant: pika connect failure must sample as 0, not raise."""
-
     def boom(*args, **kwargs):
         raise dramatiq_macro.AMQPConnectionError("refused")
 
@@ -1724,7 +1703,6 @@ def test_unreachable_amqp_returns_zero():
 
 
 def test_rabbitmq_latency_always_rejects_even_when_reject_raises(monkeypatch):
-    """Reject failures must not leave the sample path unhandled (best-effort requeue)."""
     rejected = {"n": 0}
 
     class Method:
@@ -1765,7 +1743,6 @@ def test_rabbitmq_latency_always_rejects_even_when_reject_raises(monkeypatch):
 
 
 def test_rabbitmq_channel_404_recovers_for_next_queue(monkeypatch):
-    """Passive 404 closes the channel; next queue must open a fresh one."""
     state = {"channels": 0, "declares": []}
 
     class Method:

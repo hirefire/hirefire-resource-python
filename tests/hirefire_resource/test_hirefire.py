@@ -25,7 +25,7 @@ def test_configure_starts_dispatcher_when_token_is_set(set_HIREFIRE_TOKEN):
             mock_ensure.assert_called_once()
 
 
-def test_boot_starts_when_token_present(set_HIREFIRE_TOKEN):
+def test_boot_is_configure_with_empty_callable(set_HIREFIRE_TOKEN):
     with patch.object(Dispatcher, "start") as mock_start:
         with patch.object(Dispatcher, "ensure_job_queue_loop") as mock_ensure:
             HireFire.boot()

@@ -9,10 +9,6 @@ def test_name():
     assert HTTP("api").name == "api"
 
 
-def test_name_normalized_to_string():
-    assert HTTP(123).name == "123"
-
-
 def test_sample_buffers_request_queue_time():
     http = HTTP("web")
 
@@ -21,3 +17,7 @@ def test_sample_buffers_request_queue_time():
 
     data = HireFire.configuration.buffer.flush()
     assert data["web"]["rqt"][100] == {"sum": 25.0, "count": 1}
+
+
+def test_name_normalized_to_string():
+    assert HTTP(123).name == "123"
