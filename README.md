@@ -55,12 +55,14 @@ Requires [Docker](https://www.docker.com/) and [mise](https://mise.jdx.dev/). Re
 
 ## Release
 
-1. Update the `version` property in `pyproject.toml`.
+1. Update the `version` property in `pyproject.toml` (prerelease: PEP 440, e.g.
+   `2.0.0rc1`).
 2. If `pyproject.toml` dependencies changed, refresh `poetry.lock` with `poetry lock`.
 3. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` (today's date) and add a fresh empty `## [Unreleased]` above it.
 4. Commit changes with `git commit`.
-5. Create a `git tag` matching the new version (e.g., `v2.0.0`).
+5. Create a `git tag` matching the new version (e.g., `v2.0.0` or `v2.0.0rc1`).
 6. Push the new git tag. Continuous Integration will handle the distribution process.
+   Prereleases are not installed by default (`pip` needs `--pre` or a pin).
 
 ## License
 
