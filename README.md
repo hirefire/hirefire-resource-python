@@ -1,9 +1,6 @@
 ## HireFire Integration Library for Python Applications
 
-This package integrates Python applications with HireFire's autoscalers on
-Heroku. It reports app metrics so HireFire can scale web and worker processes
-based on Request Queue Time, Requests Per Minute, CPU Activity, Job Queue Latency,
-and Job Queue Size.
+This package integrates Python applications running on [Heroku] with [HireFire]'s autoscalers. It collects HTTP, CPU, and job metrics so HireFire can scale web and worker processes based on Request Queue Time, Requests Per Minute, CPU Activity, Job Queue Latency, and Job Queue Size.
 
 **Supported runtimes:**
 
@@ -35,16 +32,6 @@ The package ships inline PEP 484 type hints and a `py.typed` marker (PEP 561).
 
 The public API is documented with Google-style docstrings. Changelog lives in [CHANGELOG.md](CHANGELOG.md).
 
----
-
-Since 2011, HireFire has helped over 1,500 companies autoscale more than 5,000 [Heroku] applications across 10,000+ web and worker dynos.
-
-HireFire autoscales web and worker processes based on the metrics collected from applications, such as request queue time or requests per minute for web, job queue latency or job queue size for workers, and CPU activity for any compute-bound processes. Process counts stay dynamic rather than remaining fixed at peak cost.
-
-Learn more at the [home page][HireFire].
-
----
-
 ## Development
 
 Requires [Docker](https://www.docker.com/) and [mise](https://mise.jdx.dev/). Redis and RabbitMQ for the macro tests run in containers, and mise installs the pinned Python versions from `.tool-versions`. `bin/services up` starts them on Docker-assigned free host ports recorded in a git-ignored `.env` (read by the test suite). `bin/services down` stops them and removes `.env`. Because the ports are assigned fresh at startup, multiple worktrees can run side by side without conflicting with each other or with any system-wide databases.
@@ -55,14 +42,12 @@ Requires [Docker](https://www.docker.com/) and [mise](https://mise.jdx.dev/). Re
 
 ## Release
 
-1. Update the `version` property in `pyproject.toml` (prerelease: PEP 440, e.g.
-   `2.0.0rc1`).
+1. Update the `version` property in `pyproject.toml` (prerelease: PEP 440, e.g. `2.0.0rc1`).
 2. If `pyproject.toml` dependencies changed, refresh `poetry.lock` with `poetry lock`.
 3. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` (today's date) and add a fresh empty `## [Unreleased]` above it.
 4. Commit changes with `git commit`.
 5. Create a `git tag` matching the new version (e.g., `v2.0.0` or `v2.0.0rc1`).
-6. Push the new git tag. Continuous Integration will handle the distribution process.
-   Prereleases are not installed by default (`pip` needs `--pre` or a pin).
+6. Push the new git tag. Continuous Integration will handle the distribution process. Prereleases are not installed by default (`pip` needs `--pre` or a pin).
 
 ## License
 

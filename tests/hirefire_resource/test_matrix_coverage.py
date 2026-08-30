@@ -22,6 +22,9 @@ def test_readme_runtime_floor_matches_requires_python():
     requires = re.search(r'^requires-python\s*=\s*"([^"]+)"', pyproject, re.M)
     assert requires is not None
     floor = re.search(r"(\d+\.\d+)", requires.group(1)).group(1)
+    tox_min = min(py for _factor, _major, pys in _tox_cells() for py in pys)
+    tox_floor = f"{tox_min // 100}.{tox_min % 100}"
+    assert floor == tox_floor
     assert _section("Supported runtimes") == [f"Python {floor}+"]
 
 

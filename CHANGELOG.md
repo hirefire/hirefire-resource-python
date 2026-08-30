@@ -2,8 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
@@ -36,7 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Serving `GET /hirefire/:token/info`.
 - `POST` of request queue time JSON to `logdrain.hirefire.io`.
-- Package metadata attributes `__author__`, `__contact__`, `__homepage__`, `__keywords__`, and `__docformat__`. `__version__` remains.
 - Official support for Python 3.9 and 3.10.
 - Official support for Django 3.
 
