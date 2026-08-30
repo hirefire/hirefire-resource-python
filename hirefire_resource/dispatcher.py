@@ -37,6 +37,8 @@ class Dispatcher:
         self._client = Client()
         self._lease = Lease()
         self._mutex = threading.Lock()
+        self._loop_wait = threading.Condition(self._mutex)
+        self._join_timeout = self.JOIN_TIMEOUT
         self._running = False
         self._stopping = False
         self._stopping_flush = False
@@ -99,6 +101,7 @@ class Dispatcher:
 
                 self._generation += 1
                 generation = self._generation
+                self._loop_wait.notify_all()
                 self._thread = threading.Thread(
                     target=self._loop_until_stopped,
                     args=(generation, self._tick),
@@ -173,10 +176,11 @@ class Dispatcher:
     def stop(self, flush: bool = True) -> bool:
         """Stops the dispatcher loops and closes transport resources.
 
-        Joins local loop threads for up to ``JOIN_TIMEOUT`` seconds each. A hung
-        sampler is abandoned rather than killed. A later :meth:`start` increments
-        the loop generation so an abandoned thread cannot resume work. Concurrent
-        :meth:`start` is rejected until close finishes.
+        Wakes interval waiters, then joins local loop threads for up to
+        ``JOIN_TIMEOUT`` seconds each. A hung sampler is abandoned rather than
+        killed. A later :meth:`start` increments the loop generation so an
+        abandoned thread cannot resume work. Concurrent :meth:`start` is rejected
+        until close finishes.
 
         Args:
             flush: When ``True`` (default), best-effort final metric flush before close.
@@ -198,6 +202,7 @@ class Dispatcher:
             self._stopping = True
             self._stopping_flush = flush
             self._running = False
+            self._loop_wait.notify_all()
             if self._pid == os.getpid():
                 threads = [
                     thread
@@ -260,6 +265,7 @@ class Dispatcher:
                 self._job_queue_thread = None
                 self._pid = None
                 self._generation += 1
+                self._loop_wait.notify_all()
             self._buffer().reinit_after_fork()
             _plan().reinit_macros_after_fork()
             self._configuration().reset_after_fork()
@@ -275,6 +281,7 @@ class Dispatcher:
 
     def _reinit_locks_after_fork(self) -> None:
         self._mutex = threading.Lock()
+        self._loop_wait = threading.Condition(self._mutex)
         self._client._reinit_after_fork()
         self._lease._reinit_after_fork()
 
@@ -293,12 +300,15 @@ class Dispatcher:
 
     def _loop_active(self, generation: int) -> bool:
         with self._mutex:
-            return (
-                self._running
-                and not self._stopping
-                and self._pid == os.getpid()
-                and self._generation == generation
-            )
+            return self._loop_active_locked(generation)
+
+    def _loop_active_locked(self, generation: int) -> bool:
+        return (
+            self._running
+            and not self._stopping
+            and self._pid == os.getpid()
+            and self._generation == generation
+        )
 
     def _loop_until_stopped(
         self, generation: int, tick: Callable[[int | None], None]
@@ -312,15 +322,22 @@ class Dispatcher:
                     "error",
                     f"[HireFire] {type(error).__name__}: {error}",
                 )
-            time.sleep(1)
+            self._wait_loop_interval(generation)
+
+    def _wait_loop_interval(self, generation: int) -> None:
+        # Interruptible 1s gap between ticks. Do not replace with time.sleep:
+        # stop would wait out the remainder, and freeze_time can hang sleep.
+        with self._mutex:
+            if self._loop_active_locked(generation):
+                self._loop_wait.wait(timeout=1)
 
     def _join_loop_thread(self, thread: threading.Thread) -> None:
-        thread.join(self.JOIN_TIMEOUT)
+        thread.join(self._join_timeout)
         if thread.is_alive():
             safe_log(
                 self._logger(),
                 "warning",
-                f"[HireFire] Dispatcher loop did not stop within {self.JOIN_TIMEOUT}s. "
+                f"[HireFire] Dispatcher loop did not stop within {self._join_timeout}s. "
                 "Abandoning thread.",
             )
 

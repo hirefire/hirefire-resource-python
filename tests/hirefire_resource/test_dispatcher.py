@@ -829,7 +829,7 @@ def test_loop_until_stopped_logs_raising_tick_and_continues(caplog):
             raise RuntimeError("tick boom")
         dispatcher._running = False
 
-    with patch("hirefire_resource.dispatcher.time.sleep"):
+    with patch.object(dispatcher, "_wait_loop_interval"):
         dispatcher._loop_until_stopped(1, tick)
 
     assert calls["n"] >= 2
@@ -2317,22 +2317,25 @@ def test_stop_returns_within_join_timeout_when_job_sampler_hangs(caplog):
     Entry.single_register(Entry.POST, INGEST_URL, status=200)
     caplog.set_level(logging.WARNING)
 
+    entered = threading.Event()
     gate = threading.Event()
 
     def hung_sampler():
+        entered.set()
         gate.wait()
         return 1
 
     HireFire.configuration.dyno("worker", hung_sampler)
     dispatcher = HireFire.configuration.dispatcher
+    dispatcher._join_timeout = 0.05
     assert dispatcher.start()
-    time.sleep(0.2)
+    assert entered.wait(timeout=2), "job sampler never started"
 
     started = time.monotonic()
     assert dispatcher.stop()
     elapsed = time.monotonic() - started
 
-    assert elapsed < Dispatcher.JOIN_TIMEOUT + 2
+    assert elapsed < 1
     assert "Abandoning thread" in caplog.text
     gate.set()
 
