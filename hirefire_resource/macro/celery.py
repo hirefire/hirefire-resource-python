@@ -149,8 +149,8 @@ def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
           to run to the relevant regular queues. Just remember that the `run_at` header is required.
 
     Args:
-        *queues (str): Names of the queues for latency measurement.
-        broker_url (str, optional): The broker URL. Defaults in the following order:
+        *queues: Names of the queues for latency measurement.
+        broker_url: The broker URL. Defaults in the following order:
             - Passed argument `broker_url`.
             - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `RABBITMQ_BIGWIG_URL`,
               `CLOUDAMQP_URL`, `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`,
@@ -159,7 +159,7 @@ def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
               "redis://localhost:6379/0".
 
     Returns:
-        float: The maximum latency in seconds across the specified queues. Returns 0 on
+        The maximum latency in seconds across the specified queues. Returns 0 on
             ``OperationalError`` (for example the broker is unreachable).
             ``ConnectionResetError`` is retried then re-raised.
 
@@ -221,8 +221,8 @@ async def async_job_queue_latency(*queues: str, broker_url: str | None = None) -
           to run to the relevant regular queues. Just remember that the `run_at` header is required.
 
     Args:
-        *queues (str): Names of the queues for latency measurement.
-        broker_url (str, optional): The broker URL. Defaults in the following order:
+        *queues: Names of the queues for latency measurement.
+        broker_url: The broker URL. Defaults in the following order:
             - Passed argument `broker_url`.
             - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `RABBITMQ_BIGWIG_URL`,
               `CLOUDAMQP_URL`, `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`,
@@ -231,7 +231,7 @@ async def async_job_queue_latency(*queues: str, broker_url: str | None = None) -
               "redis://localhost:6379/0".
 
     Returns:
-        float: The maximum latency in seconds across the specified queues. Returns 0 on
+        The maximum latency in seconds across the specified queues. Returns 0 on
             ``OperationalError`` (for example the broker is unreachable).
             ``ConnectionResetError`` is retried then re-raised.
 
@@ -282,8 +282,8 @@ def job_queue_size(
           to extract and use the correct queue arguments when querying RabbitMQ.
 
     Args:
-        *queues (str): Names of the queues for size measurement.
-        broker_url (str, optional): The broker URL. Cannot be used together with `celery_app`.
+        *queues: Names of the queues for size measurement.
+        broker_url: The broker URL. Cannot be used together with `celery_app`.
             Defaults in the following order:
             - Passed argument `broker_url`.
             - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `RABBITMQ_BIGWIG_URL`,
@@ -291,13 +291,13 @@ def job_queue_size(
               `OPENREDIS_URL`.
             - "amqp://guest:guest@localhost:5672" if AMQP is available, otherwise
               "redis://localhost:6379/0".
-        celery_app (Celery, optional): A configured Celery app instance. Cannot be used together
+        celery_app: A configured Celery app instance. Cannot be used together
             with `broker_url`. When provided, the function uses this app's connection and extracts
             queue arguments from celery_app.conf.task_queues. This is required for RabbitMQ queues
             with custom arguments like x-max-priority.
 
     Returns:
-        int: Broker-ready message count across the specified queues. Returns 0 on
+        Broker-ready message count across the specified queues. Returns 0 on
             ``OperationalError`` (for example the broker is unreachable).
             ``ConnectionResetError`` is retried then re-raised.
 
@@ -366,8 +366,8 @@ async def async_job_queue_size(
           pass your configured Celery app via the `celery_app` parameter.
 
     Args:
-        *queues (str): Names of the queues for size measurement.
-        broker_url (str, optional): The broker URL. Cannot be used together with `celery_app`.
+        *queues: Names of the queues for size measurement.
+        broker_url: The broker URL. Cannot be used together with `celery_app`.
             Defaults in the following order:
             - Passed argument `broker_url`.
             - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `RABBITMQ_BIGWIG_URL`,
@@ -375,13 +375,13 @@ async def async_job_queue_size(
               `OPENREDIS_URL`.
             - "amqp://guest:guest@localhost:5672" if AMQP is available, otherwise
               "redis://localhost:6379/0".
-        celery_app (Celery, optional): A configured Celery app instance. Cannot be used together
+        celery_app: A configured Celery app instance. Cannot be used together
             with `broker_url`. When provided, the function uses this app's connection and extracts
             queue arguments from celery_app.conf.task_queues. This is required for RabbitMQ
             queues with custom arguments like x-max-priority.
 
     Returns:
-        int: Broker-ready message count across the specified queues. Returns 0 on
+        Broker-ready message count across the specified queues. Returns 0 on
             ``OperationalError`` (for example the broker is unreachable).
             ``ConnectionResetError`` is retried then re-raised.
 

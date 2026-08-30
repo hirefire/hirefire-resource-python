@@ -50,14 +50,14 @@ def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
     default.
 
     Args:
-        *queues (str): Names of the queues for latency measurement.
-        redis_url (str, optional): The Redis URL. Defaults in the following order:
+        *queues: Names of the queues for latency measurement.
+        redis_url: The Redis URL. Defaults in the following order:
             - Passed argument `redis_url`.
             - Environment variables `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
             - "redis://localhost:6379/0".
 
     Returns:
-        float: The maximum latency in seconds across the specified queues.
+        The maximum latency in seconds across the specified queues.
 
     Examples:
         >>> job_queue_latency()
@@ -128,14 +128,14 @@ async def async_job_queue_latency(*queues: str, redis_url: str | None = None) ->
     Runs the synchronous Redis I/O in a thread pool so it does not block the event loop.
 
     Args:
-        *queues (str): Names of the queues for latency measurement.
-        redis_url (str, optional): The Redis URL. Defaults in the following order:
+        *queues: Names of the queues for latency measurement.
+        redis_url: The Redis URL. Defaults in the following order:
             - Passed argument `redis_url`.
             - Environment variables `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
             - "redis://localhost:6379/0".
 
     Returns:
-        float: The maximum latency in seconds across the specified queues.
+        The maximum latency in seconds across the specified queues.
 
     Examples:
         >>> await async_job_queue_latency()
@@ -164,14 +164,14 @@ def job_queue_size(*queues: str, redis_url: str | None = None) -> int:
     default.
 
     Args:
-        *queues (str): Names of the queues for size measurement.
-        redis_url (str, optional): The Redis URL. Defaults in the following order:
+        *queues: Names of the queues for size measurement.
+        redis_url: The Redis URL. Defaults in the following order:
             - Passed argument `redis_url`.
             - Environment variables `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
             - "redis://localhost:6379/0".
 
     Returns:
-        int: The cumulative job queue size across the specified queues.
+        The cumulative job queue size across the specified queues.
 
     Examples:
         >>> job_queue_size()
@@ -210,14 +210,14 @@ async def async_job_queue_size(*queues: str, redis_url: str | None = None) -> in
     Runs the synchronous Redis I/O in a thread pool so it does not block the event loop.
 
     Args:
-        *queues (str): Names of the queues for size measurement.
-        redis_url (str, optional): The Redis URL. Defaults in the following order:
+        *queues: Names of the queues for size measurement.
+        redis_url: The Redis URL. Defaults in the following order:
             - Passed argument `redis_url`.
             - Environment variables `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
             - "redis://localhost:6379/0".
 
     Returns:
-        int: The cumulative job queue size across the specified queues.
+        The cumulative job queue size across the specified queues.
 
     Examples:
         >>> await async_job_queue_size()
@@ -242,14 +242,14 @@ def job_queue_working(*queues: str, redis_url: str | None = None) -> int:
     Plan path records this under nested strategy ``wrk``.
 
     Args:
-        *queues (str): Names of the queues for the working count.
-        redis_url (str, optional): The Redis URL. Defaults in the following order:
+        *queues: Names of the queues for the working count.
+        redis_url: The Redis URL. Defaults in the following order:
             - Passed argument `redis_url`.
             - Environment variables `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`, `OPENREDIS_URL`.
             - "redis://localhost:6379/0".
 
     Returns:
-        int: Cumulative in-flight job count across the specified queues.
+        Cumulative in-flight job count across the specified queues.
 
     Examples:
         >>> job_queue_working()

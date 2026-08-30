@@ -35,7 +35,7 @@ class HireFire:
         re-evaluated so late job-queue samplers take effect.
 
         Yields:
-            Configuration: The configuration to declare processes on.
+            The configuration to declare processes on.
 
         Example::
 
@@ -55,7 +55,7 @@ class HireFire:
         local job-queue samplers via :meth:`Configuration.dyno`.
 
         Returns:
-            Configuration: The configuration.
+            The configuration.
 
         Example::
 

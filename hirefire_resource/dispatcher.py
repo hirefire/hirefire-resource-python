@@ -59,7 +59,7 @@ class Dispatcher:
         """Starts the dispatcher loops.
 
         Returns:
-            bool: ``True`` when started. ``False`` if already running in this process,
+            ``True`` when started. ``False`` if already running in this process,
             or if starting the loops failed (the failure is logged).
         """
         if self._healthy_running():
@@ -184,7 +184,7 @@ class Dispatcher:
                 liveness after workers take over.
 
         Returns:
-            bool: ``True`` once the dispatcher has stopped, ``False`` when it was not
+            ``True`` once the dispatcher has stopped, ``False`` when it was not
             running.
         """
         threads: list[threading.Thread] = []

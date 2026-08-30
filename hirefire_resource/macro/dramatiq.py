@@ -121,18 +121,18 @@ def job_queue_size(
     available, otherwise Redis).
 
     Args:
-        *queues (str): Canonical queue names (not ``.DQ`` / ``.XQ`` suffixes).
-        broker_url (str, optional): Broker URL. Cannot be used with ``broker``.
-        broker (object, optional): A live ``RedisBroker`` or ``RabbitmqBroker``.
+        *queues: Canonical queue names (not ``.DQ`` / ``.XQ`` suffixes).
+        broker_url: Broker URL. Cannot be used with ``broker``.
+        broker: A live ``RedisBroker`` or ``RabbitmqBroker``.
             Cannot be used with ``broker_url``. URL-owned clients are closed
             after the sample. An injected Redis client's connection is not
             closed.
-        namespace (str, optional): Redis key prefix. Defaults to the injected
+        namespace: Redis key prefix. Defaults to the injected
             broker's namespace, then ``HIREFIRE_DRAMATIQ_NAMESPACE``, then
             ``"dramatiq"``. Ignored for RabbitMQ.
 
     Returns:
-        int: Waiting job count across the queues. Returns 0 when the broker is
+        Waiting job count across the queues. Returns 0 when the broker is
             unreachable.
 
     Raises:
@@ -206,13 +206,13 @@ def job_queue_latency(
     No HireFire publisher middleware is required.
 
     Args:
-        *queues (str): Canonical queue names.
-        broker_url (str, optional): Broker URL. Cannot be used with ``broker``.
-        broker (object, optional): A live ``RedisBroker`` or ``RabbitmqBroker``.
-        namespace (str, optional): Redis key prefix (see :func:`job_queue_size`).
+        *queues: Canonical queue names.
+        broker_url: Broker URL. Cannot be used with ``broker``.
+        broker: A live ``RedisBroker`` or ``RabbitmqBroker``.
+        namespace: Redis key prefix (see :func:`job_queue_size`).
 
     Returns:
-        float: Maximum latency in seconds across the queues. Returns 0 when
+        Maximum latency in seconds across the queues. Returns 0 when
             empty or the broker is unreachable.
 
     Raises:
