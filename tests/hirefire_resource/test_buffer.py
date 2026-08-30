@@ -139,8 +139,9 @@ def test_multi_strategy_under_one_name():
 
 def test_sample_rqt_bounded_when_dispatch_is_starved():
     buffer = Buffer()
-    for second in range(1000, 1071):
-        with freeze_time(at(second)):
+    with freeze_time(at(1000)) as frozen:
+        for second in range(1000, 1071):
+            frozen.move_to(at(second))
             buffer.sample("web", "rqt", 1)
 
     data = buffer.flush()
@@ -151,8 +152,9 @@ def test_sample_rqt_bounded_when_dispatch_is_starved():
 
 def test_sample_cpu_bounded_when_dispatch_is_starved():
     buffer = Buffer()
-    for second in range(1000, 1071):
-        with freeze_time(at(second)):
+    with freeze_time(at(1000)) as frozen:
+        for second in range(1000, 1071):
+            frozen.move_to(at(second))
             buffer.sample("clock", "cpu", 50.0)
 
     data = buffer.flush()
