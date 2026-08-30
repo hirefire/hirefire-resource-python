@@ -1,5 +1,6 @@
 import logging
 import os
+import socket
 import sys
 
 import pytest
@@ -69,7 +70,29 @@ def reset_hirefire(request, monkeypatch):
         monkeypatch.delenv(key, raising=False)
     HireFire.reset()
     yield
+    # Stop without the final flush: mocket is already torn down at this point,
+    # so a flushing stop would POST to the real data.hirefire.io.
+    HireFire.configuration.stop_dispatcher(flush=False)
     HireFire.reset()
+
+
+@pytest.fixture(autouse=True)
+def block_real_network(request, monkeypatch):
+    # Path-based: without __init__.py, pytest names modules by basename, so
+    # request.module.__name__ never contains "macro".
+    if "macro" in request.node.path.parts:
+        yield
+        return
+
+    # Mocket swaps socket.socket while active, so registered stubs still win.
+    # This only fails real connections that escape mocking (e.g. dispatcher
+    # loop threads firing between mocket teardown and dispatcher stop).
+    def blocked(self, address):
+        raise OSError("Real network access is disabled in tests.")
+
+    monkeypatch.setattr(socket.socket, "connect", blocked)
+    monkeypatch.setattr(socket.socket, "connect_ex", blocked)
+    yield
 
 
 @pytest.fixture(autouse=True)
