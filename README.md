@@ -29,11 +29,11 @@ The test suite runs against these minimum versions and the current latest releas
 
 **Types:**
 
-The package ships inline PEP 484 type hints and a `py.typed` marker (PEP 561). No separate stubs package is needed.
+The package ships inline PEP 484 type hints and a `py.typed` marker (PEP 561).
 
 **Documentation:**
 
-Public API prose is Google-style docstrings on the consumer-facing surface. Changelog lives in [CHANGELOG.md](CHANGELOG.md).
+The public API is documented with Google-style docstrings. Changelog lives in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
