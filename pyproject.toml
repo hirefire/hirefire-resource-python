@@ -55,9 +55,7 @@ python = ">=3.11,<4.0"
 
 [tool.poetry.group.dev.dependencies]
 paver = "^1.3.4"
-autoflake = "^2.1.1"
-isort = "^5.12.0"
-black = "^23.3.0"
+ruff = "^0.12.0"
 tox = "^4"
 pytest-asyncio = "^1.0.0"
 pytest-cov = "^7.0.0"
@@ -97,3 +95,14 @@ module = [
     "pika.*",
 ]
 ignore_missing_imports = true
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+# Replaces autoflake unused-import removal and isort --profile black.
+select = ["F401", "I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["hirefire_resource"]

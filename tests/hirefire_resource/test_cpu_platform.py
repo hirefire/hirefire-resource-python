@@ -107,9 +107,9 @@ def test_cedar_performance_dedicated_fingerprint_miss_falls_to_nproc(monkeypatch
             reads={Usage.CEDAR_MEMORY_LIMIT: body},
             nproc=NPROC_SENTINEL,
         ) as read_mock:
-            assert (
-                abs(Usage.available_cpus() - float(NPROC_SENTINEL)) < DELTA
-            ), f"Cedar {name}: limit not in fingerprint map must fall through to nproc"
+            assert abs(Usage.available_cpus() - float(NPROC_SENTINEL)) < DELTA, (
+                f"Cedar {name}: limit not in fingerprint map must fall through to nproc"
+            )
             read_mock.assert_any_call(Usage.CEDAR_MEMORY_LIMIT)
 
 
@@ -192,9 +192,9 @@ def test_fir_parametric_unique_entitlements(monkeypatch):
             reads={Usage.CGROUP_V2_QUOTA: fixture(f"fir/{file}")},
             nproc=96,
         ):
-            assert (
-                abs(Usage.available_cpus() - expected) < DELTA
-            ), f"Fir {file} should yield {expected}"
+            assert abs(Usage.available_cpus() - expected) < DELTA, (
+                f"Fir {file} should yield {expected}"
+            )
 
 
 def test_fir_dyno_set_with_cpu_max_does_not_use_cedar_memory_limit(monkeypatch):
@@ -242,9 +242,9 @@ def test_render_full_plan_matrix_cpu_max(monkeypatch):
             reads={Usage.CGROUP_V2_QUOTA: fixture(f"render/{file}")},
             nproc=32,
         ):
-            assert (
-                abs(Usage.available_cpus() - expected) < DELTA
-            ), f"Render {file} should yield {expected}"
+            assert abs(Usage.available_cpus() - expected) < DELTA, (
+                f"Render {file} should yield {expected}"
+            )
 
 
 def test_render_cpu_count_strings_without_cgroup(monkeypatch):
@@ -252,9 +252,9 @@ def test_render_cpu_count_strings_without_cgroup(monkeypatch):
     for raw, expected in RENDER_CPU_COUNT_STRINGS:
         monkeypatch.setenv("RENDER_CPU_COUNT", raw)
         with closed_world(nproc=32):
-            assert (
-                abs(Usage.available_cpus() - expected) < DELTA
-            ), f"RENDER_CPU_COUNT={raw!r} should yield {expected}"
+            assert abs(Usage.available_cpus() - expected) < DELTA, (
+                f"RENDER_CPU_COUNT={raw!r} should yield {expected}"
+            )
 
 
 def test_render_quota_beats_misleading_render_cpu_count_low(monkeypatch):

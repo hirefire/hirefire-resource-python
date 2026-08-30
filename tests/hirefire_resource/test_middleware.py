@@ -215,14 +215,16 @@ def test_marks_http_active_for_tokened_request_without_platform_web_role(
     set_HIREFIRE_TOKEN, monkeypatch
 ):
     monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "api")
-    with patch.object(Dispatcher, "start"), patch.object(
-        Dispatcher, "ensure_job_queue_loop"
+    with (
+        patch.object(Dispatcher, "start"),
+        patch.object(Dispatcher, "ensure_job_queue_loop"),
     ):
         HireFire.boot()
 
     assert not HireFire.configuration.rqt_enabled()
-    with patch.object(Dispatcher, "start"), patch.object(
-        Dispatcher, "ensure_job_queue_loop"
+    with (
+        patch.object(Dispatcher, "start"),
+        patch.object(Dispatcher, "ensure_job_queue_loop"),
     ):
         process_request_queue_time(str(int(time.time() * 1000) - 1000))
 
@@ -232,8 +234,9 @@ def test_marks_http_active_for_tokened_request_without_platform_web_role(
 
 
 def test_does_not_sample_without_identity_or_explicit_http_name(set_HIREFIRE_TOKEN):
-    with patch.object(Dispatcher, "start"), patch.object(
-        Dispatcher, "ensure_job_queue_loop"
+    with (
+        patch.object(Dispatcher, "start"),
+        patch.object(Dispatcher, "ensure_job_queue_loop"),
     ):
         process_request_queue_time(str(int(time.time() * 1000) - 5))
     assert HireFire.configuration.buffer.flush() == {}

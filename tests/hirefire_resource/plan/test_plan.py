@@ -58,9 +58,11 @@ def test_execute_skips_queues_required_adapter_with_empty_queues():
         def plan_connection_options():
             return {}
 
-    with patch("hirefire_resource.plan.known_adapter", return_value=True), patch(
-        "hirefire_resource.plan._load_macro", return_value=Macro
-    ), patch("hirefire_resource.plan.queues_required", return_value=True):
+    with (
+        patch("hirefire_resource.plan.known_adapter", return_value=True),
+        patch("hirefire_resource.plan._load_macro", return_value=Macro),
+        patch("hirefire_resource.plan.queues_required", return_value=True),
+    ):
         plan.execute(
             {
                 "name": "mail",

@@ -15,14 +15,12 @@ def test():
 
 @task
 def check():
-    sh("poetry run autoflake --jobs 1 --remove-all-unused-imports -r --check .")
-    sh("poetry run isort --profile black --check .")
-    sh("poetry run black --check .")
+    sh("poetry run ruff check .")
+    sh("poetry run ruff format --check .")
     sh("poetry run mypy")
 
 
 @task
 def format():
-    sh("poetry run autoflake --jobs 1 --remove-all-unused-imports -ri .")
-    sh("poetry run isort --profile black .")
-    sh("poetry run black .")
+    sh("poetry run ruff check --fix .")
+    sh("poetry run ruff format .")

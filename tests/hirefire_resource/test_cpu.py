@@ -18,8 +18,9 @@ def reading(mapping):
 
 
 def test_first_sample_only_seeds_the_baseline():
-    with patch.object(Usage, "reading", return_value=(10.0, "cgroup_v2")), patch.object(
-        Usage, "available_cpus", return_value=1.0
+    with (
+        patch.object(Usage, "reading", return_value=(10.0, "cgroup_v2")),
+        patch.object(Usage, "available_cpus", return_value=1.0),
     ):
         collector = CPU("clock")
         with freeze_time(at(1000)):
@@ -28,9 +29,12 @@ def test_first_sample_only_seeds_the_baseline():
 
 
 def test_normalizes_by_fractional_available_cpus():
-    with patch.object(
-        Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (0.25, "cgroup_v2")]
-    ), patch.object(Usage, "available_cpus", return_value=0.5):
+    with (
+        patch.object(
+            Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (0.25, "cgroup_v2")]
+        ),
+        patch.object(Usage, "available_cpus", return_value=0.5),
+    ):
         collector = CPU("clock")
         with freeze_time(at(1000)):
             collector.sample()
@@ -41,9 +45,12 @@ def test_normalizes_by_fractional_available_cpus():
 
 
 def test_second_sample_buffers_normalized_percentage():
-    with patch.object(
-        Usage, "reading", side_effect=[(10.0, "cgroup_v2"), (10.5, "cgroup_v2")]
-    ), patch.object(Usage, "available_cpus", return_value=1.0):
+    with (
+        patch.object(
+            Usage, "reading", side_effect=[(10.0, "cgroup_v2"), (10.5, "cgroup_v2")]
+        ),
+        patch.object(Usage, "available_cpus", return_value=1.0),
+    ):
         collector = CPU("clock")
         with freeze_time(at(1000)):
             collector.sample()
@@ -54,9 +61,12 @@ def test_second_sample_buffers_normalized_percentage():
 
 
 def test_sample_rounds_percentage_to_two_decimal_places():
-    with patch.object(
-        Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (1.0 / 3.0, "cgroup_v2")]
-    ), patch.object(Usage, "available_cpus", return_value=1.0):
+    with (
+        patch.object(
+            Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (1.0 / 3.0, "cgroup_v2")]
+        ),
+        patch.object(Usage, "available_cpus", return_value=1.0),
+    ):
         collector = CPU("clock")
         with freeze_time(at(1000)):
             collector.sample()
@@ -67,9 +77,12 @@ def test_sample_rounds_percentage_to_two_decimal_places():
 
 
 def test_sample_rounds_exact_half_up_to_two_decimal_places():
-    with patch.object(
-        Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (0.01125, "cgroup_v2")]
-    ), patch.object(Usage, "available_cpus", return_value=1.0):
+    with (
+        patch.object(
+            Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (0.01125, "cgroup_v2")]
+        ),
+        patch.object(Usage, "available_cpus", return_value=1.0),
+    ):
         collector = CPU("clock")
         with freeze_time(at(1000)):
             collector.sample()
@@ -80,9 +93,12 @@ def test_sample_rounds_exact_half_up_to_two_decimal_places():
 
 
 def test_zero_utilization_buffers_zero():
-    with patch.object(
-        Usage, "reading", side_effect=[(10.0, "cgroup_v2"), (10.0, "cgroup_v2")]
-    ), patch.object(Usage, "available_cpus", return_value=1.0):
+    with (
+        patch.object(
+            Usage, "reading", side_effect=[(10.0, "cgroup_v2"), (10.0, "cgroup_v2")]
+        ),
+        patch.object(Usage, "available_cpus", return_value=1.0),
+    ):
         collector = CPU("clock")
         with freeze_time(at(1000)):
             collector.sample()
@@ -93,9 +109,12 @@ def test_zero_utilization_buffers_zero():
 
 
 def test_normalizes_by_available_cpus():
-    with patch.object(
-        Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (1.0, "cgroup_v2")]
-    ), patch.object(Usage, "available_cpus", return_value=4.0):
+    with (
+        patch.object(
+            Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (1.0, "cgroup_v2")]
+        ),
+        patch.object(Usage, "available_cpus", return_value=4.0),
+    ):
         collector = CPU("worker")
         with freeze_time(at(1000)):
             collector.sample()
@@ -106,9 +125,12 @@ def test_normalizes_by_available_cpus():
 
 
 def test_clamps_to_100_percent():
-    with patch.object(
-        Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (5.0, "cgroup_v2")]
-    ), patch.object(Usage, "available_cpus", return_value=1.0):
+    with (
+        patch.object(
+            Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (5.0, "cgroup_v2")]
+        ),
+        patch.object(Usage, "available_cpus", return_value=1.0),
+    ):
         collector = CPU("clock")
         with freeze_time(at(1000)):
             collector.sample()
@@ -119,11 +141,14 @@ def test_clamps_to_100_percent():
 
 
 def test_negative_usage_delta_skips_and_reseeds_the_baseline():
-    with patch.object(
-        Usage,
-        "reading",
-        side_effect=[(10.0, "cgroup_v2"), (5.0, "cgroup_v2"), (5.5, "cgroup_v2")],
-    ), patch.object(Usage, "available_cpus", return_value=1.0):
+    with (
+        patch.object(
+            Usage,
+            "reading",
+            side_effect=[(10.0, "cgroup_v2"), (5.0, "cgroup_v2"), (5.5, "cgroup_v2")],
+        ),
+        patch.object(Usage, "available_cpus", return_value=1.0),
+    ):
         collector = CPU("clock")
         with freeze_time(at(1000)):
             collector.sample()
@@ -136,11 +161,14 @@ def test_negative_usage_delta_skips_and_reseeds_the_baseline():
 
 
 def test_source_change_skips_and_reseeds_the_baseline():
-    with patch.object(
-        Usage,
-        "reading",
-        side_effect=[(10.0, "process"), (11.0, "cgroup_v2"), (11.5, "cgroup_v2")],
-    ), patch.object(Usage, "available_cpus", return_value=1.0):
+    with (
+        patch.object(
+            Usage,
+            "reading",
+            side_effect=[(10.0, "process"), (11.0, "cgroup_v2"), (11.5, "cgroup_v2")],
+        ),
+        patch.object(Usage, "available_cpus", return_value=1.0),
+    ):
         collector = CPU("clock")
         with freeze_time(at(1000)):
             collector.sample()
@@ -153,8 +181,9 @@ def test_source_change_skips_and_reseeds_the_baseline():
 
 
 def test_skips_sample_when_usage_unavailable():
-    with patch.object(Usage, "reading", return_value=(None, None)), patch.object(
-        Usage, "available_cpus", return_value=1.0
+    with (
+        patch.object(Usage, "reading", return_value=(None, None)),
+        patch.object(Usage, "available_cpus", return_value=1.0),
     ):
         collector = CPU("clock")
         with freeze_time(at(1000)):
@@ -165,9 +194,12 @@ def test_skips_sample_when_usage_unavailable():
 
 
 def test_non_positive_elapsed_delta_skips_the_sample():
-    with patch.object(
-        Usage, "reading", side_effect=[(10.0, "cgroup_v2"), (10.5, "cgroup_v2")]
-    ), patch.object(Usage, "available_cpus", return_value=1.0):
+    with (
+        patch.object(
+            Usage, "reading", side_effect=[(10.0, "cgroup_v2"), (10.5, "cgroup_v2")]
+        ),
+        patch.object(Usage, "available_cpus", return_value=1.0),
+    ):
         collector = CPU("clock")
         with freeze_time(at(1000)):
             collector.sample()
@@ -176,9 +208,12 @@ def test_non_positive_elapsed_delta_skips_the_sample():
 
 
 def test_elapsed_delta_uses_the_monotonic_clock_not_wall_time():
-    with patch.object(
-        Usage, "reading", side_effect=[(10.0, "cgroup_v2"), (10.5, "cgroup_v2")]
-    ), patch.object(Usage, "available_cpus", return_value=1.0):
+    with (
+        patch.object(
+            Usage, "reading", side_effect=[(10.0, "cgroup_v2"), (10.5, "cgroup_v2")]
+        ),
+        patch.object(Usage, "available_cpus", return_value=1.0),
+    ):
         collector = CPU("clock")
         with freeze_time(at(1000)), patch("time.monotonic", side_effect=[100.0, 101.0]):
             collector.sample()
@@ -188,9 +223,12 @@ def test_elapsed_delta_uses_the_monotonic_clock_not_wall_time():
 
 
 def test_skips_sample_when_available_cpus_is_none():
-    with patch.object(
-        Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (1.0, "cgroup_v2")]
-    ), patch.object(Usage, "available_cpus", return_value=None):
+    with (
+        patch.object(
+            Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (1.0, "cgroup_v2")]
+        ),
+        patch.object(Usage, "available_cpus", return_value=None),
+    ):
         collector = CPU("clock")
         with freeze_time(at(1000)):
             collector.sample()
@@ -200,9 +238,12 @@ def test_skips_sample_when_available_cpus_is_none():
 
 
 def test_skips_sample_when_available_cpus_is_zero():
-    with patch.object(
-        Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (1.0, "cgroup_v2")]
-    ), patch.object(Usage, "available_cpus", return_value=0.0):
+    with (
+        patch.object(
+            Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (1.0, "cgroup_v2")]
+        ),
+        patch.object(Usage, "available_cpus", return_value=0.0),
+    ):
         collector = CPU("clock")
         with freeze_time(at(1000)):
             collector.sample()
@@ -212,11 +253,14 @@ def test_skips_sample_when_available_cpus_is_zero():
 
 
 def test_recovers_after_an_initially_unavailable_usage_source():
-    with patch.object(
-        Usage,
-        "reading",
-        side_effect=[(None, None), (10.0, "cgroup_v2"), (10.5, "cgroup_v2")],
-    ), patch.object(Usage, "available_cpus", return_value=1.0):
+    with (
+        patch.object(
+            Usage,
+            "reading",
+            side_effect=[(None, None), (10.0, "cgroup_v2"), (10.5, "cgroup_v2")],
+        ),
+        patch.object(Usage, "available_cpus", return_value=1.0),
+    ):
         collector = CPU("clock")
         with freeze_time(at(1000)):
             assert collector.sample() is None
@@ -249,10 +293,11 @@ def test_reading_labels_the_source_it_falls_through_to():
 
 
 def test_reading_returns_none_when_every_source_fails():
-    with patch.object(Usage, "cgroup_v2_seconds", return_value=None), patch.object(
-        Usage, "cgroup_v1_seconds", return_value=None
-    ), patch.object(Usage, "proc_namespace_seconds", return_value=None), patch.object(
-        Usage, "process_seconds", return_value=None
+    with (
+        patch.object(Usage, "cgroup_v2_seconds", return_value=None),
+        patch.object(Usage, "cgroup_v1_seconds", return_value=None),
+        patch.object(Usage, "proc_namespace_seconds", return_value=None),
+        patch.object(Usage, "process_seconds", return_value=None),
     ):
         assert Usage.reading() == (None, None)
 
@@ -262,9 +307,13 @@ def test_reading_falls_back_to_proc_namespace_sum():
         "/proc/1/stat": "1 (ruby) S 0 1 1 0 -1 0 0 0 0 0 500 250 0 0 20 0 1 0 9 0 0",
         "/proc/2/stat": "2 (puma (worker)) S 1 1 1 0 -1 0 0 0 0 0 150 100 0 0 20 0 1 0 9 0 0",
     }
-    with patch.object(Usage, "read", side_effect=reading(mapping)), patch(
-        "hirefire_resource.source.cpu.usage.glob.glob", return_value=list(mapping)
-    ), patch.object(Usage, "clock_ticks", return_value=100):
+    with (
+        patch.object(Usage, "read", side_effect=reading(mapping)),
+        patch(
+            "hirefire_resource.source.cpu.usage.glob.glob", return_value=list(mapping)
+        ),
+        patch.object(Usage, "clock_ticks", return_value=100),
+    ):
         seconds, source = Usage.reading()
         assert abs(seconds - 10.0) < 0.0001
         assert source == "proc"
@@ -281,8 +330,9 @@ def test_stat_ticks_parses_around_comm_with_spaces_and_parens():
 
 
 def test_reading_falls_back_to_process_clock():
-    with patch.object(Usage, "read", return_value=None), patch(
-        "hirefire_resource.source.cpu.usage.glob.glob", return_value=[]
+    with (
+        patch.object(Usage, "read", return_value=None),
+        patch("hirefire_resource.source.cpu.usage.glob.glob", return_value=[]),
     ):
         seconds, source = Usage.reading()
         assert isinstance(seconds, float)
@@ -416,8 +466,9 @@ def test_read_returns_none_for_missing_path():
 
 
 def test_read_returns_none_when_the_file_disappears_between_check_and_read():
-    with patch("os.access", return_value=True), patch(
-        "builtins.open", side_effect=OSError
+    with (
+        patch("os.access", return_value=True),
+        patch("builtins.open", side_effect=OSError),
     ):
         assert Usage.read("/proc/1/stat") is None
 
@@ -479,10 +530,13 @@ def test_stat_ticks_returns_none_for_non_numeric_fields():
 
 
 def test_proc_namespace_seconds_none_when_every_entry_is_unreadable():
-    with patch(
-        "hirefire_resource.source.cpu.usage.glob.glob",
-        return_value=["/proc/1/stat", "/proc/2/stat"],
-    ), patch.object(Usage, "read", return_value=None):
+    with (
+        patch(
+            "hirefire_resource.source.cpu.usage.glob.glob",
+            return_value=["/proc/1/stat", "/proc/2/stat"],
+        ),
+        patch.object(Usage, "read", return_value=None),
+    ):
         assert Usage.proc_namespace_seconds() is None
 
 
@@ -491,9 +545,13 @@ def test_a_garbled_proc_stat_entry_is_skipped_and_the_rest_counted():
         "/proc/1/stat": "1 (ruby) S 0 1 1 0 -1 0 0 0 0 0 500 250 0 0 20 0 1 0 9 0 0",
         "/proc/2/stat": "2 garbled stat line",
     }
-    with patch.object(Usage, "read", side_effect=reading(mapping)), patch(
-        "hirefire_resource.source.cpu.usage.glob.glob", return_value=list(mapping)
-    ), patch.object(Usage, "clock_ticks", return_value=100):
+    with (
+        patch.object(Usage, "read", side_effect=reading(mapping)),
+        patch(
+            "hirefire_resource.source.cpu.usage.glob.glob", return_value=list(mapping)
+        ),
+        patch.object(Usage, "clock_ticks", return_value=100),
+    ):
         assert abs(Usage.proc_namespace_seconds() - 7.5) < 0.0001
 
 
@@ -568,11 +626,11 @@ def test_available_cpus_falls_through_on_malformed_quota():
 
 
 def test_available_cpus_is_none_when_every_source_fails():
-    with patch.object(Usage, "cgroup_v2_quota", return_value=None), patch.object(
-        Usage, "cgroup_v1_quota", return_value=None
-    ), patch.object(Usage, "heroku_entitlement", return_value=None), patch.object(
-        Usage, "render_entitlement", return_value=None
-    ), patch.object(
-        Usage, "processor_count", return_value=None
+    with (
+        patch.object(Usage, "cgroup_v2_quota", return_value=None),
+        patch.object(Usage, "cgroup_v1_quota", return_value=None),
+        patch.object(Usage, "heroku_entitlement", return_value=None),
+        patch.object(Usage, "render_entitlement", return_value=None),
+        patch.object(Usage, "processor_count", return_value=None),
     ):
         assert Usage.available_cpus() is None

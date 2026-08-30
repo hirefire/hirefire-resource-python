@@ -54,9 +54,9 @@ def test_job_queue_macros_have_inline_annotations_in_source():
             found += 1
             assert node.returns is not None, f"{path.name}:{node.name} missing return"
             assert node.args.vararg is not None, f"{path.name}:{node.name} *queues"
-            assert (
-                node.args.vararg.annotation is not None
-            ), f"{path.name}:{node.name} untyped *queues"
+            assert node.args.vararg.annotation is not None, (
+                f"{path.name}:{node.name} untyped *queues"
+            )
             kwonly = {
                 arg.arg: arg.annotation is not None for arg in node.args.kwonlyargs
             }
