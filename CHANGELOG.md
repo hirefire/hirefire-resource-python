@@ -44,7 +44,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Dramatiq RabbitMQ samples now fail within five seconds when the broker does not complete the handshake, and treat that timeout as an unreachable broker (return 0).
 - Celery queue samples time out after 5 seconds when the broker does not respond.
 - RQ job queue latency skips an unreadable job timestamp instead of dropping the whole sample.
-- RQ Redis samples time out after 5 seconds when the broker does not respond.
+- RQ and Dramatiq Redis samples time out after 5 seconds when the broker does not respond.
 
 ## [1.0.4] - 2026-01-09
 
