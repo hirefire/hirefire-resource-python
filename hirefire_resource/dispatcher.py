@@ -10,6 +10,7 @@ from hirefire_resource.client import PAYLOAD_TOO_LARGE, Client, Response
 from hirefire_resource.lease import Lease
 from hirefire_resource.log import safe_log
 from hirefire_resource.sample_trace_wave import SampleTraceWave
+from hirefire_resource.strategy import RQT, rqt
 
 if TYPE_CHECKING:
     import logging
@@ -654,9 +655,9 @@ class Dispatcher:
 
     def _repopulate_rqt(self, data: dict[str, dict[str, dict[int, Any]]]) -> None:
         for name, strategies in data.items():
-            series = strategies.get("rqt")
+            series = strategies.get(RQT)
             if series:
-                self._buffer().repopulate(name, "rqt", series)
+                self._buffer().repopulate(name, RQT, series)
 
     def _apply_dispatch_frequency(self, response: Response | None) -> None:
         if response is None:
@@ -709,7 +710,7 @@ class Dispatcher:
                 strategy_key = str(strategy)
                 if not series:
                     continue
-                if strategy_key == "rqt" and name == http_name:
+                if rqt(strategy_key) and name == http_name:
                     continue
                 self._merge_metrics(entries_by_name, name, strategy_key, series)
 
@@ -763,15 +764,15 @@ class Dispatcher:
         if http_name is None:
             return None
 
-        rqt_buckets = data.get(http_name, {}).get("rqt") or {}
+        rqt_buckets = data.get(http_name, {}).get(RQT) or {}
         configuration = self._configuration()
 
         if configuration.rqt_enabled() and configuration.rqt_liveness():
             payload_rqt = self._backfill_rqt_seconds(rqt_buckets)
-            self._merge_metrics(entries_by_name, http_name, "rqt", payload_rqt)
+            self._merge_metrics(entries_by_name, http_name, RQT, payload_rqt)
             return max(payload_rqt.keys()) if payload_rqt else None
         if rqt_buckets:
-            self._merge_metrics(entries_by_name, http_name, "rqt", rqt_buckets)
+            self._merge_metrics(entries_by_name, http_name, RQT, rqt_buckets)
             return None
         return None
 
@@ -785,7 +786,7 @@ class Dispatcher:
         dest_name = entries_by_name.setdefault(name, {})
         dest = dest_name.setdefault(strategy, {})
         for second, bucket in series_buckets.items():
-            if strategy == "rqt":
+            if rqt(strategy):
                 sum_v, count = self._rqt_parts(bucket)
                 existing = dest.get(second)
                 if existing is None:
@@ -799,7 +800,7 @@ class Dispatcher:
                 dest[second] = bucket
 
     def _encode_leaf(self, strategy: str, bucket: Any) -> Any | None:
-        if strategy == "rqt":
+        if rqt(strategy):
             sum_v, count = self._rqt_parts(bucket)
             if count == 0:
                 return []

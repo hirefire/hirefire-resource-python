@@ -3,6 +3,8 @@ import threading
 import time
 from typing import Any
 
+from hirefire_resource.strategy import rqt
+
 
 class Buffer:
     SAMPLE_COUNT_LIMIT = 1_000_000
@@ -23,7 +25,7 @@ class Buffer:
         with self._mutex:
             series = self._series_for(name, strategy)
             self._prune(series, timestamp)
-            if strategy == "rqt":
+            if rqt(strategy):
                 bucket = series.get(timestamp)
                 if bucket is None:
                     bucket = {"sum": 0.0, "count": 0}
@@ -54,7 +56,7 @@ class Buffer:
 
     def repopulate(self, name: str, strategy: str, data: dict[int, Any]) -> None:
         strategy = str(strategy)
-        if strategy != "rqt":
+        if not rqt(strategy):
             return
 
         now = int(time.time())
