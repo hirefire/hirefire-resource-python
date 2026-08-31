@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Assert sdist and wheel ship PEP 561 types (py.typed) plus LICENSE, README, CHANGELOG.
-
-Run after `poetry build`. Used by GitHub Actions `check` and `publish`.
-Selects artifacts for the version in pyproject.toml so leftover dist/ files
-from older versions are ignored.
-"""
 import sys
 import tarfile
 import zipfile

@@ -23,8 +23,6 @@ def _plan() -> Any:
 
 
 class Dispatcher:
-    """Periodic reporter that samples job queues and CPU and flushes buffered metrics to the API."""
-
     RQT_BACKFILL_LIMIT = 60
     PAYLOAD_SIZE_LIMIT = 32_768
     WARN_MAP_LIMIT = 128
@@ -59,12 +57,6 @@ class Dispatcher:
         self._empty_queues_warned: dict[str, bool] = {}
 
     def start(self) -> bool:
-        """Starts the dispatcher loops.
-
-        Returns:
-            ``True`` when started. ``False`` if already running in this process,
-            or if starting the loops failed (the failure is logged).
-        """
         if self._healthy_running():
             return False
 
@@ -135,7 +127,6 @@ class Dispatcher:
         return True
 
     def ensure_job_queue_loop(self) -> None:
-        """Ensures the job-queue loop is running when lease race entry becomes true after a late configure."""
         jq_thread = self._job_queue_thread
         if (
             jq_thread is not None
@@ -175,23 +166,6 @@ class Dispatcher:
             )
 
     def stop(self, flush: bool = True) -> bool:
-        """Stops the dispatcher loops and closes transport resources.
-
-        Wakes interval waiters, then joins local loop threads for up to
-        ``JOIN_TIMEOUT`` seconds each. A hung sampler is abandoned rather than
-        killed. A later :meth:`start` increments the loop generation so an
-        abandoned thread cannot resume work. Concurrent :meth:`start` is rejected
-        until close finishes.
-
-        Args:
-            flush: When ``True`` (default), best-effort final metric flush before close.
-                Prefork parents pass ``False`` so the master does not claim empty web
-                liveness after workers take over.
-
-        Returns:
-            ``True`` once the dispatcher has stopped, ``False`` when it was not
-            running.
-        """
         threads: list[threading.Thread] = []
 
         with self._mutex:
@@ -247,16 +221,10 @@ class Dispatcher:
                 self._stopping_flush = False
 
     def running(self) -> bool:
-        """Whether the dispatcher is currently running in this process."""
         with self._mutex:
             return self._healthy_running_locked()
 
     def abandon_inherited_state(self) -> None:
-        """Child-side cleanup after a fork that does not restart reporting.
-
-        Clears inherited loop flags, buffer, and lease so a short-lived child cannot
-        flush the parent's samples.
-        """
         try:
             with self._mutex:
                 self._running = False
@@ -326,8 +294,6 @@ class Dispatcher:
             self._wait_loop_interval(generation)
 
     def _wait_loop_interval(self, generation: int) -> None:
-        # Interruptible 1s gap between ticks. Do not replace with time.sleep:
-        # stop would wait out the remainder, and freeze_time can hang sleep.
         with self._mutex:
             if self._loop_active_locked(generation):
                 self._loop_wait.wait(timeout=1)

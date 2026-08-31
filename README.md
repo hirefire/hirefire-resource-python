@@ -30,7 +30,7 @@ The package ships inline PEP 484 type hints and a `py.typed` marker (PEP 561).
 
 **Documentation:**
 
-The public API is documented with Google-style docstrings. Changelog lives in [CHANGELOG.md](CHANGELOG.md).
+Changelog lives in [CHANGELOG.md](CHANGELOG.md).
 
 ## Development
 

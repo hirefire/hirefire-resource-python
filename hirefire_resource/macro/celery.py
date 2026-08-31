@@ -121,61 +121,6 @@ def _sample_connection(app: Celery) -> Iterator[Any]:
 
 @mitigate_connection_reset_error()
 def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
-    """Maximum job queue latency across the given Celery queues (Redis or RabbitMQ).
-
-    The broker is chosen from ``broker_url``, then the standard env vars, then a local
-    default (AMQP when available, otherwise Redis).
-
-    Note:
-        - Due to Celery's architecture, it is not possible to measure job queue latency with 100%
-          accuracy. This function attempts to measure latency as accurately as possible, but there
-          are some caveats. See the remaining notes for more details.
-        - The `run_at` header is added to each task at publish time using a Celery signal. This
-          signal is automatically registered when importing this module, so ensure that every Python
-          process that enqueues tasks imports this module.
-        - Job queue latency is measured by inspecting the `run_at` header of the next job in the
-          queue. For Redis, this works fine, as the queue can be inspected without mutation. For
-          RabbitMQ, however, this involves consuming a task, and then rejecting and requeuing it.
-          This will occasionally lead to out-of-order execution for certain tasks. However, if
-          autoscaling is working effectively, this should not be a significant issue.
-        - It is recommended to avoid using the eta and countdown options for tasks in queues that
-          are being autoscaled. Tasks with an eta (scheduled tasks) are placed in the same queue as
-          regular tasks and maintain the FIFO order, which interferes with job queue latency
-          measurement.
-        - Failed tasks that are to be retried are published with an eta. While not ideal, occasional
-          scheduled tasks, which are typically rare, generally aren't an issue.
-        - If you absolutely require the ability to schedule tasks to run in the future, consider
-          using a workaround, such as a separate queue for scheduled tasks that forwards tasks ready
-          to run to the relevant regular queues. Just remember that the `run_at` header is required.
-
-    Args:
-        *queues: Names of the queues for latency measurement.
-        broker_url: The broker URL. Defaults in the following order:
-            - Passed argument `broker_url`.
-            - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `RABBITMQ_BIGWIG_URL`,
-              `CLOUDAMQP_URL`, `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`,
-              `OPENREDIS_URL`.
-            - "amqp://guest:guest@localhost:5672" if AMQP is available, otherwise
-              "redis://localhost:6379/0".
-
-    Returns:
-        The maximum latency in seconds across the specified queues. Returns 0 on
-            ``OperationalError`` (for example the broker is unreachable).
-            ``ConnectionResetError`` is retried then re-raised.
-
-    Raises:
-        MissingQueueError: If no queue names are provided.
-
-    Examples:
-        >>> job_queue_latency("celery")
-        10.172
-        >>> job_queue_latency("celery", "mailer")
-        22.918
-        >>> job_queue_latency("celery", broker_url="amqp://guest:guest@localhost:5672")
-        10.172
-        >>> job_queue_latency("celery", "mailer", broker_url="redis://localhost:6379/0")
-        22.918
-    """
     queue_names = normalize_queues(*queues, allow_empty=False)
     app = _owned_celery_app(broker_url)
 
@@ -194,60 +139,6 @@ def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
 
 
 async def async_job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
-    """Async wrapper for :func:`job_queue_latency`.
-
-    Runs the synchronous Celery I/O in a thread pool so it does not block the event loop.
-
-    Note:
-        - Due to Celery's architecture, it is not possible to measure job queue latency with 100%
-          accuracy. This function attempts to measure latency as accurately as possible, but there
-          are some caveats. See the remaining notes for more details.
-        - The `run_at` header is added to each task at publish time using a Celery signal. This
-          signal is automatically registered when importing this module, so ensure that every Python
-          process that enqueues tasks imports this module.
-        - Job queue latency is measured by inspecting the `run_at` header of the next job in the
-          queue. For Redis, this works fine, as the queue can be inspected without mutation. For
-          RabbitMQ, however, this involves consuming a task, and then rejecting and requeuing it.
-          This will occasionally lead to out-of-order execution for certain tasks. However, if
-          autoscaling is working effectively, this should not be a significant issue.
-        - It is recommended to avoid using the eta and countdown options for tasks in queues that
-          are being autoscaled. Tasks with an eta (scheduled tasks) are placed in the same queue as
-          regular tasks and maintain the FIFO order, which interferes with job queue latency
-          measurement.
-        - Failed tasks that are to be retried are published with an eta. While not ideal, occasional
-          scheduled tasks, which are typically rare, generally aren't an issue.
-        - If you absolutely require the ability to schedule tasks to run in the future, consider
-          using a workaround, such as a separate queue for scheduled tasks that forwards tasks ready
-          to run to the relevant regular queues. Just remember that the `run_at` header is required.
-
-    Args:
-        *queues: Names of the queues for latency measurement.
-        broker_url: The broker URL. Defaults in the following order:
-            - Passed argument `broker_url`.
-            - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `RABBITMQ_BIGWIG_URL`,
-              `CLOUDAMQP_URL`, `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`,
-              `OPENREDIS_URL`.
-            - "amqp://guest:guest@localhost:5672" if AMQP is available, otherwise
-              "redis://localhost:6379/0".
-
-    Returns:
-        The maximum latency in seconds across the specified queues. Returns 0 on
-            ``OperationalError`` (for example the broker is unreachable).
-            ``ConnectionResetError`` is retried then re-raised.
-
-    Raises:
-        MissingQueueError: If no queue names are provided.
-
-    Examples:
-        >>> await async_job_queue_latency("celery")
-        10.172
-        >>> await async_job_queue_latency("celery", "mailer")
-        22.918
-        >>> await async_job_queue_latency("celery", broker_url="amqp://guest:guest@localhost:5672")
-        10.172
-        >>> await async_job_queue_latency("celery", "mailer", broker_url="redis://localhost:6379/0")
-        22.918
-    """
     loop = asyncio.get_event_loop()
     func = functools.partial(job_queue_latency, *queues, broker_url=broker_url)
     return await loop.run_in_executor(None, func)
@@ -259,65 +150,6 @@ def job_queue_size(
     broker_url: str | None = None,
     celery_app: "Celery | None" = None,
 ) -> int:
-    """Total waiting job count across the given Celery queues (Redis or RabbitMQ).
-
-    Counts broker-ready messages only (Redis ``LLEN`` / RabbitMQ ``message_count``).
-    Does not include worker-local active, reserved, or due scheduled tasks from
-    Celery inspect. The broker is chosen from ``broker_url`` or ``celery_app``,
-    then the standard env vars, then a local default (AMQP when available,
-    otherwise Redis).
-
-    Note:
-        - It is recommended to avoid using the eta and countdown options for tasks in queues that
-          are being autoscaled. Tasks with an eta (scheduled tasks) are placed in the same queue as
-          regular tasks, which interferes with job queue size measurement.
-        - Failed tasks that are to be retried are published with an eta. While not ideal, occasional
-          scheduled tasks, which are typically rare, generally aren't an issue.
-        - If you absolutely require the ability to schedule tasks to run in the future, consider
-          using a workaround, such as a separate queue for scheduled tasks that forwards tasks ready
-          to run to the relevant regular queues. When using RabbitMQ (AMQP), consider using the
-          Delayed Message Plugin.
-        - For RabbitMQ queues with custom arguments (e.g., x-max-priority for priority queues),
-          pass your configured Celery app via the `celery_app` parameter. This allows the function
-          to extract and use the correct queue arguments when querying RabbitMQ.
-
-    Args:
-        *queues: Names of the queues for size measurement.
-        broker_url: The broker URL. Cannot be used together with `celery_app`.
-            Defaults in the following order:
-            - Passed argument `broker_url`.
-            - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `RABBITMQ_BIGWIG_URL`,
-              `CLOUDAMQP_URL`, `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`,
-              `OPENREDIS_URL`.
-            - "amqp://guest:guest@localhost:5672" if AMQP is available, otherwise
-              "redis://localhost:6379/0".
-        celery_app: A configured Celery app instance. Cannot be used together
-            with `broker_url`. When provided, the function uses this app's connection and extracts
-            queue arguments from celery_app.conf.task_queues. This is required for RabbitMQ queues
-            with custom arguments like x-max-priority.
-
-    Returns:
-        Broker-ready message count across the specified queues. Returns 0 on
-            ``OperationalError`` (for example the broker is unreachable).
-            ``ConnectionResetError`` is retried then re-raised.
-
-    Raises:
-        MissingQueueError: If no queue names are provided.
-        ValueError: If both `broker_url` and `celery_app` are provided.
-
-    Examples:
-        >>> job_queue_size("celery")
-        42
-        >>> job_queue_size("celery", "mailer")
-        85
-        >>> job_queue_size("celery", broker_url="amqp://user:password@host:5672")
-        42
-        >>> job_queue_size("celery", broker_url="redis://localhost:6379/0")
-        42
-        >>> # For priority queues, pass your configured Celery app:
-        >>> job_queue_size("celery", celery_app=celery_app)
-        42
-    """
     queue_names = normalize_queues(*queues, allow_empty=False)
 
     if celery_app is not None and broker_url is not None:
@@ -348,57 +180,6 @@ async def async_job_queue_size(
     broker_url: str | None = None,
     celery_app: "Celery | None" = None,
 ) -> int:
-    """Async wrapper for :func:`job_queue_size`.
-
-    Runs the synchronous Celery I/O in a thread pool so it does not block the event loop.
-
-    Note:
-        - It is recommended to avoid using the eta and countdown options for tasks in queues that
-          are being autoscaled. Tasks with an eta (scheduled tasks) are placed in the same queue as
-          regular tasks, which interferes with job queue size measurement.
-        - Failed tasks that are to be retried are published with an eta. While not ideal, occasional
-          scheduled tasks, which are typically rare, generally aren't an issue.
-        - If you absolutely require the ability to schedule tasks to run in the future, consider
-          using a workaround, such as a separate queue for scheduled tasks that forwards tasks ready
-          to run to the relevant regular queues. When using RabbitMQ (AMQP), consider using the
-          Delayed Message Plugin.
-        - For RabbitMQ queues with custom arguments (e.g., x-max-priority for priority queues),
-          pass your configured Celery app via the `celery_app` parameter.
-
-    Args:
-        *queues: Names of the queues for size measurement.
-        broker_url: The broker URL. Cannot be used together with `celery_app`.
-            Defaults in the following order:
-            - Passed argument `broker_url`.
-            - Environment variables `AMQP_URL`, `RABBITMQ_URL`, `RABBITMQ_BIGWIG_URL`,
-              `CLOUDAMQP_URL`, `REDIS_TLS_URL`, `REDIS_URL`, `REDISTOGO_URL`, `REDISCLOUD_URL`,
-              `OPENREDIS_URL`.
-            - "amqp://guest:guest@localhost:5672" if AMQP is available, otherwise
-              "redis://localhost:6379/0".
-        celery_app: A configured Celery app instance. Cannot be used together
-            with `broker_url`. When provided, the function uses this app's connection and extracts
-            queue arguments from celery_app.conf.task_queues. This is required for RabbitMQ
-            queues with custom arguments like x-max-priority.
-
-    Returns:
-        Broker-ready message count across the specified queues. Returns 0 on
-            ``OperationalError`` (for example the broker is unreachable).
-            ``ConnectionResetError`` is retried then re-raised.
-
-    Raises:
-        MissingQueueError: If no queue names are provided.
-        ValueError: If both `broker_url` and `celery_app` are provided.
-
-    Examples:
-        >>> await async_job_queue_size("celery")
-        42
-        >>> await async_job_queue_size("celery", "mailer")
-        85
-        >>> await async_job_queue_size("celery", broker_url="amqp://user:password@host:5672")
-        42
-        >>> await async_job_queue_size("celery", celery_app=celery_app)
-        42
-    """
     loop = asyncio.get_event_loop()
     func = functools.partial(
         job_queue_size, *queues, broker_url=broker_url, celery_app=celery_app

@@ -137,8 +137,6 @@ def test_sample_pika_parameters_copies_each_host_in_a_list():
     assert second.socket_timeout == 88
 
 
-# Blackhole never answers, so the sample always parks for the full broker
-# timeout. Patch it down: same code path, no 5s stall per test.
 def test_owned_amqp_size_times_out_on_blackhole(monkeypatch):
     monkeypatch.setattr(dramatiq_macro, "_SAMPLE_AMQP_TIMEOUT", 0.3)
     server, conns, stop, port = _blackhole_port()

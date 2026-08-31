@@ -20,20 +20,17 @@ _dq_wave: dict[tuple[object, str, str], tuple[int, int | None]] | None = None
 
 
 def before_sample_job_queues() -> object:
-    """Open a process-local .DQ walk memo for one Dispatcher sample wave."""
     global _dq_wave
     _dq_wave = {}
     return True
 
 
 def after_sample_job_queues(token: object = None) -> None:
-    """Close the .DQ walk memo from :func:`before_sample_job_queues`."""
     global _dq_wave
     _dq_wave = None
 
 
 def reinit_after_fork() -> None:
-    """Drop an inherited .DQ walk memo after fork or abandoned state."""
     global _dq_wave
     _dq_wave = None
 
@@ -41,7 +38,7 @@ def reinit_after_fork() -> None:
 try:
     import redis
     from redis.exceptions import RedisError
-except ImportError:  # pragma: no cover
+except ImportError:
     redis = None
 
     class RedisError(Exception):  # type: ignore[no-redef]
@@ -57,7 +54,7 @@ try:
             AMQPConnectorException,
             AMQPConnectorStackTimeout,
         )
-    except ImportError:  # pragma: no cover
+    except ImportError:
 
         class AMQPConnectorException(Exception):  # type: ignore[no-redef]
             pass
@@ -98,47 +95,6 @@ def job_queue_size(
     broker: object | None = None,
     namespace: str | None = None,
 ) -> int:
-    """Total waiting job count across the given Dramatiq queues.
-
-    Queue names are required. Waiting semantics differ by broker:
-
-    - **Redis:** ready list length (``LLEN``) plus **due** delay-queue messages
-      on ``{queue}.DQ`` whose ``options.eta`` is ≤ now (milliseconds). Retries
-      that use delay share that same ``.DQ`` pool. Future delayed messages,
-      dead-letter (``.XQ``), in-flight acks (working), and delay work held only
-      in worker memory are excluded. Prefer Redis when delayed scale-from-zero
-      matters (min = 0 with due work still on the broker).
-    - **RabbitMQ:** main queue ready ``message_count`` only. ``.DQ`` and ``.XQ``
-      are not counted in v1 (no non-destructive eta filter on the broker). Due
-      delayed work alone will not scale workers on RabbitMQ until a consumer
-      promotes it.
-
-    Never use Dramatiq's ``do_qsize`` (it includes working/acks).
-
-    Connection is chosen from ``broker`` / ``broker_url``, then
-    ``HIREFIRE_DRAMATIQ_URL`` is only applied via plan hooks, then the standard
-    AMQP then Redis env ladder, then a local default (AMQP when pika is
-    available, otherwise Redis).
-
-    Args:
-        *queues: Canonical queue names (not ``.DQ`` / ``.XQ`` suffixes).
-        broker_url: Broker URL. Cannot be used with ``broker``.
-        broker: A live ``RedisBroker`` or ``RabbitmqBroker``.
-            Cannot be used with ``broker_url``. URL-owned clients are closed
-            after the sample. An injected Redis client's connection is not
-            closed.
-        namespace: Redis key prefix. Defaults to the injected
-            broker's namespace, then ``HIREFIRE_DRAMATIQ_NAMESPACE``, then
-            ``"dramatiq"``. Ignored for RabbitMQ.
-
-    Returns:
-        Waiting job count across the queues. Returns 0 when the broker is
-            unreachable.
-
-    Raises:
-        MissingQueueError: If no queue names are provided.
-        ValueError: If both ``broker`` and ``broker_url`` are provided.
-    """
     queue_names = _canonical_queues(*queues)
     resolved: dict[str, Any] | None = None
     try:
@@ -166,12 +122,6 @@ async def async_job_queue_size(
     broker: object | None = None,
     namespace: str | None = None,
 ) -> int:
-    """Async wrapper for :func:`job_queue_size`.
-
-    Runs the synchronous broker I/O in a thread pool so it does not block the
-    event loop. Same arguments, return value, and Redis vs RabbitMQ notes as
-    :func:`job_queue_size`.
-    """
     loop = asyncio.get_event_loop()
     func = functools.partial(
         job_queue_size,
@@ -189,36 +139,6 @@ def job_queue_latency(
     broker: object | None = None,
     namespace: str | None = None,
 ) -> float:
-    """Maximum job queue latency across the given Dramatiq queues (seconds).
-
-    Queue names are required. Age rules:
-
-    - **Redis live head:** ``(now_ms - message_timestamp) / 1000`` from the
-      oldest ready id (``LINDEX 0`` on the FIFO ready list).
-    - **Redis due delayed:** ``(now_ms - eta) / 1000`` for the earliest due
-      ``options.eta`` on ``{queue}.DQ``.
-    - **RabbitMQ:** main queue head age via ``basic_get`` + requeue and
-      ``message_timestamp``. Occasional requeue reorder is possible (same class
-      of caveat as Celery AMQP JQL). Prefer Redis when JQL accuracy matters.
-      Delayed / ``.DQ`` age is not measured on RabbitMQ in v1.
-
-    Stock Dramatiq messages always carry ``message_timestamp`` (milliseconds).
-    No HireFire publisher middleware is required.
-
-    Args:
-        *queues: Canonical queue names.
-        broker_url: Broker URL. Cannot be used with ``broker``.
-        broker: A live ``RedisBroker`` or ``RabbitmqBroker``.
-        namespace: Redis key prefix (see :func:`job_queue_size`).
-
-    Returns:
-        Maximum latency in seconds across the queues. Returns 0 when
-            empty or the broker is unreachable.
-
-    Raises:
-        MissingQueueError: If no queue names are provided.
-        ValueError: If both ``broker`` and ``broker_url`` are provided.
-    """
     queue_names = _canonical_queues(*queues)
     resolved: dict[str, Any] | None = None
     try:
@@ -246,12 +166,6 @@ async def async_job_queue_latency(
     broker: object | None = None,
     namespace: str | None = None,
 ) -> float:
-    """Async wrapper for :func:`job_queue_latency`.
-
-    Runs the synchronous broker I/O in a thread pool so it does not block the
-    event loop. Same arguments, return value, and Redis vs RabbitMQ notes as
-    :func:`job_queue_latency`.
-    """
     loop = asyncio.get_event_loop()
     func = functools.partial(
         job_queue_latency,

@@ -24,18 +24,6 @@ MAX_NAME_BYTES = 128
 
 
 class Configuration:
-    """Holds process-wide settings (token, logger) and optional local declarations via :meth:`dyno`.
-
-    Always-on sources (request queue time on the HTTP middleware path, and CPU when process
-    identity resolves) do not require an explicit :meth:`dyno` declaration. Local job-queue
-    sampler callables remain the escape hatch for custom probes and legacy root installs
-    until lease plans cover them fully.
-
-    Attributes:
-        logger: Logger used for HireFire diagnostic messages. Defaults to a stdout logger.
-            Set to ``None`` (or a logger missing the log methods) to silence diagnostics.
-    """
-
     def __init__(self) -> None:
         self.http: HTTP | None = None
         self.job_queues = JobQueues(self)
@@ -56,17 +44,6 @@ class Configuration:
 
     @property
     def token(self) -> str | None:
-        """The HireFire API token.
-
-        Returns the value assigned in code when it is not ``None``, else the
-        ``HIREFIRE_TOKEN`` environment variable, else ``None``. An empty string (in
-        code or from the env) is treated as absent (``None``), so it neither enables
-        reporting nor is sent on the wire. Assigning ``None`` clears the in-code
-        value so the environment variable is consulted again. Assigning an empty
-        string forces the token off even when ``HIREFIRE_TOKEN`` is set. A non-empty
-        token present when :meth:`HireFire.configure` or :meth:`HireFire.boot` runs
-        starts the dispatcher and enables reporting.
-        """
         value = (
             self._token if self._token is not None else os.environ.get("HIREFIRE_TOKEN")
         )
@@ -80,36 +57,6 @@ class Configuration:
         self._token = value
 
     def dyno(self, name: str, sampler: Sampler | None = None) -> None:
-        """Declares a process by dyno name (Heroku Procfile-shaped).
-
-        A sampler callable registers a local job-queue source (``jql`` / ``jqs`` under the
-        lease plan strategy). Prefer zero-config (:meth:`HireFire.boot` + token) for request
-        queue time and CPU, and lease plan adapters in the HireFire UI for managed job
-        queues. Use :meth:`dyno` with a sampler for custom probes or strategy-only (custom
-        configuration) plan entries.
-
-        Bare ``dyno("web")`` (no sampler, name ``"web"`` case-insensitive) is
-        deprecated. It is accepted so 1.x configs do not break, but it does
-        nothing. Request queue time is sampled automatically from HTTP traffic.
-        A once-per-process warning says the line can be removed.
-        ``dyno("web", sampler)`` still registers a job-queue sampler under
-        ``"web"``.
-
-        Args:
-            name: The process name. Must be non-empty.
-            sampler: A sampler returning the current job-queue metric (a non-negative,
-                finite number).
-
-        Raises:
-            ValueError: The name is empty or exceeds 128 UTF-8 bytes.
-            MissingSamplerError: A name other than ``"web"`` given without a sampler.
-            DuplicateDynoError: The name was already declared for the same source kind.
-
-        Example::
-
-            config.dyno("web")  # no-op BC, safe to remove
-            config.dyno("worker", sampler)
-        """
         name = self._coerce_name(name)
 
         if sampler is not None:
@@ -134,7 +81,6 @@ class Configuration:
 
     @property
     def buffer(self) -> Buffer:
-        """In-memory metric buffer that accumulates samples between dispatcher flushes."""
         if self._buffer is None:
             with self._mutex:
                 if self._buffer is None:
@@ -143,7 +89,6 @@ class Configuration:
 
     @property
     def dispatcher(self) -> Dispatcher:
-        """Periodic reporter that samples job queues and CPU and flushes buffered metrics to the API."""
         if self._dispatcher is None:
             with self._mutex:
                 if self._dispatcher is None:
@@ -151,11 +96,6 @@ class Configuration:
         return self._dispatcher
 
     def stop_dispatcher(self, flush: bool = True) -> None:
-        """Stops the dispatcher if one was started.
-
-        Args:
-            flush: Forwarded to :meth:`Dispatcher.stop`.
-        """
         if self._dispatcher is not None:
             self._dispatcher.stop(flush=flush)
 

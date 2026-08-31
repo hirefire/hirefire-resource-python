@@ -64,7 +64,6 @@ def closed_world(
     nproc: int = NPROC_SENTINEL,
     clock_ticks: int = 100,
 ):
-    # Host /proc and cgroup must not leak: Usage.read defaults to None, glob is stubbed, process clock is off.
     mapping = dict(reads or {})
     paths = list(proc_paths or [])
 

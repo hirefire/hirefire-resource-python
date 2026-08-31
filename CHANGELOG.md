@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- The public API is no longer documented with in-source docstrings. See the README and changelog.
 - Metrics are sent only when `HIREFIRE_TOKEN` is set.
 - Job queue metrics are sampled by one process at a time.
 - Job queue macros count queued jobs plus scheduled or retry jobs that are due. Jobs already being processed are no longer included in job queue size or job queue latency.

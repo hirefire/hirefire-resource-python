@@ -110,8 +110,6 @@ def test_caller_celery_app_is_not_given_sample_timeouts(monkeypatch):
     assert _SAMPLE_BROKER_TIMEOUT != 99
 
 
-# Blackhole never answers, so the sample always parks for the full broker
-# timeout. Patch it down: same code path, no 5s stall per test.
 def test_owned_redis_size_times_out_on_blackhole(monkeypatch):
     monkeypatch.setattr("hirefire_resource.macro.celery._SAMPLE_BROKER_TIMEOUT", 0.3)
     server, conns, stop, port = _blackhole_port()
