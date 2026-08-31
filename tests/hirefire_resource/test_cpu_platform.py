@@ -11,7 +11,6 @@ FIXTURE_ROOT = os.path.abspath(
 )
 
 NPROC_SENTINEL = 97
-
 CEDAR_DEDICATED = (
     "performance_m",
     "performance_l",
