@@ -139,9 +139,7 @@ def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
 
 
 async def async_job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
-    loop = asyncio.get_event_loop()
-    func = functools.partial(job_queue_latency, *queues, broker_url=broker_url)
-    return await loop.run_in_executor(None, func)
+    return await asyncio.to_thread(job_queue_latency, *queues, broker_url=broker_url)
 
 
 @mitigate_connection_reset_error()
@@ -180,11 +178,9 @@ async def async_job_queue_size(
     broker_url: str | None = None,
     celery_app: "Celery | None" = None,
 ) -> int:
-    loop = asyncio.get_event_loop()
-    func = functools.partial(
+    return await asyncio.to_thread(
         job_queue_size, *queues, broker_url=broker_url, celery_app=celery_app
     )
-    return await loop.run_in_executor(None, func)
 
 
 @before_task_publish.connect

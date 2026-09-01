@@ -1,5 +1,4 @@
 import asyncio
-import functools
 import os
 import time
 from datetime import datetime
@@ -92,9 +91,7 @@ def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
 
 
 async def async_job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
-    loop = asyncio.get_event_loop()
-    func = functools.partial(job_queue_latency, *queues, redis_url=redis_url)
-    return await loop.run_in_executor(None, func)
+    return await asyncio.to_thread(job_queue_latency, *queues, redis_url=redis_url)
 
 
 def job_queue_size(*queues: str, redis_url: str | None = None) -> int:
@@ -120,9 +117,7 @@ def job_queue_size(*queues: str, redis_url: str | None = None) -> int:
 
 
 async def async_job_queue_size(*queues: str, redis_url: str | None = None) -> int:
-    loop = asyncio.get_event_loop()
-    func = functools.partial(job_queue_size, *queues, redis_url=redis_url)
-    return await loop.run_in_executor(None, func)
+    return await asyncio.to_thread(job_queue_size, *queues, redis_url=redis_url)
 
 
 def job_queue_working(*queues: str, redis_url: str | None = None) -> int:
@@ -144,9 +139,7 @@ def job_queue_working(*queues: str, redis_url: str | None = None) -> int:
 
 
 async def async_job_queue_working(*queues: str, redis_url: str | None = None) -> int:
-    loop = asyncio.get_event_loop()
-    func = functools.partial(job_queue_working, *queues, redis_url=redis_url)
-    return await loop.run_in_executor(None, func)
+    return await asyncio.to_thread(job_queue_working, *queues, redis_url=redis_url)
 
 
 _QUEUE_KEY_PREFIX = "rq:queue:"

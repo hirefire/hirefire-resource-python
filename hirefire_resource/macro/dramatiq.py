@@ -1,6 +1,5 @@
 import asyncio
 import copy
-import functools
 import json
 import os
 import time
@@ -122,15 +121,13 @@ async def async_job_queue_size(
     broker: object | None = None,
     namespace: str | None = None,
 ) -> int:
-    loop = asyncio.get_event_loop()
-    func = functools.partial(
+    return await asyncio.to_thread(
         job_queue_size,
         *queues,
         broker_url=broker_url,
         broker=broker,
         namespace=namespace,
     )
-    return await loop.run_in_executor(None, func)
 
 
 def job_queue_latency(
@@ -166,15 +163,13 @@ async def async_job_queue_latency(
     broker: object | None = None,
     namespace: str | None = None,
 ) -> float:
-    loop = asyncio.get_event_loop()
-    func = functools.partial(
+    return await asyncio.to_thread(
         job_queue_latency,
         *queues,
         broker_url=broker_url,
         broker=broker,
         namespace=namespace,
     )
-    return await loop.run_in_executor(None, func)
 
 
 def plan_options(strategy: object, options: object) -> dict[str, Any]:
