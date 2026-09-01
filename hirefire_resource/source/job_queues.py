@@ -76,7 +76,7 @@ class JobQueues:
                 )
                 return
 
-            self._buffer().sample(report_name, strategy, self._coerce_sample(value))
+            self._buffer().sample(report_name, strategy, value)
         except Exception as error:
             safe_log(
                 self._logger(),
@@ -92,9 +92,6 @@ class JobQueues:
             and math.isfinite(value)
             and value >= 0
         )
-
-    def _coerce_sample(self, value: int | float) -> int | float:
-        return value
 
     def _format_sample_value(self, value: object) -> str:
         try:

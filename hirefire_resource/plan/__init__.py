@@ -281,7 +281,7 @@ def _sample_working(
 def _record_sample(name: str, strategy: str, value: int | float) -> None:
     from hirefire_resource.hirefire import HireFire
 
-    HireFire.configuration.buffer.sample(name, strategy, _coerce_sample(value))
+    HireFire.configuration.buffer.sample(name, strategy, value)
 
 
 def normalize_queues(queues: object, name: str) -> list[str] | None:
@@ -338,10 +338,6 @@ def _valid_sample(value: object) -> bool:
         and math.isfinite(value)
         and value >= 0
     )
-
-
-def _coerce_sample(value: int | float) -> int | float:
-    return value
 
 
 def _format_sample_value(value: object) -> str:
