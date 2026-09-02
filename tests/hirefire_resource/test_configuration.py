@@ -121,6 +121,14 @@ def test_empty_name_raises(config):
         config.dyno("   ")
 
 
+def test_dyno_accepts_hyphenated_name(config):
+    config.dyno("worker-latency", lambda: 1.5)
+    config.dyno("worker-size", lambda: 2)
+    names = [queue.name for queue in config.job_queues]
+    assert names == ["worker-latency", "worker-size"]
+    assert config.job_queues.find_by_name("worker-latency").sample() == 1.5
+
+
 def test_dyno_rejects_name_over_max_bytes(config):
     with pytest.raises(ValueError):
         config.dyno("w" * 129)

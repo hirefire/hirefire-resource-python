@@ -408,6 +408,30 @@ def test_regrant_rearms_next_sample_immediately():
 
 
 @mocketize
+def test_parses_hyphenated_job_queue_name():
+    Entry.single_register(
+        Entry.POST,
+        LEASE_URL,
+        status=200,
+        headers={
+            "HireFire-Lease-Granted": "true",
+            "HireFire-Sample-Frequency": "15",
+        },
+        body=json.dumps(
+            {
+                "version": 1,
+                "job_queues": [{"name": "worker-latency", "strategy": "jql"}],
+            }
+        ),
+    )
+    lease = Lease()
+    lease.request_if_due(hold=lambda _plan: True)
+    assert lease.granted()
+    assert len(lease.job_queues) == 1
+    assert lease.job_queues[0]["name"] == "worker-latency"
+
+
+@mocketize
 def test_parses_grant_trace_true():
     Entry.single_register(
         Entry.POST,

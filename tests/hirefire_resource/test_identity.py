@@ -37,6 +37,16 @@ def test_fir_pod_name_preserves_dashes_inside_the_process_name(monkeypatch):
     assert identity.resolve() == "my-worker"
 
 
+def test_resolves_fir_worker_latency_hyphen_name(monkeypatch):
+    monkeypatch.setenv("DYNO", "worker-latency-6d7f788ddb-cdct6")
+    assert identity.resolve() == "worker-latency"
+
+
+def test_cedar_worker_latency_dot_suffix_keeps_underscore(monkeypatch):
+    monkeypatch.setenv("DYNO", "worker_latency.1")
+    assert identity.resolve() == "worker_latency"
+
+
 def test_falls_back_to_render_service_name(monkeypatch):
     monkeypatch.setenv("RENDER_SERVICE_NAME", "background-worker")
     assert identity.resolve() == "background-worker"
@@ -179,6 +189,13 @@ def test_heroku_web_process_rejects_names_that_only_start_with_web(monkeypatch):
         monkeypatch.setenv("DYNO", dyno)
         assert not identity.heroku_web_process()
         assert not identity.platform_http_role()
+
+
+def test_heroku_web_process_rejects_fir_web_worker_hyphen_name(monkeypatch):
+    monkeypatch.setenv("DYNO", "web-worker-5fb9c979-lft2l")
+    assert identity.resolve() == "web-worker"
+    assert not identity.heroku_web_process()
+    assert not identity.platform_http_role()
 
 
 def test_heroku_web_process_rejects_fir_worker(monkeypatch):

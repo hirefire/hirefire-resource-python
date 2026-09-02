@@ -450,6 +450,40 @@ def test_job_queue_tick_samples_without_dispatching_and_a_later_tick_delivers_it
 
 
 @mocketize
+def test_hyphen_dyno_samples_and_dispatches_name_as_is(monkeypatch, caplog):
+    stub_lease(
+        granted=True,
+        plan={
+            "version": 1,
+            "job_queues": [
+                {
+                    "name": "worker-latency",
+                    "strategy": "jql",
+                    "adapter": None,
+                    "queues": [],
+                    "options": {},
+                }
+            ],
+        },
+    )
+    bodies = capture_ingest_bodies()
+    monkeypatch.setenv("DYNO", "worker-latency-6d7f788ddb-cdct6")
+
+    with freeze_time(at(1000)):
+        HireFire.configuration.dyno("worker-latency", lambda: 7)
+        dispatcher = HireFire.configuration.dispatcher
+        dispatcher._job_queue_tick()
+        dispatcher._tick()
+
+    names = [entry["name"] for entry in bodies[0]]
+    assert "worker-latency" in names
+    assert "worker" not in names
+    entry = next(e for e in bodies[0] if e["name"] == "worker-latency")
+    assert entry["metrics"]["jql"]["1000"] == 7
+    assert "local sampler is ignored" not in caplog.text
+
+
+@mocketize
 def test_lease_granted_dispatches_workers():
     stub_lease(granted=True)
     bodies = capture_ingest_bodies()
