@@ -633,12 +633,8 @@ class Dispatcher:
         if raw is None:
             return
 
-        try:
-            value = int(raw)
-        except (TypeError, ValueError):
-            return
-
-        if value <= 0:
+        value = Lease._leading_int(raw)
+        if value is None or value <= 0:
             return
 
         self._dispatch_frequency = max(

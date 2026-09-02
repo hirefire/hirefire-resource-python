@@ -1043,6 +1043,30 @@ def test_ignores_an_unparseable_dispatch_frequency():
 
 
 @mocketize
+def test_parses_a_leading_integer_dispatch_frequency_like_ruby_to_i():
+    stub_lease()
+    stub_ingest_with_dispatch_frequency("10.0")
+
+    dispatcher = configure_web_only()
+    with freeze_time(at(1000)):
+        dispatcher._tick()
+
+    assert dispatcher._dispatch_frequency == 10
+
+
+@mocketize
+def test_parses_a_leading_integer_dispatch_frequency_with_a_junk_suffix():
+    stub_lease()
+    stub_ingest_with_dispatch_frequency("10abc")
+
+    dispatcher = configure_web_only()
+    with freeze_time(at(1000)):
+        dispatcher._tick()
+
+    assert dispatcher._dispatch_frequency == 10
+
+
+@mocketize
 def test_dispatch_pacing_follows_the_monotonic_clock_not_the_wall_clock():
     stub_lease()
     bodies = capture_ingest_bodies()
