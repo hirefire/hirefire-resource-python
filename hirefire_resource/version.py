@@ -1,7 +1,7 @@
-from importlib.metadata import PackageNotFoundError, metadata
+from importlib.metadata import PackageNotFoundError, version
 
 VERSION: str
 try:
-    VERSION = metadata("hirefire-resource").get("Version") or "unknown"
+    VERSION = version("hirefire-resource")
 except PackageNotFoundError:
     VERSION = "unknown"

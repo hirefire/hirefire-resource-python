@@ -22,7 +22,7 @@ def test_version_matches_pyproject():
 
 def test_version_falls_back_to_unknown_when_package_metadata_is_missing():
     try:
-        with patch("importlib.metadata.metadata", side_effect=PackageNotFoundError):
+        with patch("importlib.metadata.version", side_effect=PackageNotFoundError):
             importlib.reload(hirefire_resource.version)
             assert hirefire_resource.version.VERSION == "unknown"
     finally:
