@@ -31,6 +31,9 @@ class FakeResponse:
     def read(self):
         return b""
 
+    def close(self):
+        pass
+
 
 class FakeConnection:
     scripts: list = []
