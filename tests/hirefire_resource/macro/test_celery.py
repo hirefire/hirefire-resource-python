@@ -3,12 +3,13 @@ import math
 import os
 import time
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import pytest
 from celery import Celery
 from kombu import Queue
 
-from hirefire_resource import plan
+from hirefire_resource import HireFire, plan
 from hirefire_resource.errors import MissingQueueError
 from hirefire_resource.macro.celery import (
     _job_queue_latency_rabbitmq,
@@ -257,15 +258,93 @@ def test_mitigate_connection_reset_error_decorator():
     assert call_count[0] == 2
 
 
-def test_mitigate_connection_reset_error_preserves_docs_and_retries_once(
+def test_mitigate_connection_reset_error_retries_zero_still_calls_once():
+    from hirefire_resource.macro.celery import mitigate_connection_reset_error
+
+    call_count = [0]
+
+    @mitigate_connection_reset_error(retries=0, delay=0)
+    def once():
+        call_count[0] += 1
+        return 1
+
+    assert once() == 1
+    assert call_count[0] == 1
+
+
+def test_plan_drops_sample_when_celery_raises_operational_error(monkeypatch, caplog):
+    import logging
+    from contextlib import contextmanager
+
+    from kombu.exceptions import OperationalError
+
+    from hirefire_resource.macro import celery as celery_macro
+
+    caplog.set_level(logging.ERROR)
+
+    @contextmanager
+    def boom(*_args, **_kwargs):
+        raise OperationalError("broker down")
+        yield None
+
+    monkeypatch.setattr(celery_macro, "_sample_connection", boom)
+    with patch.object(plan, "_load_macro", return_value=celery_macro):
+        plan.execute(
+            {
+                "name": "worker",
+                "adapter": "celery",
+                "strategy": "jqs",
+                "queues": ["celery"],
+            }
+        )
+
+    data = HireFire.configuration.buffer.flush()
+    assert data.get("worker", {}).get("jqs") is None
+    assert "OperationalError" in caplog.text
+    assert "broker down" in caplog.text
+
+
+def test_job_queue_size_reraises_operational_error(monkeypatch):
+    from contextlib import contextmanager
+
+    from kombu.exceptions import OperationalError
+
+    @contextmanager
+    def boom():
+        raise OperationalError("broker down")
+        yield None
+
+    monkeypatch.setattr(
+        "hirefire_resource.macro.celery._sample_connection", lambda _app: boom()
+    )
+    with pytest.raises(OperationalError, match="broker down"):
+        job_queue_size("celery", broker_url="redis://localhost:6379/0")
+
+
+def test_job_queue_latency_reraises_operational_error(monkeypatch):
+    from contextlib import contextmanager
+
+    from kombu.exceptions import OperationalError
+
+    @contextmanager
+    def boom():
+        raise OperationalError("broker down")
+        yield None
+
+    monkeypatch.setattr(
+        "hirefire_resource.macro.celery._sample_connection", lambda _app: boom()
+    )
+    with pytest.raises(OperationalError, match="broker down"):
+        job_queue_latency("celery", broker_url="redis://localhost:6379/0")
+
+
+def test_mitigate_connection_reset_error_preserves_name_and_retries_once(
     monkeypatch,
 ):
     from hirefire_resource.macro import celery as celery_macro
 
     assert celery_macro.job_queue_size.__name__ == "job_queue_size"
     assert celery_macro.job_queue_latency.__name__ == "job_queue_latency"
-    assert celery_macro.job_queue_size.__doc__
-    assert celery_macro.job_queue_latency.__doc__
 
     slept: list[float] = []
     monkeypatch.setattr(time, "sleep", lambda seconds: slept.append(seconds))

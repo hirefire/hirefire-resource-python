@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import threading
 from unittest.mock import patch
 
 import pytest
@@ -289,6 +290,63 @@ def test_demote_during_inflight_request_discards_late_grant():
     assert not lease.granted()
     assert lease.job_queues == []
     assert lease.sample_frequency == 15
+
+
+@mocketize
+def test_demote_between_epoch_check_and_commit_cannot_resurrect_grant():
+    lease = Lease()
+    client = lease._client
+
+    class FakeResponse:
+        status = 200
+        headers = {
+            "HireFire-Lease-Granted": "true",
+            "HireFire-Sample-Frequency": "30",
+            "HireFire-Lease-TTL": "120",
+        }
+        body = json.dumps(
+            {
+                "version": 1,
+                "job_queues": [{"name": "worker", "strategy": "jql"}],
+            }
+        )
+
+    inner = threading.Lock()
+    acquires = {"n": 0}
+    commit_acquired = threading.Event()
+    demote_running = threading.Event()
+
+    class GateLock:
+        def __enter__(self):
+            inner.acquire()
+            acquires["n"] += 1
+            if acquires["n"] == 2:
+                commit_acquired.set()
+                if not demote_running.wait(timeout=1):
+                    raise AssertionError("demote did not start during commit")
+            return self
+
+        def __exit__(self, *args):
+            inner.release()
+            return False
+
+    lease._mutex = GateLock()
+
+    def demote_when_commit_holds():
+        if not commit_acquired.wait(timeout=1):
+            return
+        demote_running.set()
+        lease.demote()
+
+    thread = threading.Thread(target=demote_when_commit_holds)
+    thread.start()
+    with patch.object(client, "request_lease", return_value=FakeResponse()):
+        lease.request_if_due(hold=lambda _plan: True)
+    thread.join(timeout=2)
+
+    assert not thread.is_alive()
+    assert not lease.granted()
+    assert lease.job_queues == []
 
 
 @mocketize
@@ -612,6 +670,28 @@ def test_clamps_a_garbled_ttl_to_a_sane_floor():
     stub_lease(
         granted="true",
         **{"HireFire-Lease-TTL": "0"},
+    )
+    lease = Lease()
+    lease.request_if_due(hold=lambda _plan: True)
+    assert lease._ttl == Lease.TTL_BOUNDS[0]
+
+
+@mocketize
+def test_parses_a_leading_integer_ttl_like_ruby_to_i():
+    stub_lease(
+        granted="true",
+        **{"HireFire-Lease-TTL": "10.5"},
+    )
+    lease = Lease()
+    lease.request_if_due(hold=lambda _plan: True)
+    assert lease._ttl == 10
+
+
+@mocketize
+def test_clamps_a_non_numeric_ttl_to_the_floor():
+    stub_lease(
+        granted="true",
+        **{"HireFire-Lease-TTL": "abc"},
     )
     lease = Lease()
     lease.request_if_due(hold=lambda _plan: True)

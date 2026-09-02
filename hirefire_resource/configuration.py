@@ -75,7 +75,7 @@ class Configuration:
         raise MissingSamplerError(
             f'config.dyno("{name}") could not be resolved: it needs a sampler '
             "(job-queue metrics). Request queue time is always-on via platform web role "
-            "or middleware traffic; CPU is always-on when process identity resolves. "
+            "or middleware traffic. CPU is always-on when process identity resolves. "
             'Bare config.dyno("web") is a no-op and can be removed.'
         )
 
@@ -123,15 +123,7 @@ class Configuration:
         return self._always_on_http
 
     def rqt_liveness(self) -> bool:
-        if not self.rqt_enabled():
-            return False
-
-        resolved = self.soft_identity()
-        name = self.http_name()
-        if resolved is None or name is None:
-            return False
-
-        return resolved.lower() == name.lower()
+        return self.rqt_enabled() and self.soft_identity() is not None
 
     def active_cpu_sources(self) -> list[CPU]:
         resolved = self.soft_identity()
@@ -197,7 +189,10 @@ class Configuration:
             )
 
         if source == "job_queue":
-            assert sampler is not None
+            if sampler is None:
+                raise MissingSamplerError(
+                    f"config.dyno({name!r}) could not be resolved: it needs a sampler."
+                )
             self.job_queues.append(JobQueue(name, sampler))
 
         self._sources_by_name[key] = kinds + [source]
@@ -235,8 +230,7 @@ class Configuration:
             self.logger,
             "warning",
             "[HireFire] Request queue time samples dropped: process identity "
-            "is unresolved. Set HIREFIRE_SERVICE_NAME, or rely on DYNO / "
-            "RENDER_SERVICE_NAME where available.",
+            "is unresolved. Set HIREFIRE_SERVICE_NAME or DYNO.",
         )
 
     def _warn_heroku_conflict_once(self) -> None:
@@ -263,8 +257,7 @@ class Configuration:
             self.logger,
             "warning",
             "[HireFire] CPU metrics disabled: process identity is unresolved. "
-            "Set HIREFIRE_SERVICE_NAME, or rely on DYNO / RENDER_SERVICE_NAME where "
-            "available.",
+            "Set HIREFIRE_SERVICE_NAME or DYNO.",
         )
 
     def _init_logger(self) -> logging.Logger:

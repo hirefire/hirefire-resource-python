@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 import time
 import uuid
 from collections.abc import Callable
@@ -25,6 +26,7 @@ class Lease:
     def __init__(self) -> None:
         self.process_id = str(uuid.uuid4())
         self._client = Client()
+        self._mutex = threading.Lock()
         self._ttl = 15
         self._granted = False
         self._trace = False
@@ -42,46 +44,50 @@ class Lease:
         return self._trace
 
     def demote(self) -> None:
-        self._epoch += 1
-        self._clear_grant()
-        self._expires_at = time.monotonic()
-        self._next_sample_at = time.monotonic()
+        with self._mutex:
+            self._apply_demote()
 
     def sample_if_due(self, sampler: Callable[[], None]) -> None:
-        if self._owner_pid != os.getpid():
-            self._reset_after_fork()
-        if not (self._granted and time.monotonic() >= self._next_sample_at):
-            return
-
-        self._next_sample_at = time.monotonic() + self.sample_frequency
-        sampler()
+        due = False
+        with self._mutex:
+            if self._owner_pid != os.getpid():
+                self._reset_after_fork()
+            if not (self._granted and time.monotonic() >= self._next_sample_at):
+                return
+            self._next_sample_at = time.monotonic() + self.sample_frequency
+            due = True
+        if due:
+            sampler()
 
     def request_if_due(self, hold: Callable[[list[dict[str, Any]]], bool]) -> None:
-        if self._owner_pid != os.getpid():
-            self._reset_after_fork()
-        if time.monotonic() < self._expires_at:
-            return
-
-        epoch = self._epoch
-        self._expires_at = time.monotonic() + self._ttl
+        epoch = None
+        with self._mutex:
+            if self._owner_pid != os.getpid():
+                self._reset_after_fork()
+            if time.monotonic() < self._expires_at:
+                return
+            epoch = self._epoch
+            self._expires_at = time.monotonic() + self._ttl
 
         try:
             response = self._client.request_lease(self.process_id)
         except Exception:
-            if self._epoch != epoch:
-                return
-            self._clear_grant()
+            with self._mutex:
+                if self._epoch != epoch:
+                    return
+                self._clear_grant()
             raise
 
-        if self._epoch != epoch:
-            return
-
         if response.status == 401:
-            self._clear_grant()
+            with self._mutex:
+                if self._epoch == epoch:
+                    self._clear_grant()
             return
 
         if not (200 <= response.status < 300):
-            self._clear_grant()
+            with self._mutex:
+                if self._epoch == epoch:
+                    self._clear_grant()
             raise RequestError(f"Lease request failed with {response.status} status.")
 
         next_sample_frequency = self.sample_frequency
@@ -111,46 +117,51 @@ class Lease:
             else self._empty_grant_body()
         )
 
-        if self._epoch != epoch:
-            return
-
         hold_ok = (not granted) or hold(grant_body.job_queues)
 
-        if self._epoch != epoch:
-            return
+        with self._mutex:
+            if self._epoch != epoch:
+                return
 
-        self.sample_frequency = next_sample_frequency
-        self._next_sample_at = next_sample_at
-        self._ttl = next_ttl
-        self._expires_at = next_expires_at
+            self.sample_frequency = next_sample_frequency
+            self._next_sample_at = next_sample_at
+            self._ttl = next_ttl
+            self._expires_at = next_expires_at
 
-        if granted and not hold_ok:
-            self._clear_grant()
-            self.process_id = str(uuid.uuid4())
-            self._log(
-                "info",
-                "[HireFire] Lease grant dropped: this process cannot sample the plan "
-                "(no local job-queue samplers and no executable plan adapter).",
-            )
-        else:
-            was_granted = self._granted
-            self._granted = granted
-            self._trace = granted and grant_body.trace
-            self.job_queues = grant_body.job_queues
-            if granted and not was_granted:
-                self._next_sample_at = time.monotonic()
+            if granted and not hold_ok:
+                self._clear_grant()
+                self.process_id = str(uuid.uuid4())
+                self._log(
+                    "info",
+                    "[HireFire] Lease grant dropped: this process cannot sample the plan "
+                    "(no local job-queue samplers and no executable plan adapter).",
+                )
+            else:
+                was_granted = self._granted
+                self._granted = granted
+                self._trace = granted and grant_body.trace
+                self.job_queues = grant_body.job_queues
+                if granted and not was_granted:
+                    self._next_sample_at = time.monotonic()
 
     def close(self) -> None:
         self._client.close()
 
     def _reinit_after_fork(self) -> None:
-        self._reset_after_fork()
+        with self._mutex:
+            self._reset_after_fork()
         self._client._reinit_after_fork()
 
     def _reset_after_fork(self) -> None:
-        self.demote()
+        self._apply_demote()
         self.process_id = str(uuid.uuid4())
         self._owner_pid = os.getpid()
+
+    def _apply_demote(self) -> None:
+        self._epoch += 1
+        self._clear_grant()
+        self._expires_at = time.monotonic()
+        self._next_sample_at = time.monotonic()
 
     def _clear_grant(self) -> None:
         self._granted = False
@@ -175,7 +186,7 @@ class Lease:
 
         try:
             payload = json.loads(body)
-        except (TypeError, ValueError, json.JSONDecodeError):
+        except (TypeError, ValueError):
             self._log(
                 "error",
                 "[HireFire] Lease grant body was not valid JSON. Plan ignored.",
@@ -255,10 +266,24 @@ class Lease:
         return str(value).strip()
 
     @staticmethod
-    def _bounded(value: str, bounds: tuple[int, int]) -> int:
+    def _leading_int(value: object) -> int | None:
+        text = str(value).lstrip()
+        if not text:
+            return None
+        index = 0
+        if text[0] in "+-":
+            index = 1
+        end = index
+        while end < len(text) and text[end].isdigit():
+            end += 1
+        if end == index:
+            return None
+        return int(text[:end])
+
+    @classmethod
+    def _bounded(cls, value: str, bounds: tuple[int, int]) -> int:
         low, high = bounds
-        try:
-            parsed = int(value)
-        except (TypeError, ValueError):
+        parsed = cls._leading_int(value)
+        if parsed is None:
             parsed = low
         return max(low, min(parsed, high))

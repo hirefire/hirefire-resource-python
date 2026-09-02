@@ -9,3 +9,11 @@ class MissingSamplerError(Exception):
 
 class DuplicateDynoError(Exception):
     pass
+
+
+class JobQueueLatencyUnsupportedError(Exception):
+    def __init__(self, name: str) -> None:
+        super().__init__(
+            f"{name} currently does not support job queue latency measurements."
+        )
+        self.name = name

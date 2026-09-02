@@ -60,7 +60,7 @@ _HIREFIRE_ENV = [
 
 @pytest.fixture(autouse=True)
 def reset_hirefire(request, monkeypatch):
-    if "macro" in request.module.__name__.split("."):
+    if "macro" in request.node.path.parts:
         yield
         return
 
@@ -91,7 +91,7 @@ def block_real_network(request, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def capture_hirefire_logs(request, caplog):
-    if "macro" in request.module.__name__.split("."):
+    if "macro" in request.node.path.parts:
         yield
         return
 

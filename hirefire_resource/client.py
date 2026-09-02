@@ -1,6 +1,5 @@
 import http.client
 import os
-import socket
 import threading
 import time
 from dataclasses import dataclass
@@ -113,11 +112,16 @@ class Client:
                     connection = self._connection_for(uri)
                     connection.request("POST", path, encoded_body, headers)
                     response = connection.getresponse()
-                    raw = response.read()
-                    body_text = raw.decode("utf-8", "replace") if retain_body else ""
-                    self._last_used_at = time.monotonic()
-                    return Response(response.status, response.headers, body_text)
-                except (socket.timeout, TimeoutError):
+                    try:
+                        raw = response.read()
+                        body_text = (
+                            raw.decode("utf-8", "replace") if retain_body else ""
+                        )
+                        self._last_used_at = time.monotonic()
+                        return Response(response.status, response.headers, body_text)
+                    finally:
+                        response.close()
+                except TimeoutError:
                     self._reset_connection()
                     raise RequestError("Request timed out.")
                 except (http.client.HTTPException, OSError) as error:

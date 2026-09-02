@@ -12,11 +12,14 @@ def request_start_from_scope(scope: Mapping[str, Any]) -> str | None:
     request_start = None
     queue_start = None
     for header_name, header_value in scope.get("headers", []):
-        name = header_name.lower()
-        if not isinstance(header_value, (bytes, bytearray)):
-            raw = str(header_value)
+        if isinstance(header_name, (bytes, bytearray)):
+            name = header_name.lower()
         else:
+            name = str(header_name).lower().encode("utf-8")
+        if isinstance(header_value, (bytes, bytearray)):
             raw = header_value.decode("utf-8", "replace")
+        else:
+            raw = str(header_value)
         if name == b"x-request-start" and request_start is None:
             request_start = raw
         elif name == b"x-queue-start" and queue_start is None:

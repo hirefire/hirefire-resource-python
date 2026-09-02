@@ -10,7 +10,6 @@ from typing import Any, Callable, Iterator, TypeVar, cast
 from celery import Celery
 from celery.signals import before_task_publish
 from dateutil.parser import parse
-from kombu.exceptions import OperationalError
 
 try:
     from amqp.exceptions import ChannelError
@@ -29,6 +28,8 @@ from hirefire_resource.utility import normalize_queues
 before_sample_job_queues = _plan_hooks.before_sample_job_queues
 after_sample_job_queues = _plan_hooks.after_sample_job_queues
 reinit_after_fork = _plan_hooks.reinit_after_fork
+plan_options = _plan_hooks.plan_options
+supports_plan_strategy = _plan_hooks.supports_plan_strategy
 
 
 def queues_required() -> bool:
@@ -56,11 +57,12 @@ def mitigate_connection_reset_error(
     def decorator(func: _F) -> _F:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            for attempt in range(retries):
+            attempts = max(1, retries)
+            for attempt in range(attempts):
                 try:
                     return func(*args, **kwargs)
                 except ConnectionResetError:
-                    if attempt >= retries - 1:
+                    if attempt >= attempts - 1:
                         raise
                     if delay:
                         time.sleep(delay)
@@ -124,18 +126,14 @@ def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
     queue_names = normalize_queues(*queues, allow_empty=False)
     app = _owned_celery_app(broker_url)
 
-    try:
-        with _sample_connection(app) as connection:
-            with connection.channel() as channel:
-                if hasattr(channel, "_size"):
-                    fn = _job_queue_latency_redis
-                else:
-                    fn = _job_queue_latency_rabbitmq
+    with _sample_connection(app) as connection:
+        with connection.channel() as channel:
+            if hasattr(channel, "_size"):
+                fn = _job_queue_latency_redis
+            else:
+                fn = _job_queue_latency_rabbitmq
 
-                return max(fn(channel, queue) for queue in queue_names)
-
-    except OperationalError:
-        return 0
+            return max(fn(channel, queue) for queue in queue_names)
 
 
 async def async_job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
@@ -164,13 +162,9 @@ def job_queue_size(
         app = celery_app
         conn_cm = app.connection_or_acquire()
 
-    try:
-        with conn_cm as connection:
-            with connection.channel() as channel:
-                return _job_queue_size_broker(app, channel, queue_names)
-
-    except OperationalError:
-        return 0
+    with conn_cm as connection:
+        with connection.channel() as channel:
+            return _job_queue_size_broker(app, channel, queue_names)
 
 
 async def async_job_queue_size(
@@ -300,18 +294,8 @@ def _job_queue_size_rabbitmq(channel: Any, queue: str, arguments: Any = None) ->
         return 0
 
 
-def plan_options(strategy: object, options: object) -> dict[str, Any]:
-    return {}
-
-
 def plan_connection_options() -> dict[str, Any]:
     from hirefire_resource.identity import presence
 
     url = presence(os.environ.get("HIREFIRE_CELERY_BROKER_URL"))
     return {"broker_url": url} if url else {}
-
-
-def supports_plan_strategy(strategy: object) -> bool:
-    from hirefire_resource import plan
-
-    return plan.known_strategy(strategy)

@@ -2,6 +2,7 @@ import socket
 import threading
 import time
 
+import pytest
 from celery import Celery
 
 from hirefire_resource.macro.celery import (
@@ -104,7 +105,8 @@ def test_caller_celery_app_is_not_given_sample_timeouts(monkeypatch):
         yield None
 
     monkeypatch.setattr(app, "connection_or_acquire", skip_connect)
-    assert job_queue_size("celery", celery_app=app) == 0
+    with pytest.raises(OperationalError):
+        job_queue_size("celery", celery_app=app)
     assert app.conf.broker_transport_options == {"socket_timeout": 99}
     assert app.conf.broker_connection_timeout == 99
     assert _SAMPLE_BROKER_TIMEOUT != 99

@@ -101,7 +101,8 @@ def test_injected_broker_parameters_are_copied_not_mutated(monkeypatch):
 
     monkeypatch.setattr(pika, "BlockingConnection", fake_blocking)
 
-    assert job_queue_size("default", broker=broker) == 0
+    with pytest.raises(OSError, match="stop after params"):
+        job_queue_size("default", broker=broker)
     assert original.socket_timeout == 99
     assert original.stack_timeout == 99
     assert original.blocked_connection_timeout == 99

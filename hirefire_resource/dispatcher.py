@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from hirefire_resource.buffer import Buffer
 from hirefire_resource.client import PAYLOAD_TOO_LARGE, Client, Response
 from hirefire_resource.lease import Lease
-from hirefire_resource.log import safe_log
+from hirefire_resource.log import format_error, safe_log
 from hirefire_resource.sample_trace_wave import SampleTraceWave
 from hirefire_resource.strategy import RQT, rqt
 
@@ -289,7 +289,7 @@ class Dispatcher:
                 safe_log(
                     self._logger(),
                     "error",
-                    f"[HireFire] {type(error).__name__}: {error}",
+                    f"[HireFire] {format_error(error)}",
                 )
             self._wait_loop_interval(generation)
 
@@ -548,7 +548,7 @@ class Dispatcher:
             safe_log(
                 self._logger(),
                 "error",
-                f"[HireFire] {type(error).__name__}: {error}",
+                f"[HireFire] {format_error(error)}",
             )
 
     def _dispatch(self, generation: int | None = None) -> None:
@@ -612,7 +612,7 @@ class Dispatcher:
             safe_log(
                 self._logger(),
                 "error",
-                f"[HireFire] Dispatch error: {type(error).__name__}: {error}",
+                f"[HireFire] Dispatch error: {format_error(error)}",
             )
 
     def _handoff_to_final_flush(self) -> bool:

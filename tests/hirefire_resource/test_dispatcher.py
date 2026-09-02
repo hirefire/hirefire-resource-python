@@ -488,6 +488,36 @@ def test_sample_trace_attached_when_grant_trace_true():
 
 
 @mocketize
+def test_dead_live_omits_remaining_plan_entries_from_sample_trace():
+    from hirefire_resource.sample_trace_wave import SampleTraceWave
+
+    stub_lease(granted=True, trace=True)
+    bodies = capture_ingest_bodies()
+    dispatcher = configure_workers_only()
+    dispatcher._lease.request_if_due(hold=lambda _plan: True)
+    measured = {"n": 0}
+    orig = SampleTraceWave.measure
+
+    def measure(self, entry, fn):
+        result = orig(self, entry, fn)
+        measured["n"] += 1
+        return result
+
+    with patch.object(SampleTraceWave, "measure", measure):
+        dispatcher._sample_job_queues(live=lambda: measured["n"] < 1)
+    dispatcher._dispatch()
+
+    assert len(bodies) == 1
+    entry = bodies[0][0]
+    assert "sample_trace" in entry
+    assert len(entry["sample_trace"]["ops"]) == 1
+    assert not any(
+        row["name"] == "mailer" and row.get("metrics", {}).get("jql")
+        for row in bodies[0]
+    )
+
+
+@mocketize
 def test_oversized_sample_trace_is_stripped_so_metrics_still_ship(caplog):
     stub_lease()
     bodies = capture_ingest_bodies()
@@ -1312,10 +1342,12 @@ def test_stop_without_flush_skips_final_dispatch():
     stub_lease()
     bodies = capture_ingest_bodies()
     dispatcher = configure_web_only()
-    assert dispatcher.start()
-    HireFire.configuration.buffer.sample("web", "rqt", 42)
-    assert dispatcher.stop(flush=False)
+    with patch.object(dispatcher, "_loop_until_stopped"):
+        assert dispatcher.start()
+        HireFire.configuration.buffer.sample("web", "rqt", 42)
+        assert dispatcher.stop(flush=False)
     assert HireFire.configuration.buffer.flush() == {}
+    assert bodies == []
     assert dispatcher.running() is False
 
 
@@ -1366,7 +1398,9 @@ def test_stale_generation_cannot_dispatch_after_restart():
     dispatcher.stop()
     assert dispatcher.start()
     assert dispatcher._generation != gen
+    posted = len(bodies)
     dispatcher._dispatch(gen)
+    assert len(bodies) == posted
     assert dispatcher.running()
     dispatcher.stop()
 
@@ -1522,7 +1556,6 @@ def test_stop_closes_transports_even_when_final_dispatch_raises():
 @mocketize
 def test_stop_after_abandon_does_not_post_buffered_samples():
     stub_lease()
-    bodies = capture_ingest_bodies()
     dispatcher = configure_web_only()
     assert dispatcher.start()
     HireFire.configuration.buffer.sample("web", "rqt", 7)

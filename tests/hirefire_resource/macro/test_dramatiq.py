@@ -3,6 +3,7 @@ import time
 import uuid
 from unittest.mock import MagicMock
 
+import pika
 import pytest
 import redis
 from dramatiq import Message
@@ -1174,13 +1175,16 @@ def test_url_owned_client_closed_after_sampling_error(monkeypatch):
         return client
 
     monkeypatch.setattr(dramatiq_macro.redis.Redis, "from_url", tracking_from_url)
-    assert job_queue_size("default", broker_url=redis_url) == 0
+    with pytest.raises(redis.exceptions.RedisError):
+        job_queue_size("default", broker_url=redis_url)
     assert closed["n"] == 1
 
 
-def test_unreachable_redis_returns_zero():
-    assert job_queue_size("default", broker_url="redis://127.0.0.1:1/0") == 0
-    assert job_queue_latency("default", broker_url="redis://127.0.0.1:1/0") == 0
+def test_unreachable_redis_raises():
+    with pytest.raises((redis.exceptions.RedisError, OSError)):
+        job_queue_size("default", broker_url="redis://127.0.0.1:1/0")
+    with pytest.raises((redis.exceptions.RedisError, OSError)):
+        job_queue_latency("default", broker_url="redis://127.0.0.1:1/0")
 
 
 def test_unsupported_broker_type_raises():
@@ -1685,21 +1689,23 @@ def test_rabbitmq_url_owned_connection_closed(monkeypatch):
     assert closed["n"] == 1
 
 
-def test_rabbitmq_connect_fail_returns_zero_and_does_not_raise(monkeypatch):
+def test_rabbitmq_connect_fail_raises(monkeypatch):
     def boom(*args, **kwargs):
-        raise dramatiq_macro.AMQPConnectionError("refused")
+        raise pika.exceptions.AMQPConnectionError("refused")
 
     monkeypatch.setattr(dramatiq_macro.pika, "BlockingConnection", boom)
     monkeypatch.setattr(dramatiq_macro.pika, "URLParameters", lambda url: {"url": url})
-    assert job_queue_size("default", broker_url=amqp_url) == 0
-    assert job_queue_latency("default", broker_url=amqp_url) == 0.0
+    with pytest.raises(pika.exceptions.AMQPConnectionError):
+        job_queue_size("default", broker_url=amqp_url)
+    with pytest.raises(pika.exceptions.AMQPConnectionError):
+        job_queue_latency("default", broker_url=amqp_url)
 
 
-def test_unreachable_amqp_returns_zero():
-    assert job_queue_size("default", broker_url="amqp://guest:guest@127.0.0.1:1/") == 0
-    assert (
-        job_queue_latency("default", broker_url="amqp://guest:guest@127.0.0.1:1/") == 0
-    )
+def test_unreachable_amqp_raises():
+    with pytest.raises((OSError, pika.exceptions.AMQPConnectionError)):
+        job_queue_size("default", broker_url="amqp://guest:guest@127.0.0.1:1/")
+    with pytest.raises((OSError, pika.exceptions.AMQPConnectionError)):
+        job_queue_latency("default", broker_url="amqp://guest:guest@127.0.0.1:1/")
 
 
 def test_rabbitmq_latency_always_rejects_even_when_reject_raises(monkeypatch):
@@ -1781,3 +1787,28 @@ def test_rabbitmq_channel_404_recovers_for_next_queue(monkeypatch):
     assert "gone" in state["declares"]
     assert "alive" in state["declares"]
     assert state["channels"] >= 2
+
+
+def test_rabbitmq_generic_error_with_404_in_message_raises(monkeypatch):
+    class Channel:
+        is_closed = False
+
+        def queue_declare(self, queue, passive=False):
+            raise RuntimeError("unexpected 404 in an unrelated error")
+
+    class Connection:
+        is_open = True
+
+        def channel(self):
+            return Channel()
+
+        def close(self):
+            self.is_open = False
+
+    monkeypatch.setattr(
+        dramatiq_macro.pika, "BlockingConnection", lambda *a, **k: Connection()
+    )
+    monkeypatch.setattr(dramatiq_macro.pika, "URLParameters", lambda url: {"url": url})
+
+    with pytest.raises(RuntimeError, match="unrelated error"):
+        job_queue_size("default", broker_url=amqp_url)

@@ -36,55 +36,35 @@ def reinit_after_fork() -> None:
 
 try:
     import redis
-    from redis.exceptions import RedisError
 except ImportError:
     redis = None
-
-    class RedisError(Exception):  # type: ignore[no-redef]
-        pass
 
 
 try:
     import pika
-    from pika.exceptions import AMQPChannelError, AMQPConnectionError
+    from pika.exceptions import AMQPChannelError
 
     try:
-        from pika.adapters.utils.connection_workflow import (
-            AMQPConnectorException,
-            AMQPConnectorStackTimeout,
-        )
+        from pika.adapters.utils.connection_workflow import AMQPConnectorStackTimeout
     except ImportError:
 
-        class AMQPConnectorException(Exception):  # type: ignore[no-redef]
-            pass
-
-        class AMQPConnectorStackTimeout(AMQPConnectorException):  # type: ignore[no-redef]
+        class AMQPConnectorStackTimeout(Exception):  # type: ignore[no-redef]
             pass
 
     PIKA_AVAILABLE = True
 except ImportError:
     pika = None
 
-    class AMQPConnectionError(Exception):  # type: ignore[no-redef]
-        pass
-
     class AMQPChannelError(Exception):  # type: ignore[no-redef]
         pass
 
-    class AMQPConnectorException(Exception):  # type: ignore[no-redef]
-        pass
-
-    class AMQPConnectorStackTimeout(AMQPConnectorException):  # type: ignore[no-redef]
+    class AMQPConnectorStackTimeout(Exception):  # type: ignore[no-redef]
         pass
 
     PIKA_AVAILABLE = False
 
-_UNREACHABLE_ERRORS: tuple[type[BaseException], ...] = (
-    RedisError,
-    AMQPConnectionError,
-    AMQPConnectorException,
+_HANDSHAKE_TIMEOUT_ERRORS: tuple[type[BaseException], ...] = (
     AMQPConnectorStackTimeout,
-    OSError,
 )
 
 
@@ -108,7 +88,7 @@ def job_queue_size(
                 resolved["identity"],
             )
         return _rabbitmq_job_queue_size(resolved["connection"], queue_names)
-    except _UNREACHABLE_ERRORS:
+    except _HANDSHAKE_TIMEOUT_ERRORS:
         return 0
     finally:
         if resolved is not None:
@@ -150,7 +130,7 @@ def job_queue_latency(
                 resolved["identity"],
             )
         return _rabbitmq_job_queue_latency(resolved["connection"], queue_names)
-    except _UNREACHABLE_ERRORS:
+    except _HANDSHAKE_TIMEOUT_ERRORS:
         return 0.0
     finally:
         if resolved is not None:
@@ -535,10 +515,9 @@ def _rabbitmq_ready_count(connection: Any, channel: Any, queue: str) -> tuple[in
     try:
         result = channel.queue_declare(queue=queue, passive=True)
         return int(result.method.message_count), channel
-    except (AMQPChannelError, Exception) as error:
+    except AMQPChannelError as error:
         if (
-            isinstance(error, AMQPChannelError)
-            or "404" in str(error)
+            "404" in str(error)
             or "NOT_FOUND" in str(error)
             or getattr(channel, "is_closed", False)
         ):
@@ -567,10 +546,9 @@ def _rabbitmq_queue_latency(
         channel = _rabbitmq_open_channel(connection)
     try:
         method, _properties, body = channel.basic_get(queue, auto_ack=False)
-    except (AMQPChannelError, Exception) as error:
+    except AMQPChannelError as error:
         if (
-            isinstance(error, AMQPChannelError)
-            or "404" in str(error)
+            "404" in str(error)
             or "NOT_FOUND" in str(error)
             or getattr(channel, "is_closed", False)
         ):

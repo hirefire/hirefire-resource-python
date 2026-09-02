@@ -244,7 +244,7 @@ def test_rqt_enabled_after_middleware_marks_http_active(config, monkeypatch):
     assert config.http_name() == "worker"
 
 
-def test_rqt_liveness_allowed_when_identity_matches(config, monkeypatch):
+def test_rqt_liveness_when_enabled_and_identity_present(config, monkeypatch):
     monkeypatch.setenv("DYNO", "web.1")
     assert config.rqt_liveness()
 
@@ -331,11 +331,6 @@ def test_rqt_not_enabled_for_render_worker_without_traffic(config, monkeypatch):
     monkeypatch.setenv("RENDER_SERVICE_NAME", "worker")
     monkeypatch.setenv("RENDER_SERVICE_TYPE", "worker")
     assert not config.rqt_enabled()
-
-
-def test_rqt_liveness_matches_case_insensitively(config, monkeypatch):
-    monkeypatch.setenv("DYNO", "Web.1")
-    assert config.rqt_liveness()
 
 
 def test_heroku_config_var_conflict_is_warned(config, monkeypatch, caplog):

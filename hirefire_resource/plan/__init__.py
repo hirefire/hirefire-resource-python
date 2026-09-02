@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from hirefire_resource.log import safe_log
+from hirefire_resource.log import format_error, safe_log
 
 ADAPTER_MODULES = {
     "celery": "hirefire_resource.macro.celery",
@@ -107,7 +107,7 @@ def around_job_queue_sample() -> Iterator[None]:
             _log(
                 "error",
                 f"[HireFire] before_sample_job_queues for {name!r} raised "
-                f"{type(error).__name__}: {error}",
+                f"{format_error(error)}",
             )
 
     try:
@@ -125,7 +125,7 @@ def around_job_queue_sample() -> Iterator[None]:
                 _log(
                     "error",
                     f"[HireFire] after_sample_job_queues for {name!r} raised "
-                    f"{type(error).__name__}: {error}",
+                    f"{format_error(error)}",
                 )
 
 
@@ -142,7 +142,7 @@ def reinit_macros_after_fork() -> None:
             _log(
                 "error",
                 f"[HireFire] reinit_after_fork for {name!r} raised "
-                f"{type(error).__name__}: {error}",
+                f"{format_error(error)}",
             )
 
 
@@ -209,8 +209,7 @@ def execute(entry: dict[str, Any], live: Callable[[], bool] | None = None) -> No
     except Exception as error:
         _log(
             "error",
-            f"[HireFire] Plan sampler for {name!r} raised "
-            f"{type(error).__name__}: {error}",
+            f"[HireFire] Plan sampler for {name!r} raised {format_error(error)}",
         )
 
 
@@ -243,8 +242,7 @@ def _sample_job_strategy(
     except Exception as error:
         _log(
             "error",
-            f"[HireFire] Plan sampler for {name!r} raised "
-            f"{type(error).__name__}: {error}",
+            f"[HireFire] Plan sampler for {name!r} raised {format_error(error)}",
         )
         return False
 
@@ -274,7 +272,7 @@ def _sample_working(
         _log(
             "error",
             f"[HireFire] Plan working sampler for {name!r} raised "
-            f"{type(error).__name__}: {error}",
+            f"{format_error(error)}",
         )
 
 

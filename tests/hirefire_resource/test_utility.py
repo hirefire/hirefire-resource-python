@@ -35,6 +35,10 @@ def test_drops_blank_entries():
     assert normalize_queues("default", "  ", allow_empty=False) == {"default"}
 
 
+def test_flattens_one_level_of_nested_lists():
+    assert normalize_queues(["a", "b"], "c", allow_empty=False) == {"a", "b", "c"}
+
+
 def test_empty_queues_allowed():
     assert normalize_queues(allow_empty=True) == set()
     assert normalize_queues("  ", allow_empty=True) == set()

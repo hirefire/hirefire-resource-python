@@ -121,6 +121,11 @@ def test_request_start_from_scope_falls_back_to_x_queue_start_when_request_start
     assert request_start_from_scope(scope) == "1700000000000"
 
 
+def test_request_start_from_scope_accepts_str_header_names_and_values():
+    scope = {"headers": [("X-Request-Start", "1700000000000")]}
+    assert request_start_from_scope(scope) == "1700000000000"
+
+
 def test_request_start_from_scope_prefers_x_request_start_over_x_queue_start():
     scope = {
         "headers": [

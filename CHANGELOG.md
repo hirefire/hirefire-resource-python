@@ -8,9 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- The library now pushes metrics to `https://data.hirefire.io`. HireFire no longer polls the app.
+- The library now pushes metrics to `https://data.hirefire.io`.
 - Request queue time is sampled from HTTP traffic through the middleware. A web `dyno` line is not required.
 - CPU activity is sampled automatically.
+- Automatic request queue time and CPU sampling need a process identity (`HIREFIRE_SERVICE_NAME` or `DYNO`).
+- Set `HIREFIRE_VERBOSE` to print HireFire diagnostic messages to stdout.
 - Optional token-only setup with `HireFire.boot()`. Existing `config.dyno` job queue blocks still work.
 - Count of jobs still being processed (`job_queue_working` / `async_job_queue_working`) for RQ.
 - Dramatiq adapter: job queue size and job queue latency (Redis queued plus delayed jobs that are due, RabbitMQ on the main queue only).
@@ -20,10 +22,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- The public API is no longer documented with in-source docstrings. See the README and changelog.
 - Metrics are sent only when `HIREFIRE_TOKEN` is set.
 - Job queue metrics are sampled by one process at a time.
-- Job queue macros count queued jobs plus scheduled or retry jobs that are due. Jobs already being processed are no longer included in job queue size or job queue latency.
+- RQ and Dramatiq Redis job queue macros count queued jobs plus scheduled or retry jobs that are due. Jobs already being processed are no longer included in job queue size or job queue latency.
 - Celery job queue size counts only ready messages in the broker. Active, reserved, and inspect-based scheduled tasks are not included.
 - Required Python is 3.11+. Official Django support is 4+.
 - A Celery connection reset is retried once immediately. The sample no longer sleeps up to 9 seconds.
@@ -36,6 +37,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Serving `GET /hirefire/:token/info`.
 - `POST` of request queue time JSON to `logdrain.hirefire.io`.
+- `HIREFIRE_DISPATCH_URL` no longer overrides ingest. The internal override is `HIREFIRE_DATA_URL`.
+- In-source docstrings on the public API. See the README and changelog.
 - Official support for Python 3.9 and 3.10.
 - Official support for Django 3.
 
