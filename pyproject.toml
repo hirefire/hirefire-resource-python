@@ -25,7 +25,7 @@ dynamic = ["classifiers"]
 [project.urls]
 Homepage = "https://hirefire.io"
 Repository = "https://github.com/hirefire/hirefire-resource-python"
-Documentation = "https://github.com/hirefire/hirefire-resource-python#readme"
+Documentation = "https://github.com/hirefire/hirefire-resource-python/blob/master/README.md"
 "Bug Tracker" = "https://github.com/hirefire/hirefire-resource-python/issues"
 Changelog = "https://github.com/hirefire/hirefire-resource-python/blob/master/CHANGELOG.md"
 

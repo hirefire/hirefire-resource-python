@@ -14,6 +14,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Automatic request queue time and CPU sampling need a process identity (`HIREFIRE_SERVICE_NAME` or `DYNO`).
 - Set `HIREFIRE_VERBOSE` to print HireFire diagnostic messages to stdout.
 - Optional token-only setup with `HireFire.boot()`. Existing `config.dyno` job queue blocks still work.
+- `HireFire.reset` and `Configuration.stop_dispatcher` stop the background dispatcher.
+- `HIREFIRE_CELERY_BROKER_URL`, `HIREFIRE_RQ_URL`, and `HIREFIRE_DRAMATIQ_URL` (optional `HIREFIRE_DRAMATIQ_NAMESPACE`) set the broker URL for job queue samples.
 - Count of jobs still being processed (`job_queue_working` / `async_job_queue_working`) for RQ.
 - Dramatiq adapter: job queue size and job queue latency (Redis queued plus delayed jobs that are due, RabbitMQ on the main queue only).
 - Support Python 3.13 and 3.14.

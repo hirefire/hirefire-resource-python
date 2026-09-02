@@ -17,6 +17,14 @@ def test_every_integration_test_is_wired_into_a_tox_env():
     assert not orphans, f"tox.ini names no env for: {orphans}"
 
 
+def test_documentation_url_is_github_blob_readme():
+    pyproject = (ROOT / "pyproject.toml").read_text()
+    assert (
+        'Documentation = "https://github.com/hirefire/hirefire-resource-python/blob/master/README.md"'
+        in pyproject
+    )
+
+
 def test_readme_runtime_floor_matches_requires_python():
     pyproject = (ROOT / "pyproject.toml").read_text()
     requires = re.search(r'^requires-python\s*=\s*"([^"]+)"', pyproject, re.M)

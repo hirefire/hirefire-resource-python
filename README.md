@@ -18,7 +18,7 @@ This package integrates Python applications running on [Heroku] with [HireFire]'
 
 - Celery 5+
 - RQ 1+
-- Dramatiq 2+
+- Dramatiq 2+ (Redis queued plus delayed jobs that are due, RabbitMQ on the main queue only)
 
 Django 6 requires Python 3.12+.
 
