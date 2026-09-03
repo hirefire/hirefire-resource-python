@@ -723,6 +723,22 @@ def test_clamps_a_non_numeric_ttl_to_the_floor():
 
 
 @mocketize
+def test_clamps_an_oversized_numeric_ttl_to_the_floor():
+    import sys
+
+    limit = sys.get_int_max_str_digits()
+    if limit == 0:
+        pytest.skip("int conversion is unlimited")
+    stub_lease(
+        granted="true",
+        **{"HireFire-Lease-TTL": "1" * (limit + 10)},
+    )
+    lease = Lease()
+    lease.request_if_due(hold=lambda _plan: True)
+    assert lease._ttl == Lease.TTL_BOUNDS[0]
+
+
+@mocketize
 def test_clamps_an_over_large_ttl_to_the_ceiling():
     stub_lease(
         granted="true",

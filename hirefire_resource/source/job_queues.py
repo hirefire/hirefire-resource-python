@@ -2,7 +2,7 @@ import math
 from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING
 
-from hirefire_resource.log import safe_log
+from hirefire_resource.log import format_error, safe_log
 from hirefire_resource.source.job_queue import JobQueue
 
 if TYPE_CHECKING:
@@ -82,7 +82,7 @@ class JobQueues:
                 self._logger(),
                 "error",
                 f"[HireFire] The sampler for {report_name!r} raised "
-                f"{type(error).__name__}: {error}",
+                f"{format_error(error)}",
             )
 
     def _valid_sample(self, value: object) -> bool:

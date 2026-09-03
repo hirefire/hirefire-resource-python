@@ -148,8 +148,8 @@ class Lease:
         self._client.close()
 
     def _reinit_after_fork(self) -> None:
-        with self._mutex:
-            self._reset_after_fork()
+        self._mutex = threading.Lock()
+        self._reset_after_fork()
         self._client._reinit_after_fork()
 
     def _reset_after_fork(self) -> None:
@@ -278,7 +278,10 @@ class Lease:
             end += 1
         if end == index:
             return None
-        return int(text[:end])
+        try:
+            return int(text[:end])
+        except ValueError:
+            return None
 
     @classmethod
     def _bounded(cls, value: str, bounds: tuple[int, int]) -> int:

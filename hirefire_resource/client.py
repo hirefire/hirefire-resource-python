@@ -28,6 +28,7 @@ class Response:
 STALE_CONNECTION_ERRORS = (
     http.client.RemoteDisconnected,
     http.client.BadStatusLine,
+    http.client.IncompleteRead,
     ConnectionResetError,
     ConnectionAbortedError,
     BrokenPipeError,

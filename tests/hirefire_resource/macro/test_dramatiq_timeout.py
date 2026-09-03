@@ -64,8 +64,7 @@ def _assert_sample_bounded(fn):
         raised = error
     elapsed = time.monotonic() - started
     assert elapsed < 8, f"sample parked for {elapsed:.1f}s ({raised!r}, {result!r})"
-    assert raised is None
-    assert result in (0, 0.0)
+    assert raised is not None
 
 
 def test_sample_pika_parameters_set_lease_safe_timeouts():
@@ -156,3 +155,33 @@ def test_owned_amqp_latency_times_out_on_blackhole(monkeypatch):
         _assert_sample_bounded(lambda: job_queue_latency("default", broker_url=url))
     finally:
         _stop_blackhole(server, conns, stop)
+
+
+def test_plan_drops_sample_when_dramatiq_amqp_handshake_times_out(monkeypatch, caplog):
+    import logging
+    from unittest.mock import patch
+
+    from hirefire_resource import HireFire, plan
+
+    caplog.set_level(logging.ERROR)
+    monkeypatch.setattr(dramatiq_macro, "_SAMPLE_AMQP_TIMEOUT", 0.3)
+    server, conns, stop, port = _blackhole_port()
+    try:
+        url = f"amqp://guest:guest@127.0.0.1:{port}//"
+        monkeypatch.setenv("HIREFIRE_DRAMATIQ_URL", url)
+        with patch.object(plan, "_load_macro", return_value=dramatiq_macro):
+            plan.execute(
+                {
+                    "name": "worker",
+                    "adapter": "dramatiq",
+                    "strategy": "jqs",
+                    "queues": ["default"],
+                }
+            )
+    finally:
+        _stop_blackhole(server, conns, stop)
+
+    data = HireFire.configuration.buffer.flush()
+    assert data.get("worker", {}).get("jqs") is None
+    assert "raised" in caplog.text
+    assert "secret" not in caplog.text

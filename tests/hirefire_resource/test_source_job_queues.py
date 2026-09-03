@@ -88,6 +88,23 @@ def test_raising_sampler_is_isolated_and_logged(caplog):
     assert "Redis down" in caplog.text
 
 
+def test_raising_sampler_redacts_url_userinfo(caplog):
+    caplog.set_level(logging.ERROR)
+
+    def boom():
+        raise RuntimeError("redis://user:secret@localhost:6379/0 down")
+
+    with HireFire.configure() as config:
+        config.dyno("worker", boom)
+
+    job_queue = HireFire.configuration.job_queues.find_by_name("worker")
+    HireFire.configuration.job_queues.sample_job_queue(job_queue, "jql")
+
+    text = caplog.text
+    assert "secret" not in text
+    assert "://***@" in text
+
+
 def test_invalid_sample_values_are_dropped_and_logged(caplog):
     caplog.set_level(logging.ERROR)
     values = iter(["10", None, -1, float("inf"), float("nan"), True, False, 7])

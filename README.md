@@ -20,6 +20,8 @@ This package integrates Python applications running on [Heroku] with [HireFire]'
 - RQ 1+
 - Dramatiq 2+ (Redis queued plus delayed jobs that are due, RabbitMQ on the main queue only)
 
+Celery, RQ, and Dramatiq sampling use the application's broker driver (Redis or AMQP).
+
 Django 6 requires Python 3.12+.
 
 The test suite runs against these minimum versions and the current latest release of each runtime and library. Older versions may still work, but are not officially supported.
@@ -30,7 +32,7 @@ The package ships inline PEP 484 type hints and a `py.typed` marker (PEP 561).
 
 **Documentation:**
 
-Changelog lives in [CHANGELOG.md](CHANGELOG.md).
+Changelog lives in [CHANGELOG.md](CHANGELOG.md). Setup instructions for supported web frameworks and worker libraries are provided in the HireFire UI during installation.
 
 ## Development
 
@@ -46,7 +48,7 @@ Requires [Docker](https://www.docker.com/) and [mise](https://mise.jdx.dev/). Re
 2. If `pyproject.toml` dependencies changed, refresh `poetry.lock` with `poetry lock`.
 3. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` (today's date) and add a fresh empty `## [Unreleased]` above it.
 4. Commit changes with `git commit`.
-5. Create a `git tag` matching the new version (e.g., `v2.0.0` or `v2.0.0rc1`).
+5. On `master`, create a `git tag` matching the new version (e.g., `v2.0.0` or `v2.0.0rc1`). The publish job requires the tag to point at `origin/master`.
 6. Push the new git tag. Continuous Integration will handle the distribution process. Prereleases are not installed by default (`pip` needs `--pre` or a pin).
 
 ## License

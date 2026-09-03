@@ -24,11 +24,14 @@ def client():
 
 
 class FakeResponse:
-    def __init__(self, status=200):
+    def __init__(self, status=200, read_error=None):
         self.status = status
         self.headers = email.message.Message()
+        self._read_error = read_error
 
     def read(self):
+        if self._read_error is not None:
+            raise self._read_error
         return b""
 
     def close(self):
@@ -205,6 +208,27 @@ def test_reconnects_and_retries_once_on_a_desynced_keep_alive_response(
 ):
     fake_connections.scripts = [
         [FakeResponse(200), http.client.BadStatusLine("garbled")],
+        [FakeResponse(200)],
+    ]
+
+    client.submit_samples("[]")
+    established = client._connection
+
+    result = client.submit_samples("[]")
+
+    assert result is not None
+    assert client._connection is not established
+    assert len(fake_connections.created) == 2
+
+
+def test_reconnects_and_retries_once_on_an_incomplete_keep_alive_read(
+    client, set_HIREFIRE_TOKEN, fake_connections
+):
+    fake_connections.scripts = [
+        [
+            FakeResponse(200),
+            FakeResponse(200, read_error=http.client.IncompleteRead(b"")),
+        ],
         [FakeResponse(200)],
     ]
 

@@ -12,7 +12,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Request queue time is sampled from HTTP traffic through the middleware. A web `dyno` line is not required.
 - CPU activity is sampled automatically.
 - Automatic request queue time and CPU sampling need a process identity (`HIREFIRE_SERVICE_NAME` or `DYNO`).
-- Set `HIREFIRE_VERBOSE` to print HireFire diagnostic messages to stdout.
 - Optional token-only setup with `HireFire.boot()`. Existing `config.dyno` job queue blocks still work.
 - `HireFire.reset` and `Configuration.stop_dispatcher` stop the background dispatcher.
 - `HIREFIRE_CELERY_BROKER_URL`, `HIREFIRE_RQ_URL`, and `HIREFIRE_DRAMATIQ_URL` (optional `HIREFIRE_DRAMATIQ_NAMESPACE`) set the broker URL for job queue samples.
@@ -30,6 +29,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Celery job queue size counts only ready messages in the broker. Active, reserved, and inspect-based scheduled tasks are not included.
 - Required Python is 3.11+. Official Django support is 4+.
 - A Celery connection reset is retried once immediately. The sample no longer sleeps up to 9 seconds.
+- Process names allow any non-empty string up to 128 bytes. The 1.x letter-start charset and 30-character cap are gone.
+- `config.dyno` without a sampler raises `MissingSamplerError` (1.x raised `MissingDynoProcError`).
+- `HIREFIRE_VERBOSE` still prints dispatch diagnostics and now also prints sample-path timings.
 
 ### Deprecated
 
@@ -47,7 +49,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - A forked child no longer closes the parent's HTTP keep-alive connection.
-- Dramatiq RabbitMQ samples now fail within five seconds when the broker does not complete the handshake, and treat that timeout as an unreachable broker (return 0).
+- Dramatiq RabbitMQ samples now fail within five seconds when the broker does not complete the handshake, and the sample is dropped instead of recorded as an empty queue.
+- A forked child no longer deadlocks when a lease lock was held across `fork`.
+- A reused HTTP connection that returns a truncated body is retried once.
+- Sampler error logs redact passwords in `user:pass@` connection URLs.
+- An oversized numeric lease header is treated as malformed instead of raising into the host.
 - Celery queue samples time out after 5 seconds when the broker does not respond.
 - RQ job queue latency skips an unreadable job timestamp instead of dropping the whole sample.
 - RQ and Dramatiq Redis samples time out after 5 seconds when the broker does not respond.

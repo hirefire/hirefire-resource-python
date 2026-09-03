@@ -28,8 +28,11 @@ def project_version():
     sys.exit("could not read version from pyproject.toml")
 
 
-def newest(paths):
-    return max(paths, key=lambda path: path.stat().st_mtime)
+def metadata_version(text: str) -> str:
+    for line in text.splitlines():
+        if line.lower().startswith("version:"):
+            return line.split(":", 1)[1].strip()
+    sys.exit("artifact metadata has no Version field")
 
 
 def main():
@@ -37,12 +40,20 @@ def main():
         sys.exit("no dist/; run poetry build first")
 
     version = project_version()
-    sdists = list(DIST.glob(f"*{version}*.tar.gz"))
-    if not sdists:
-        sys.exit(f"no sdist for {version} in dist/")
-    sdist = newest(sdists)
+    sdist = DIST / f"hirefire_resource-{version}.tar.gz"
+    if not sdist.is_file():
+        sys.exit(f"no sdist for {version} in dist/ (expected {sdist.name})")
     with tarfile.open(sdist, "r:gz") as tf:
         sdist_names = tf.getnames()
+        pkg_info = next((n for n in sdist_names if n.endswith("PKG-INFO")), None)
+        if pkg_info is None:
+            sys.exit("sdist missing PKG-INFO")
+        member = tf.extractfile(pkg_info)
+        if member is None:
+            sys.exit("sdist PKG-INFO unreadable")
+        packed_version = metadata_version(member.read().decode("utf-8", "replace"))
+    if packed_version != version:
+        sys.exit(f"sdist metadata version {packed_version} != {version}")
     require(has_name(sdist_names, "CHANGELOG.md"), "sdist missing CHANGELOG.md", sdist_names)
     require(has_name(sdist_names, "LICENSE"), "sdist missing LICENSE", sdist_names)
     require(has_name(sdist_names, "README.md"), "sdist missing README.md", sdist_names)
@@ -53,12 +64,17 @@ def main():
     )
     print("sdist ok:", sdist.name)
 
-    wheels = list(DIST.glob(f"*{version}*.whl"))
-    if not wheels:
-        sys.exit(f"no wheel for {version} in dist/")
-    wheel = newest(wheels)
+    wheel = DIST / f"hirefire_resource-{version}-py3-none-any.whl"
+    if not wheel.is_file():
+        sys.exit(f"no wheel for {version} in dist/ (expected {wheel.name})")
     with zipfile.ZipFile(wheel) as zf:
         wheel_names = zf.namelist()
+        meta_name = next((n for n in wheel_names if n.endswith(".dist-info/METADATA")), None)
+        if meta_name is None:
+            sys.exit("wheel missing METADATA")
+        packed_version = metadata_version(zf.read(meta_name).decode("utf-8", "replace"))
+    if packed_version != version:
+        sys.exit(f"wheel metadata version {packed_version} != {version}")
     require(
         has_suffix(wheel_names, "hirefire_resource/py.typed"),
         "wheel missing hirefire_resource/py.typed",

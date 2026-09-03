@@ -339,3 +339,39 @@ def test_forked_child_recovers_a_lock_held_across_the_fork():
 
     assert os.WIFEXITED(status)
     assert os.WEXITSTATUS(status) == 0
+
+
+@pytest.mark.filterwarnings(
+    "ignore:This process .* is multi-threaded:DeprecationWarning"
+)
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="fork() is POSIX-only")
+def test_forked_child_recovers_a_lease_lock_held_across_the_fork():
+    _, dispatcher = _materialize()
+    lease = dispatcher._lease
+
+    lease._mutex.acquire()
+    try:
+        pid = os.fork()
+    except OSError:
+        lease._mutex.release()
+        pytest.skip("fork() unavailable")
+
+    if pid == 0:
+        code = 0
+        try:
+            HireFire.after_fork_in_child()
+            if lease._mutex.acquire(timeout=5):
+                lease._mutex.release()
+            else:
+                code = 1
+        except BaseException:
+            code = 2
+        os._exit(code)
+
+    try:
+        _, status = os.waitpid(pid, 0)
+    finally:
+        lease._mutex.release()
+
+    assert os.WIFEXITED(status)
+    assert os.WEXITSTATUS(status) == 0

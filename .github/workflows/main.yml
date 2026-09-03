@@ -152,4 +152,4 @@ jobs:
       - name: Verify package artifacts
         run: bin/verify-package
       - name: Publish package
-        uses: pypa/gh-action-pypi-publish@v1.14.1
+        uses: pypa/gh-action-pypi-publish@v1.14.2

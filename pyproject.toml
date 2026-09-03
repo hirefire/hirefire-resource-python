@@ -82,7 +82,6 @@ check_untyped_defs = true
 module = [
     "redis.*",
     "celery.*",
-    "kombu.*",
     "amqp.*",
     "dateutil.*",
     "dramatiq.*",

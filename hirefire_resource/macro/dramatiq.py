@@ -44,13 +44,6 @@ try:
     import pika
     from pika.exceptions import AMQPChannelError
 
-    try:
-        from pika.adapters.utils.connection_workflow import AMQPConnectorStackTimeout
-    except ImportError:
-
-        class AMQPConnectorStackTimeout(Exception):  # type: ignore[no-redef]
-            pass
-
     PIKA_AVAILABLE = True
 except ImportError:
     pika = None
@@ -58,14 +51,7 @@ except ImportError:
     class AMQPChannelError(Exception):  # type: ignore[no-redef]
         pass
 
-    class AMQPConnectorStackTimeout(Exception):  # type: ignore[no-redef]
-        pass
-
     PIKA_AVAILABLE = False
-
-_HANDSHAKE_TIMEOUT_ERRORS: tuple[type[BaseException], ...] = (
-    AMQPConnectorStackTimeout,
-)
 
 
 def job_queue_size(
@@ -88,8 +74,6 @@ def job_queue_size(
                 resolved["identity"],
             )
         return _rabbitmq_job_queue_size(resolved["connection"], queue_names)
-    except _HANDSHAKE_TIMEOUT_ERRORS:
-        return 0
     finally:
         if resolved is not None:
             _close_resolved(resolved)
@@ -130,8 +114,6 @@ def job_queue_latency(
                 resolved["identity"],
             )
         return _rabbitmq_job_queue_latency(resolved["connection"], queue_names)
-    except _HANDSHAKE_TIMEOUT_ERRORS:
-        return 0.0
     finally:
         if resolved is not None:
             _close_resolved(resolved)
