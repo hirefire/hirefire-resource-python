@@ -133,7 +133,7 @@ def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
             else:
                 fn = _job_queue_latency_rabbitmq
 
-            return max(fn(channel, queue) for queue in queue_names)
+            return float(max(fn(channel, queue) for queue in queue_names))
 
 
 async def async_job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
@@ -198,7 +198,7 @@ def _job_queue_latency_redis(channel: Any, queue: str) -> float:
     oldest_job = channel.client.lindex(queue, -1)
 
     if not oldest_job:
-        return 0
+        return 0.0
 
     try:
         oldest_job = json.loads(_as_str(oldest_job))
@@ -207,11 +207,11 @@ def _job_queue_latency_redis(channel: Any, queue: str) -> float:
         if run_at:
             run_at_time = parse(run_at)
             latency = time.time() - run_at_time.timestamp()
-            return max(0, latency)
+            return max(0.0, latency)
     except Exception:
-        return 0
+        return 0.0
 
-    return 0
+    return 0.0
 
 
 def _as_str(value: bytes | str) -> str:
@@ -249,7 +249,7 @@ def _job_queue_latency_rabbitmq(channel: Any, queue: str) -> float:
         message = channel.basic_get(queue)
 
         if message is None:
-            return 0
+            return 0.0
 
         try:
             run_at = message.headers.get("run_at")
@@ -257,15 +257,15 @@ def _job_queue_latency_rabbitmq(channel: Any, queue: str) -> float:
             if run_at:
                 run_at_time = parse(run_at)
                 latency = time.time() - run_at_time.timestamp()
-                return max(0, latency)
+                return max(0.0, latency)
 
-            return 0
+            return 0.0
         except Exception:
-            return 0
+            return 0.0
         finally:
             channel.basic_reject(message.delivery_tag, requeue=True)
     except ChannelError:
-        return 0
+        return 0.0
 
 
 def _job_queue_size_broker(

@@ -39,8 +39,18 @@ def test_job_queue_latency_default_redis_url():
     assert job_queue_latency("test_default_redis_url") == 0
 
 
+def _assert_int_count(value):
+    assert isinstance(value, int) and not isinstance(value, bool), type(value)
+
+
+def _assert_float_seconds(value):
+    assert isinstance(value, float), type(value)
+
+
 def test_job_queue_latency_without_jobs():
-    assert job_queue_latency(redis_url=redis_url) == 0
+    latency = job_queue_latency(redis_url=redis_url)
+    _assert_float_seconds(latency)
+    assert latency == 0
 
 
 def test_job_queue_latency_with_jobs():
@@ -53,7 +63,9 @@ def test_job_queue_latency_with_jobs():
     with freeze_time(datetime.fromtimestamp(time.time() - 100, timezone.utc)):
         critical.enqueue("my_function")
 
-    assert job_queue_latency(redis_url=redis_url) == pytest.approx(200, abs=10)
+    latency = job_queue_latency(redis_url=redis_url)
+    _assert_float_seconds(latency)
+    assert latency == pytest.approx(200, abs=10)
     assert job_queue_latency("default", redis_url=redis_url) == pytest.approx(
         200, abs=10
     )
@@ -112,7 +124,9 @@ def test_job_queue_size_default_redis_url():
 
 
 def test_job_queue_size_without_jobs():
-    assert job_queue_size(redis_url=redis_url) == 0
+    size = job_queue_size(redis_url=redis_url)
+    _assert_int_count(size)
+    assert size == 0
 
 
 def test_job_queue_size_with_jobs():
@@ -129,7 +143,9 @@ def test_job_queue_size_with_jobs():
         datetime.fromtimestamp(time.time() + 100, timezone.utc), "my_function"
     )
 
-    assert job_queue_size(redis_url=redis_url) == 3
+    size = job_queue_size(redis_url=redis_url)
+    _assert_int_count(size)
+    assert size == 3
     assert job_queue_size("default", redis_url=redis_url) == 2
     assert job_queue_size("critical", redis_url=redis_url) == 1
     assert job_queue_size("default", "critical", redis_url=redis_url) == 3
@@ -312,7 +328,9 @@ def test_job_queue_size_and_latency_waiting_only_mixed():
 
 
 def test_job_queue_working_idle_is_zero():
-    assert job_queue_working(redis_url=redis_url) == 0
+    working = job_queue_working(redis_url=redis_url)
+    _assert_int_count(working)
+    assert working == 0
     assert job_queue_working("default", redis_url=redis_url) == 0
 
 
@@ -324,7 +342,9 @@ def test_job_queue_working_counts_in_flight_and_filters_queues():
     r.zadd("rq:wip:mailer", {"w2": now - 2, "w3": now - 3})
     r.rpush("rq:queue:default", "live-1")
 
-    assert job_queue_working(redis_url=redis_url) == 3
+    working = job_queue_working(redis_url=redis_url)
+    _assert_int_count(working)
+    assert working == 3
     assert job_queue_working("default", redis_url=redis_url) == 1
     assert job_queue_working("mailer", redis_url=redis_url) == 2
     assert job_queue_working("critical", redis_url=redis_url) == 0

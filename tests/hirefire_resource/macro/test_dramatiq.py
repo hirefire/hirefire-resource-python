@@ -23,6 +23,15 @@ redis_url = f"redis://127.0.0.1:{os.environ.get('REDIS_PORT', '6379')}/0"
 amqp_url = f"amqp://guest:guest@127.0.0.1:{os.environ.get('RABBITMQ_PORT', '5672')}"
 NAMESPACE = "dramatiq"
 
+
+def _assert_int_count(value):
+    assert isinstance(value, int) and not isinstance(value, bool), type(value)
+
+
+def _assert_float_seconds(value):
+    assert isinstance(value, float), type(value)
+
+
 _ENV_LADDER_KEYS = (
     "AMQP_URL",
     "RABBITMQ_URL",
@@ -148,7 +157,9 @@ def test_job_queue_size_requires_queues():
 
 
 def test_job_queue_size_empty_queue():
-    assert job_queue_size("default", broker_url=redis_url) == 0
+    size = job_queue_size("default", broker_url=redis_url)
+    _assert_int_count(size)
+    assert size == 0
 
 
 def test_job_queue_size_live_only():
@@ -156,7 +167,9 @@ def test_job_queue_size_live_only():
     try:
         _seed_live(client, "default", count=2)
         _seed_live(client, "mailer", count=1)
-        assert job_queue_size("default", broker_url=redis_url) == 2
+        size = job_queue_size("default", broker_url=redis_url)
+        _assert_int_count(size)
+        assert size == 2
         assert job_queue_size("mailer", broker_url=redis_url) == 1
         assert job_queue_size("default", "mailer", broker_url=redis_url) == 3
     finally:
@@ -322,7 +335,9 @@ def test_job_queue_size_url_owned_client_closed(monkeypatch):
 
 
 def test_job_queue_latency_empty():
-    assert job_queue_latency("default", broker_url=redis_url) == 0
+    latency = job_queue_latency("default", broker_url=redis_url)
+    _assert_float_seconds(latency)
+    assert latency == 0
 
 
 def test_job_queue_latency_live_head_age():
@@ -330,9 +345,9 @@ def test_job_queue_latency_live_head_age():
     try:
         _seed_live(client, "default", age_s=200)
         _seed_live(client, "mailer", age_s=50)
-        assert job_queue_latency("default", broker_url=redis_url) == pytest.approx(
-            200, abs=5
-        )
+        latency = job_queue_latency("default", broker_url=redis_url)
+        _assert_float_seconds(latency)
+        assert latency == pytest.approx(200, abs=5)
         assert job_queue_latency("mailer", broker_url=redis_url) == pytest.approx(
             50, abs=5
         )
@@ -1331,10 +1346,12 @@ def test_rabbitmq_job_queue_latency_head_age_and_requeue():
                     message_timestamp=now_ms - 180_000,
                 )
             )
-            assert job_queue_latency(queue, broker_url=amqp_url) == pytest.approx(
-                180, abs=10
-            )
-            assert job_queue_size(queue, broker_url=amqp_url) == 1
+            latency = job_queue_latency(queue, broker_url=amqp_url)
+            _assert_float_seconds(latency)
+            assert latency == pytest.approx(180, abs=10)
+            size = job_queue_size(queue, broker_url=amqp_url)
+            _assert_int_count(size)
+            assert size == 1
             assert job_queue_latency(queue, broker_url=amqp_url) == pytest.approx(
                 180, abs=10
             )
@@ -1682,10 +1699,14 @@ def test_rabbitmq_url_owned_connection_closed(monkeypatch):
     )
     monkeypatch.setattr(dramatiq_macro.pika, "URLParameters", lambda url: {"url": url})
 
-    assert job_queue_size("default", broker_url=amqp_url) == 0
+    size = job_queue_size("default", broker_url=amqp_url)
+    _assert_int_count(size)
+    assert size == 0
     assert closed["n"] == 1
     closed["n"] = 0
-    assert job_queue_latency("default", broker_url=amqp_url) == 0
+    latency = job_queue_latency("default", broker_url=amqp_url)
+    _assert_float_seconds(latency)
+    assert latency == 0
     assert closed["n"] == 1
 
 

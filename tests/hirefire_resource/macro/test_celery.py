@@ -12,6 +12,7 @@ from kombu import Queue
 from hirefire_resource import HireFire, plan
 from hirefire_resource.errors import MissingQueueError
 from hirefire_resource.macro.celery import (
+    ChannelError,
     _job_queue_latency_rabbitmq,
     _job_queue_latency_redis,
     _resolve_broker_url,
@@ -37,11 +38,20 @@ def _celery(broker_url):
     return app
 
 
+def _assert_int_count(value):
+    assert isinstance(value, int) and not isinstance(value, bool), type(value)
+
+
+def _assert_float_seconds(value):
+    assert isinstance(value, float), type(value)
+
+
 def _assert_size(expected, *queues, **kwargs):
     deadline = time.monotonic() + _SIZE_WAIT_S
     seen = None
     while time.monotonic() < deadline:
         seen = job_queue_size(*queues, **kwargs)
+        _assert_int_count(seen)
         if seen == expected:
             return
         time.sleep(_SIZE_POLL_S)
@@ -53,6 +63,7 @@ async def _assert_async_size(expected, *queues, **kwargs):
     seen = None
     while time.monotonic() < deadline:
         seen = await async_job_queue_size(*queues, **kwargs)
+        _assert_int_count(seen)
         if seen == expected:
             return
         await asyncio.sleep(_SIZE_POLL_S)
@@ -116,7 +127,9 @@ def test_job_queue_latency_missing_queue():
 
 
 def test_job_queue_latency_without_jobs(celery_app):
-    assert job_queue_latency("celery", broker_url=celery_app.conf.broker_url) == 0
+    latency = job_queue_latency("celery", broker_url=celery_app.conf.broker_url)
+    _assert_float_seconds(latency)
+    assert latency == 0
 
 
 def enqueue_for_job_queue_latency_with_job(celery_app):
@@ -134,8 +147,10 @@ def enqueue_for_job_queue_latency_with_job(celery_app):
 def test_job_queue_latency_with_jobs(celery_app):
     enqueue_for_job_queue_latency_with_job(celery_app)
 
+    celery_latency = job_queue_latency("celery", broker_url=celery_app.conf.broker_url)
+    _assert_float_seconds(celery_latency)
     assert math.isclose(
-        job_queue_latency("celery", broker_url=celery_app.conf.broker_url),
+        celery_latency,
         4,
         abs_tol=1,
     )
@@ -164,18 +179,23 @@ async def test_async_job_queue_latency_missing_queue():
 
 @pytest.mark.asyncio
 async def test_job_queue_latency_without_jobs_async(celery_app):
-    assert (
-        await async_job_queue_latency("celery", broker_url=celery_app.conf.broker_url)
-        == 0
+    latency = await async_job_queue_latency(
+        "celery", broker_url=celery_app.conf.broker_url
     )
+    _assert_float_seconds(latency)
+    assert latency == 0
 
 
 @pytest.mark.asyncio
 async def test_job_queue_latency_with_jobs_async(celery_app):
     enqueue_for_job_queue_latency_with_job(celery_app)
 
+    celery_latency = await async_job_queue_latency(
+        "celery", broker_url=celery_app.conf.broker_url
+    )
+    _assert_float_seconds(celery_latency)
     assert math.isclose(
-        await async_job_queue_latency("celery", broker_url=celery_app.conf.broker_url),
+        celery_latency,
         4,
         abs_tol=1,
     )
@@ -211,7 +231,9 @@ def test_job_queue_size_missing_queue():
 
 
 def test_job_queue_size_without_jobs(celery_app):
-    assert job_queue_size("celery", broker_url=celery_app.conf.broker_url) == 0
+    size = job_queue_size("celery", broker_url=celery_app.conf.broker_url)
+    _assert_int_count(size)
+    assert size == 0
 
 
 def test_job_queue_size_with_jobs(celery_app):
@@ -370,9 +392,9 @@ async def test_async_job_queue_size_missing_queue():
 
 @pytest.mark.asyncio
 async def test_job_queue_size_without_jobs_async(celery_app):
-    assert (
-        await async_job_queue_size("celery", broker_url=celery_app.conf.broker_url) == 0
-    )
+    size = await async_job_queue_size("celery", broker_url=celery_app.conf.broker_url)
+    _assert_int_count(size)
+    assert size == 0
 
 
 @pytest.mark.asyncio
@@ -541,6 +563,7 @@ def test_job_queue_latency_redis_accepts_str_payload():
         client = FakeClient()
 
     latency = _job_queue_latency_redis(FakeChannel(), "celery")
+    _assert_float_seconds(latency)
     assert math.isclose(latency, 5, abs_tol=1)
 
 
@@ -552,7 +575,9 @@ def test_job_queue_latency_redis_skips_corrupt_payload():
     class FakeChannel:
         client = FakeClient()
 
-    assert _job_queue_latency_redis(FakeChannel(), "celery") == 0
+    latency = _job_queue_latency_redis(FakeChannel(), "celery")
+    _assert_float_seconds(latency)
+    assert latency == 0
 
 
 def test_job_queue_latency_redis_corrupt_queue_does_not_hide_sibling():
@@ -567,8 +592,12 @@ def test_job_queue_latency_redis_corrupt_queue_does_not_hide_sibling():
         client = FakeClient()
 
     channel = FakeChannel()
-    assert _job_queue_latency_redis(channel, "bad") == 0
-    assert math.isclose(_job_queue_latency_redis(channel, "good"), 8, abs_tol=1)
+    bad = _job_queue_latency_redis(channel, "bad")
+    good = _job_queue_latency_redis(channel, "good")
+    _assert_float_seconds(bad)
+    _assert_float_seconds(good)
+    assert bad == 0
+    assert math.isclose(good, 8, abs_tol=1)
 
 
 def test_job_queue_latency_rabbitmq_requeues_after_parse_error():
@@ -587,9 +616,65 @@ def test_job_queue_latency_rabbitmq_requeues_after_parse_error():
             self.rejected.append((delivery_tag, requeue))
 
     channel = FakeChannel()
-    assert _job_queue_latency_rabbitmq(channel, "celery") == 0
+    latency = _job_queue_latency_rabbitmq(channel, "celery")
+    _assert_float_seconds(latency)
+    assert latency == 0
 
     assert channel.rejected == [(7, True)]
+
+
+def test_job_queue_latency_redis_empty_queue_is_float_zero():
+    class FakeClient:
+        def lindex(self, queue, index):
+            return None
+
+    class FakeChannel:
+        client = FakeClient()
+
+    latency = _job_queue_latency_redis(FakeChannel(), "celery")
+    _assert_float_seconds(latency)
+    assert latency == 0
+
+
+def test_job_queue_latency_redis_future_run_at_is_float_zero():
+    run_at = (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat()
+    payload = '{"headers": {"run_at": "' + run_at + '"}}'
+
+    class FakeClient:
+        def lindex(self, queue, index):
+            return payload
+
+    class FakeChannel:
+        client = FakeClient()
+
+    latency = _job_queue_latency_redis(FakeChannel(), "celery")
+    _assert_float_seconds(latency)
+    assert latency == 0
+
+
+def test_job_queue_latency_rabbitmq_empty_queue_is_float_zero():
+    class FakeChannel:
+        def basic_get(self, queue):
+            return None
+
+    latency = _job_queue_latency_rabbitmq(FakeChannel(), "celery")
+    _assert_float_seconds(latency)
+    assert latency == 0
+
+
+def test_job_queue_latency_rabbitmq_channel_error_is_float_zero():
+    try:
+        error = ChannelError("NOT_FOUND")
+    except TypeError:
+        error = ChannelError(404, "NOT_FOUND", (60, 20))
+
+    class FakeChannel:
+        def basic_get(self, queue):
+            raise error
+
+    latency = _job_queue_latency_rabbitmq(FakeChannel(), "celery")
+    _assert_float_seconds(latency)
+    assert latency == 0
 
 
 def _inflating_inspect_control():
