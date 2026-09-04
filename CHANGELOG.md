@@ -31,7 +31,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A Celery connection reset is retried once immediately. The sample no longer sleeps up to 9 seconds.
 - Process names allow any non-empty string up to 128 bytes. The 1.x letter-start charset and 30-character cap are gone.
 - `config.dyno` without a sampler raises `MissingSamplerError` (1.x raised `MissingDynoProcError`).
-- `HIREFIRE_VERBOSE` still prints dispatch diagnostics and now also prints sample-path timings.
 
 ### Deprecated
 
@@ -39,10 +38,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Removed
 
-- Serving `GET /hirefire/:token/info`.
-- `POST` of request queue time JSON to `logdrain.hirefire.io`.
-- `HIREFIRE_DISPATCH_URL` no longer overrides ingest. The internal override is `HIREFIRE_DATA_URL`.
-- In-source docstrings on the public API. See the README and changelog.
+- Serving `GET /hirefire/:token/info` and `GET /hirefire` when the token matched.
 - Official support for Python 3.9 and 3.10.
 - Official support for Django 3.
 
@@ -50,13 +46,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A forked child no longer closes the parent's HTTP keep-alive connection.
 - Dramatiq RabbitMQ samples now fail within five seconds when the broker does not complete the handshake, and the sample is dropped instead of recorded as an empty queue.
-- A forked child no longer deadlocks when a lease lock was held across `fork`.
-- A reused HTTP connection that returns a truncated body is retried once.
-- Sampler error logs redact passwords in `user:pass@` connection URLs.
-- An oversized numeric lease header is treated as malformed instead of raising into the host.
+- A forked child no longer deadlocks when a lock was held across `fork`.
+- A truncated HTTP response from HireFire is retried once.
+- A malformed numeric response header from HireFire no longer raises in the app.
 - Celery queue samples time out after 5 seconds when the broker does not respond.
 - RQ job queue latency skips an unreadable job timestamp instead of dropping the whole sample.
 - RQ and Dramatiq Redis samples time out after 5 seconds when the broker does not respond.
+
+### Security
+
+- Sampler error logs redact passwords in `user:pass@` connection URLs.
 
 ## [1.0.4] - 2026-01-09
 

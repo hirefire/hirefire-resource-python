@@ -21,6 +21,15 @@ def require(condition, message, names):
         sys.exit(f"{message}\npacked: {sorted(names)}")
 
 
+def forbidden_paths(names):
+    bad = []
+    for name in names:
+        parts = name.replace("\\", "/").split("/")
+        if any(part in {"AGENTS.md", ".env", ".venv", ".tox", "tests"} for part in parts):
+            bad.append(name)
+    return bad
+
+
 def project_version():
     for line in (ROOT / "pyproject.toml").read_text().splitlines():
         if line.startswith("version ="):
@@ -62,6 +71,8 @@ def main():
         "sdist missing hirefire_resource/py.typed",
         sdist_names,
     )
+    sdist_forbidden = forbidden_paths(sdist_names)
+    require(not sdist_forbidden, "sdist packed forbidden path(s)", sdist_forbidden)
     print("sdist ok:", sdist.name)
 
     wheel = DIST / f"hirefire_resource-{version}-py3-none-any.whl"
@@ -87,6 +98,8 @@ def main():
         "wheel missing LICENSE",
         wheel_names,
     )
+    wheel_forbidden = forbidden_paths(wheel_names)
+    require(not wheel_forbidden, "wheel packed forbidden path(s)", wheel_forbidden)
     print("wheel ok:", wheel.name)
 
 

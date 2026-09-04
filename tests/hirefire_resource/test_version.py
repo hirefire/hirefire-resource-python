@@ -9,7 +9,7 @@ from hirefire_resource.version import VERSION
 
 
 def test_version():
-    assert re.match(r"\d+\.\d+\.\d+", VERSION)
+    assert re.fullmatch(r"\d+\.\d+\.\d+(?:rc\d+)?", VERSION)
 
 
 def test_version_matches_pyproject():

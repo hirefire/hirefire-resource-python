@@ -31,6 +31,7 @@ Changelog = "https://github.com/hirefire/hirefire-resource-python/blob/master/CH
 
 [tool.poetry]
 packages = [{ include = "hirefire_resource" }]
+exclude = ["tests", "tests/**"]
 include = [
     { path = "README.md", format = ["sdist", "wheel"] },
     { path = "CHANGELOG.md", format = ["sdist", "wheel"] },

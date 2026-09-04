@@ -17,6 +17,18 @@ def test_every_integration_test_is_wired_into_a_tox_env():
     assert not orphans, f"tox.ini names no env for: {orphans}"
 
 
+def test_readme_setup_and_development_match_the_ship_contract():
+    readme = (ROOT / "README.md").read_text()
+    assert "HireFire UI" in readme
+    assert "Older versions may still work" in readme
+    assert "Render" not in readme
+    assert "HIREFIRE_TOKEN" not in readme
+    for token in ("Docker", "mise", "bin/setup", "bin/services"):
+        assert token in readme
+    assert "On `master`" in readme
+    assert "2.0.0rc1" in readme
+
+
 def test_documentation_url_is_github_blob_readme():
     pyproject = (ROOT / "pyproject.toml").read_text()
     assert (
