@@ -9,7 +9,7 @@ from hirefire_resource.buffer import Buffer
 from hirefire_resource.client import PAYLOAD_TOO_LARGE, Client, Response
 from hirefire_resource.lease import Lease
 from hirefire_resource.log import format_error, safe_log
-from hirefire_resource.sample_trace_wave import SampleTraceWave
+from hirefire_resource.probe import Probe
 from hirefire_resource.strategy import RQT, rqt
 
 if TYPE_CHECKING:
@@ -369,7 +369,7 @@ class Dispatcher:
         return False
 
     def _sample_job_queues(self, live: Callable[[], bool] | None = None) -> None:
-        wave = SampleTraceWave.start()
+        probe = Probe.start()
         with _plan().around_job_queue_sample():
             local_job_queues = self._configuration().job_queues
             for entry in self._lease.job_queues:
@@ -382,10 +382,10 @@ class Dispatcher:
                     else:
                         self._sample_strategy_only(entry, local_job_queues, live=live)
 
-                wave.measure(entry, _sample)
-        payload = wave.finish()
+                probe.measure(entry, _sample)
+        payload = probe.finish()
         if self._verbose():
-            wave.log_to(self._logger())
+            probe.log_to(self._logger())
         if self._lease.trace():
             self._pending_sample_trace = payload
 

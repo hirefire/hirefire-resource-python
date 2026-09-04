@@ -8,14 +8,14 @@ from hirefire_resource.log import safe_log
 T = TypeVar("T")
 
 
-class SampleTraceWave:
+class Probe:
     def __init__(self) -> None:
         self._start = time.monotonic()
         self._ops: list[dict[str, Any]] = []
         self._payload: dict[str, Any] | None = None
 
     @classmethod
-    def start(cls) -> SampleTraceWave:
+    def start(cls) -> Probe:
         return cls()
 
     def measure(self, entry: Any, fn: Callable[[], T]) -> T:
@@ -24,7 +24,7 @@ class SampleTraceWave:
         self.record(entry, self._elapsed_ms(op_start))
         return result
 
-    def record(self, entry: Any, ms: float) -> SampleTraceWave:
+    def record(self, entry: Any, ms: float) -> Probe:
         self._payload = None
         if not isinstance(entry, dict):
             entry = {}

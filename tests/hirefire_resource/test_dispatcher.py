@@ -523,21 +523,21 @@ def test_sample_trace_attached_when_grant_trace_true():
 
 @mocketize
 def test_dead_live_omits_remaining_plan_entries_from_sample_trace():
-    from hirefire_resource.sample_trace_wave import SampleTraceWave
+    from hirefire_resource.probe import Probe
 
     stub_lease(granted=True, trace=True)
     bodies = capture_ingest_bodies()
     dispatcher = configure_workers_only()
     dispatcher._lease.request_if_due(hold=lambda _plan: True)
     measured = {"n": 0}
-    orig = SampleTraceWave.measure
+    orig = Probe.measure
 
     def measure(self, entry, fn):
         result = orig(self, entry, fn)
         measured["n"] += 1
         return result
 
-    with patch.object(SampleTraceWave, "measure", measure):
+    with patch.object(Probe, "measure", measure):
         dispatcher._sample_job_queues(live=lambda: measured["n"] < 1)
     dispatcher._dispatch()
 
