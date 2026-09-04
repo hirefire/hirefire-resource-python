@@ -197,6 +197,26 @@ def test_repopulate_clamps_to_sample_count_limit():
         assert abs(bucket["sum"] / bucket["count"] - 1.0) < 0.001
 
 
+def test_repopulate_decodes_sum_count_through_shared_rqt_parts():
+    buffer = Buffer()
+    with freeze_time(at(100)):
+        buffer.repopulate(
+            "web",
+            "rqt",
+            {
+                100: {"sum": 8.0, "count": 2},
+                99: {"sum": 3.0, "count": 1},
+            },
+        )
+
+    data = buffer.flush()["web"]["rqt"]
+    assert data[100] == {"sum": 8.0, "count": 2}
+    assert data[99] == {"sum": 3.0, "count": 1}
+    assert Buffer.rqt_parts({"sum": 8.0, "count": 2}) == (8.0, 2)
+    assert Buffer.rqt_parts(12) == (0.0, 0)
+    assert Buffer.rqt_parts(None) == (0.0, 0)
+
+
 def test_repopulate_skips_non_hash_and_non_positive_count():
     buffer = Buffer()
     with freeze_time(at(200)):

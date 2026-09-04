@@ -5,7 +5,7 @@ import os
 import time
 from typing import Any
 
-from hirefire_resource.macro.utility import normalize_queues
+from hirefire_resource.utility import normalize_queues
 
 _HMGET_BATCH = 200
 _DEFAULT_NAMESPACE = "dramatiq"

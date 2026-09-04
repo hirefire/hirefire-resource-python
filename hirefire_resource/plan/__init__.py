@@ -1,11 +1,11 @@
 import importlib
-import math
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
 from hirefire_resource.log import format_error, safe_log
+from hirefire_resource.sample import coerce_sample, format_sample_value, valid_sample
 
 ADAPTER_MODULES = {
     "celery": "hirefire_resource.macro.celery",
@@ -228,16 +228,16 @@ def _sample_job_strategy(
         if live is not None and not live():
             return False
 
-        if not _valid_sample(value):
+        if not valid_sample(value):
             _log(
                 "error",
                 f"[HireFire] Plan sampler for {name!r} returned "
-                f"{_format_sample_value(value)}, expected a non-negative number. "
+                f"{format_sample_value(value)}, expected a non-negative number. "
                 "Sample dropped.",
             )
             return False
 
-        _record_sample(name, strategy, value)
+        _record_sample(name, strategy, coerce_sample(value))
         return True
     except Exception as error:
         _log(
@@ -259,15 +259,15 @@ def _sample_working(
         wrk = method(*queues, **options)
         if live is not None and not live():
             return
-        if not _valid_sample(wrk):
+        if not valid_sample(wrk):
             _log(
                 "error",
                 f"[HireFire] Plan working sampler for {name!r} returned "
-                f"{_format_sample_value(wrk)}, expected a non-negative number. "
+                f"{format_sample_value(wrk)}, expected a non-negative number. "
                 "wrk sample dropped.",
             )
             return
-        _record_sample(name, "wrk", wrk)
+        _record_sample(name, "wrk", coerce_sample(wrk))
     except Exception as error:
         _log(
             "error",
@@ -327,27 +327,6 @@ def _load_macro(adapter: object) -> Any | None:
         return importlib.import_module(module_name)
     except ImportError:
         return None
-
-
-def _valid_sample(value: object) -> bool:
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-        and value >= 0
-    )
-
-
-def _format_sample_value(value: object) -> str:
-    try:
-        text = type(value).__name__
-        preview = str(value)
-        encoded = preview.encode("utf-8")
-        if len(encoded) > 64:
-            preview = encoded[:64].decode("utf-8", "replace") + "…"
-        return f"{text}({preview!r})"
-    except Exception:
-        return type(value).__name__
 
 
 def _log(level: str, message: str) -> None:

@@ -65,7 +65,7 @@ class Buffer:
             for timestamp, bucket in data.items():
                 if timestamp < now - self._ttl:
                     continue
-                sum_v, count = self._rqt_parts(bucket)
+                sum_v, count = self.rqt_parts(bucket)
                 if count <= 0:
                     continue
                 if series is None:
@@ -94,7 +94,7 @@ class Buffer:
         return {"sum": sum_v, "count": count}
 
     @staticmethod
-    def _rqt_parts(bucket: Any) -> tuple[float, int]:
+    def rqt_parts(bucket: Any) -> tuple[float, int]:
         if isinstance(bucket, dict):
             sum_v = bucket["sum"] if "sum" in bucket else 0.0
             count = bucket["count"] if "count" in bucket else 0

@@ -1,8 +1,8 @@
-import math
 from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING
 
 from hirefire_resource.log import format_error, safe_log
+from hirefire_resource.sample import coerce_sample, format_sample_value, valid_sample
 from hirefire_resource.source.job_queue import JobQueue
 
 if TYPE_CHECKING:
@@ -66,17 +66,17 @@ class JobQueues:
             if live is not None and not live():
                 return
 
-            if not self._valid_sample(value):
+            if not valid_sample(value):
                 safe_log(
                     self._logger(),
                     "error",
                     f"[HireFire] The sampler for {report_name!r} returned "
-                    f"{self._format_sample_value(value)}, expected a non-negative "
+                    f"{format_sample_value(value)}, expected a non-negative "
                     "number. Sample dropped.",
                 )
                 return
 
-            self._buffer().sample(report_name, strategy, value)
+            self._buffer().sample(report_name, strategy, coerce_sample(value))
         except Exception as error:
             safe_log(
                 self._logger(),
@@ -84,25 +84,6 @@ class JobQueues:
                 f"[HireFire] The sampler for {report_name!r} raised "
                 f"{format_error(error)}",
             )
-
-    def _valid_sample(self, value: object) -> bool:
-        return (
-            isinstance(value, (int, float))
-            and not isinstance(value, bool)
-            and math.isfinite(value)
-            and value >= 0
-        )
-
-    def _format_sample_value(self, value: object) -> str:
-        try:
-            text = type(value).__name__
-            preview = str(value)
-            encoded = preview.encode("utf-8")
-            if len(encoded) > 64:
-                preview = encoded[:64].decode("utf-8", "replace") + "…"
-            return f"{text}({preview!r})"
-        except Exception:
-            return type(value).__name__
 
     def _buffer(self) -> "Buffer":
         return self._config().buffer

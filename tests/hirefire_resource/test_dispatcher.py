@@ -1235,6 +1235,32 @@ def test_encode_omits_non_finite_rqt_mean(caplog):
 
 
 @mocketize
+def test_encode_rqt_accepts_dict_buckets_and_empty_leaf_for_non_mapping():
+    stub_lease()
+    bodies = capture_ingest_bodies()
+    dispatcher = configure_web_only()
+
+    with freeze_time(at(1000)):
+        buffer = HireFire.configuration.buffer
+        with buffer._mutex:
+            buffer._metrics["web"] = {
+                "rqt": {
+                    1000: {"sum": 8.0, "count": 2},
+                    999: {"sum": 6.0, "count": 2},
+                    998: 12,
+                    997: None,
+                }
+            }
+        dispatcher._tick()
+
+    rqt = bodies[0][0]["metrics"]["rqt"]
+    assert rqt["1000"] == [4.0, 2]
+    assert rqt["999"] == [3.0, 2]
+    assert rqt["998"] == []
+    assert rqt["997"] == []
+
+
+@mocketize
 def test_dispatch_with_stale_generation_does_not_post():
     stub_lease()
     bodies = capture_ingest_bodies()

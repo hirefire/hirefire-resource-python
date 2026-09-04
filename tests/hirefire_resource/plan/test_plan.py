@@ -386,6 +386,43 @@ def test_execute_drops_invalid_samples(caplog):
             )
         assert HireFire.configuration.buffer.flush() == {}
 
+    assert "str('x')" in caplog.text
+    assert "int('-1')" in caplog.text
+
+    recorded = []
+    for good in (7, 1.5):
+
+        class GoodMacro:
+            @staticmethod
+            def supports_plan_strategy(strategy):
+                return True
+
+            @staticmethod
+            def plan_options(strategy, options):
+                return {}
+
+            @staticmethod
+            def plan_connection_options():
+                return {}
+
+            @staticmethod
+            def job_queue_size(*queues, **options):
+                return good
+
+        with patch.object(plan, "_load_macro", return_value=GoodMacro):
+            plan.execute(
+                {
+                    "name": "worker",
+                    "adapter": "rq",
+                    "strategy": "jqs",
+                    "queues": ["default"],
+                }
+            )
+        recorded.extend(HireFire.configuration.buffer.flush()["worker"]["jqs"].values())
+
+    assert 7 in recorded
+    assert any(abs(value - 1.5) < 0.0001 for value in recorded)
+
 
 def test_execute_merges_adapter_plan_connection_options():
     captured = {}

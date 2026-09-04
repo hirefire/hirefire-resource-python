@@ -749,7 +749,7 @@ class Dispatcher:
         dest = dest_name.setdefault(strategy, {})
         for second, bucket in series_buckets.items():
             if rqt(strategy):
-                sum_v, count = self._rqt_parts(bucket)
+                sum_v, count = Buffer.rqt_parts(bucket)
                 existing = dest.get(second)
                 if existing is None:
                     dest[second] = {"sum": sum_v, "count": count}
@@ -763,7 +763,7 @@ class Dispatcher:
 
     def _encode_leaf(self, strategy: str, bucket: Any) -> Any | None:
         if rqt(strategy):
-            sum_v, count = self._rqt_parts(bucket)
+            sum_v, count = Buffer.rqt_parts(bucket)
             if count == 0:
                 return []
             mean = sum_v / count
@@ -787,12 +787,6 @@ class Dispatcher:
             return None
         return bucket
 
-    @staticmethod
-    def _rqt_parts(bucket: Any) -> tuple[float, int]:
-        if isinstance(bucket, dict):
-            return float(bucket.get("sum", 0.0)), int(bucket.get("count", 0))
-        return 0.0, 0
-
     def _backfill_rqt_seconds(self, buckets: dict[int, Any]) -> dict[int, Any]:
         now = int(time.time())
         from_second = (
@@ -805,7 +799,7 @@ class Dispatcher:
 
         payload: dict[int, Any] = {}
         for second, bucket in buckets.items():
-            sum_v, count = self._rqt_parts(bucket)
+            sum_v, count = Buffer.rqt_parts(bucket)
             payload[second] = {"sum": sum_v, "count": count}
         for second in range(from_second, now + 1):
             payload.setdefault(second, {"sum": 0.0, "count": 0})

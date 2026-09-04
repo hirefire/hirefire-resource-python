@@ -107,7 +107,7 @@ def test_raising_sampler_redacts_url_userinfo(caplog):
 
 def test_invalid_sample_values_are_dropped_and_logged(caplog):
     caplog.set_level(logging.ERROR)
-    values = iter(["10", None, -1, float("inf"), float("nan"), True, False, 7])
+    values = iter(["10", None, -1, float("inf"), float("nan"), True, False, 7, 1.5])
     with HireFire.configure() as config:
         config.dyno("worker", lambda: next(values))
 
@@ -116,9 +116,14 @@ def test_invalid_sample_values_are_dropped_and_logged(caplog):
         HireFire.configuration.job_queues.sample_job_queue(job_queue, "jql")
     assert buffer().flush() == {}
     assert "expected a non-negative number" in caplog.text
+    assert "str('10')" in caplog.text
+    assert "int('-1')" in caplog.text
 
     HireFire.configuration.job_queues.sample_job_queue(job_queue, "jql")
     assert _strategy_value(buffer().flush(), "worker", "jql") == 7
+
+    HireFire.configuration.job_queues.sample_job_queue(job_queue, "jql")
+    assert _strategy_value(buffer().flush(), "worker", "jql") == 1.5
 
 
 def test_a_raising_logger_does_not_escape_sampling():

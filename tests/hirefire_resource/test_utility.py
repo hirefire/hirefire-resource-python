@@ -1,7 +1,7 @@
 import pytest
 
 from hirefire_resource.errors import MissingQueueError
-from hirefire_resource.macro.utility import normalize_queues
+from hirefire_resource.utility import normalize_queues
 
 
 def test_normalizes_none_and_numbers_to_a_string_set():
