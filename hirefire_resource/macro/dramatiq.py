@@ -5,7 +5,12 @@ import os
 import time
 from typing import Any
 
+from hirefire_resource.identity import presence
+from hirefire_resource.plan import hooks as _plan_hooks
 from hirefire_resource.utility import normalize_queues
+
+plan_options = _plan_hooks.plan_options
+supports_plan_strategy = _plan_hooks.supports_plan_strategy
 
 _HMGET_BATCH = 200
 _DEFAULT_NAMESPACE = "dramatiq"
@@ -134,13 +139,7 @@ async def async_job_queue_latency(
     )
 
 
-def plan_options(strategy: object, options: object) -> dict[str, Any]:
-    return {}
-
-
 def plan_connection_options() -> dict[str, Any]:
-    from hirefire_resource.identity import presence
-
     out: dict[str, Any] = {}
     url = presence(os.environ.get("HIREFIRE_DRAMATIQ_URL"))
     if url:
@@ -149,12 +148,6 @@ def plan_connection_options() -> dict[str, Any]:
     if namespace:
         out["namespace"] = namespace
     return out
-
-
-def supports_plan_strategy(strategy: object) -> bool:
-    from hirefire_resource import plan
-
-    return plan.known_strategy(strategy)
 
 
 def queues_required() -> bool:
@@ -205,7 +198,6 @@ def _resolve_namespace(
         broker_ns = getattr(broker, "namespace", None)
         if broker_ns is not None and str(broker_ns).strip():
             return str(broker_ns).strip()
-    from hirefire_resource.identity import presence
 
     env_ns = presence(os.environ.get("HIREFIRE_DRAMATIQ_NAMESPACE"))
     if env_ns:
