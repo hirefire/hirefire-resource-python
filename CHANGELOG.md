@@ -8,33 +8,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- The library now pushes metrics to `https://data.hirefire.io`.
-- Request queue time is sampled from HTTP traffic through the middleware. A web `dyno` line is not required.
-- CPU activity is sampled automatically.
-- Automatic request queue time and CPU sampling need a process identity (`HIREFIRE_SERVICE_NAME` or `DYNO`).
-- Optional token-only setup with `HireFire.boot()`. Existing `config.dyno` job queue blocks still work.
-- `HireFire.reset` and `Configuration.stop_dispatcher` stop the background dispatcher.
+- Job metrics are pushed to HireFire instead of being read from a poll of the app.
+- CPU activity is sampled automatically on supported platforms when the process is identified.
+- `HireFire.boot()` starts metric collection when a token is set. `HireFire.reset()` stops the dispatcher and clears configuration.
+- `config.token` can set the HireFire token in code. 1.x read only `HIREFIRE_TOKEN`.
+- `HIREFIRE_SERVICE_NAME` sets the process name only on platforms that do not detect it automatically. On Heroku, `DYNO` is used.
 - `HIREFIRE_CELERY_BROKER_URL`, `HIREFIRE_RQ_URL`, and `HIREFIRE_DRAMATIQ_URL` (optional `HIREFIRE_DRAMATIQ_NAMESPACE`) set the broker URL for job queue samples.
-- Count of jobs still being processed (`job_queue_working` / `async_job_queue_working`) for RQ.
+- `job_queue_working` / `async_job_queue_working` report how many jobs are currently in progress for RQ.
 - Dramatiq adapter: job queue size and job queue latency (Redis queued plus delayed jobs that are due, RabbitMQ on the main queue only).
 - Support Python 3.13 and 3.14.
 - Support Django 5 and 6, Starlette 1, and RQ 2.
-- The package now ships type hints.
+- The package now ships PEP 561 type hints (`py.typed`).
 
 ### Changed
 
-- Metrics are sent only when `HIREFIRE_TOKEN` is set.
-- Job queue metrics are sampled by one process at a time.
-- RQ and Dramatiq Redis job queue macros count queued jobs plus scheduled or retry jobs that are due. Jobs already being processed are no longer included in job queue size or job queue latency.
-- Celery job queue size counts only ready messages in the broker. Active, reserved, and inspect-based scheduled tasks are not included.
-- Required Python is 3.11+. Official Django support is 4+.
+- Request queue time is sampled automatically from HTTP traffic. `config.dyno("web")` is not required.
+- Celery `job_queue_size` counts only ready messages in the broker. Active, reserved, and inspect-based scheduled tasks are not included.
+- Official Python support is 3.11+. Official Django support is 4+.
 - A Celery connection reset is retried once immediately. The sample no longer sleeps up to 9 seconds.
-- Process names allow any non-empty string up to 128 bytes. The 1.x letter-start charset and 30-character cap are gone.
-- `config.dyno` without a sampler raises `MissingSamplerError` (1.x raised `MissingDynoProcError`).
+- Process names may be any non-empty string up to 128 bytes. The 1.x letter-start charset and 30-character cap are gone.
+- `config.dyno` without a sampler raises `MissingSamplerError` except when the name is `"web"` (1.x raised `MissingDynoProcError`). Duplicate dyno names raise `DuplicateDynoError`.
 
 ### Deprecated
 
-- Bare `config.dyno("web")` (no sampler) is deprecated. It does nothing. Request queue time is sampled automatically from HTTP traffic. You can remove the line. Leaving it does not break anything.
+- Bare `config.dyno("web")` (no sampler) is deprecated. It does nothing. Request queue time is sampled automatically from HTTP traffic. The line can be removed. Leaving it does not break anything.
 
 ### Removed
 
@@ -44,18 +41,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
-- A forked child no longer closes the parent's HTTP keep-alive connection.
-- Dramatiq RabbitMQ samples now fail within five seconds when the broker does not complete the handshake, and the sample is dropped instead of recorded as an empty queue.
-- A forked child no longer deadlocks when a lock was held across `fork`.
-- A truncated HTTP response from HireFire is retried once.
-- A malformed numeric response header from HireFire no longer raises in the app.
+- Request queue time ignores samples older than 60 seconds.
 - Celery queue samples time out after 5 seconds when the broker does not respond.
-- RQ job queue latency skips an unreadable job timestamp instead of dropping the whole sample.
-- RQ and Dramatiq Redis samples time out after 5 seconds when the broker does not respond.
-
-### Security
-
-- Sampler error logs redact passwords in `user:pass@` connection URLs.
+- A Celery broker that is down no longer reports job queue size or latency as 0.
+- Celery Redis latency skips corrupt JSON instead of raising. Celery RabbitMQ latency always requeues the peeked message, even when the header parse fails.
+- RQ job queue latency skips an unreadable job timestamp instead of failing the whole sample.
+- RQ Redis samples time out after 5 seconds when the broker does not respond.
+- RQ samples with no queue names use RQ's registered queue set instead of scanning Redis with `KEYS`.
 
 ## [1.0.4] - 2026-01-09
 
