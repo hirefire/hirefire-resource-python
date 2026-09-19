@@ -14,4 +14,3 @@ venv/
 __pycache__/
 *.egg-info/
 /dist
-AGENTS.md
