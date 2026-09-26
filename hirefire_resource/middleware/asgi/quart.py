@@ -11,9 +11,9 @@ from hirefire_resource.middleware.asgi import (
 
 class HireFireMiddleware:
     def __init__(self, app: Any) -> None:
-        self.original_app = app.asgi_app
+        self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http":
             process_request_queue_time(extract=lambda: request_start_from_scope(scope))
-        await self.original_app(scope, receive, send)
+        await self.app(scope, receive, send)

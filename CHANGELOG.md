@@ -28,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A Celery connection reset is retried once immediately. The sample no longer sleeps up to 9 seconds.
 - Process names may be any non-empty string up to 128 bytes. The 1.x letter-start charset and 30-character cap are gone.
 - `config.dyno` without a sampler raises `MissingSamplerError` except when the name is `"web"` (1.x raised `MissingDynoProcError`). Duplicate dyno names raise `DuplicateDynoError`.
+- Breaking: the Flask and Quart middleware wrap the inner app, as the Flask and Quart docs show: `app.wsgi_app = HireFireMiddleware(app.wsgi_app)` and `app.asgi_app = HireFireMiddleware(app.asgi_app)`. 1.x took the app itself.
 
 ### Deprecated
 

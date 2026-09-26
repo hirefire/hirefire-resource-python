@@ -8,10 +8,9 @@ from hirefire_resource.middleware.wsgi import request_start_from_environ
 class HireFireMiddleware:
     def __init__(self, app: Any) -> None:
         self.app = app
-        self.original_wsgi_app = app.wsgi_app
 
     def __call__(
         self, environ: Mapping[str, Any], start_response: Any
     ) -> Iterable[bytes]:
         process_request_queue_time(extract=lambda: request_start_from_environ(environ))
-        return self.original_wsgi_app(environ, start_response)
+        return self.app(environ, start_response)

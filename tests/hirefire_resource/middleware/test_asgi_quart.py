@@ -1,5 +1,4 @@
 import time
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -12,7 +11,7 @@ from hirefire_resource.middleware.asgi.quart import HireFireMiddleware
 from tests.helpers import set_HIREFIRE_TOKEN  # noqa: F401
 
 app = Quart(__name__)
-app.asgi_app = HireFireMiddleware(app)
+app.asgi_app = HireFireMiddleware(app.asgi_app)
 app.config["TESTING"] = True
 
 
@@ -114,7 +113,7 @@ async def test_non_http_scopes_pass_through_without_sampling(scope_type):
     async def send(_message):
         pass
 
-    middleware = HireFireMiddleware(SimpleNamespace(asgi_app=inner))
+    middleware = HireFireMiddleware(inner)
     with patch(
         "hirefire_resource.middleware.asgi.quart.process_request_queue_time"
     ) as process:

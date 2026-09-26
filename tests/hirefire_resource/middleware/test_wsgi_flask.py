@@ -11,7 +11,7 @@ from hirefire_resource.middleware.wsgi.flask import HireFireMiddleware
 from tests.helpers import set_HIREFIRE_TOKEN  # noqa: F401
 
 app = Flask(__name__)
-app.wsgi_app = HireFireMiddleware(app)
+app.wsgi_app = HireFireMiddleware(app.wsgi_app)
 app.config["TESTING"] = True
 
 
