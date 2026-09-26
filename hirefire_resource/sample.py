@@ -1,7 +1,8 @@
 import math
+from typing import TypeGuard
 
 
-def valid_sample(value: object) -> bool:
+def valid_sample(value: object) -> TypeGuard[int | float]:
     return (
         isinstance(value, (int, float))
         and not isinstance(value, bool)
@@ -10,7 +11,7 @@ def valid_sample(value: object) -> bool:
     )
 
 
-def coerce_sample(value: object) -> int | float:
+def coerce_sample(value: int | float) -> int | float:
     if isinstance(value, bool):
         return float(value)
     if isinstance(value, int):
