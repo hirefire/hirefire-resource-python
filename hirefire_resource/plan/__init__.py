@@ -197,15 +197,16 @@ def execute(entry: dict[str, Any], live: Callable[[], bool] | None = None) -> No
         return
 
     try:
+        connection_options = macro.plan_connection_options()
         options = {
             **macro.plan_options(strategy, entry.get("options")),
-            **macro.plan_connection_options(),
+            **connection_options,
         }
         _sample_job_strategy(
             macro, name, strategy, method_name, queues, options, live=live
         )
         if hasattr(macro, "job_queue_working"):
-            _sample_working(macro, name, queues, options, live=live)
+            _sample_working(macro, name, queues, connection_options, live=live)
     except Exception as error:
         _log(
             "error",

@@ -1080,6 +1080,50 @@ def test_execute_samples_wrk_when_macro_implements_job_queue_working():
     assert list(data["worker"]["wrk"].values())[0] == 3
 
 
+def test_execute_passes_only_connection_options_to_job_queue_working():
+    captured = {}
+
+    class Macro:
+        @staticmethod
+        def supports_plan_strategy(strategy):
+            return True
+
+        @staticmethod
+        def plan_options(strategy, options):
+            return {"skip_working": True}
+
+        @staticmethod
+        def plan_connection_options():
+            return {"redis_url": "redis://plan"}
+
+        @staticmethod
+        def job_queue_size(*queues, **options):
+            captured["size"] = options
+            return 7
+
+        @staticmethod
+        def job_queue_working(*queues, redis_url=None):
+            captured["working"] = {"redis_url": redis_url}
+            return 3
+
+    with patch.object(plan, "_load_macro", return_value=Macro):
+        plan.execute(
+            {
+                "name": "worker",
+                "adapter": "rq",
+                "strategy": "jqs",
+                "queues": ["default"],
+                "options": {"skip_working": True},
+            }
+        )
+
+    assert captured["size"] == {"skip_working": True, "redis_url": "redis://plan"}
+    assert captured["working"] == {"redis_url": "redis://plan"}
+    data = HireFire.configuration.buffer.flush()
+    assert list(data["worker"]["jqs"].values())[0] == 7
+    assert list(data["worker"]["wrk"].values())[0] == 3
+
+
 def test_execute_still_samples_wrk_when_job_strategy_sample_invalid():
     working_called = False
 
