@@ -5,7 +5,8 @@ from datetime import datetime, timezone
 import pytest
 from freezegun import freeze_time
 from redis import Redis
-from rq import Queue
+from rq import Queue, SimpleWorker
+from rq.registry import StartedJobRegistry
 
 from hirefire_resource import HireFire, plan
 from hirefire_resource.macro.rq import (
@@ -336,10 +337,10 @@ def test_job_queue_working_idle_is_zero():
 
 def test_job_queue_working_counts_in_flight_and_filters_queues():
     r = Redis.from_url(redis_url)
-    now = time.time()
+    expires_at = int(time.time()) + 90
     r.sadd("rq:queues", "rq:queue:default", "rq:queue:mailer", "rq:queue:critical")
-    r.zadd("rq:wip:default", {"w1": now - 1})
-    r.zadd("rq:wip:mailer", {"w2": now - 2, "w3": now - 3})
+    r.zadd("rq:wip:default", {"w1": expires_at})
+    r.zadd("rq:wip:mailer", {"w2": expires_at, "w3": expires_at})
     r.rpush("rq:queue:default", "live-1")
 
     working = job_queue_working(redis_url=redis_url)
@@ -353,11 +354,69 @@ def test_job_queue_working_counts_in_flight_and_filters_queues():
     assert job_queue_size("mailer", redis_url=redis_url) == 0
 
 
+def test_job_queue_working_counts_unexpired_members_only():
+    frozen = datetime(2026, 8, 2, 12, 0, 0, 750_000, tzinfo=timezone.utc)
+    with freeze_time(frozen):
+        now = int(time.time())
+        r = Redis.from_url(redis_url)
+        r.zadd(
+            "rq:wip:default",
+            {
+                "expired": now - 1,
+                "expires-this-second": now,
+                "inside-this-second": now + 0.5,
+                "renewed": now + 90,
+                "no-expiry": float("inf"),
+            },
+        )
+        r.sadd("rq:queues", "rq:queue:default")
+
+        assert job_queue_working("default", redis_url=redis_url) == 3
+        assert job_queue_working(redis_url=redis_url) == 3
+
+
+def test_job_queue_working_agrees_with_rq_on_abandoned_jobs():
+    frozen = datetime(2026, 8, 2, 12, 0, 0, 750_000, tzinfo=timezone.utc)
+    with freeze_time(frozen):
+        now = int(time.time())
+        r = Redis.from_url(redis_url)
+        r.zadd(
+            "rq:wip:default",
+            {"expired:1": now - 1, "boundary:1": now, "running:1": now + 1},
+        )
+
+        registry = StartedJobRegistry("default", connection=r)
+        abandoned = {job_id.split(":")[0] for job_id in registry.get_expired_job_ids()}
+        assert abandoned == {"expired", "boundary"}
+        assert job_queue_working("default", redis_url=redis_url) == 1
+
+
+_seen_while_running: dict[str, int] = {}
+
+
+def _sample_while_running():
+    _seen_while_running["working"] = job_queue_working("default", redis_url=redis_url)
+
+
+def test_job_queue_working_counts_the_job_a_worker_runs():
+    connection = Redis.from_url(redis_url)
+    queue = Queue("default", connection=connection)
+    queue.enqueue(_sample_while_running)
+    _seen_while_running.clear()
+
+    SimpleWorker([queue], connection=connection).work(
+        burst=True, logging_level="WARNING"
+    )
+
+    assert _seen_while_running == {"working": 1}
+    assert job_queue_working("default", redis_url=redis_url) == 0
+
+
 @pytest.mark.asyncio
 async def test_async_job_queue_working():
     r = Redis.from_url(redis_url)
     r.sadd("rq:queues", "rq:queue:default")
-    r.zadd("rq:wip:default", {"w1": time.time()})
+    r.zadd("rq:wip:default", {"w1": int(time.time()) + 90})
     assert await async_job_queue_working(redis_url=redis_url) == 1
     assert await async_job_queue_working("default", redis_url=redis_url) == 1
     assert await async_job_queue_working("critical", redis_url=redis_url) == 0
@@ -366,10 +425,10 @@ async def test_async_job_queue_working():
 def test_plan_execute_rq_jqs_also_samples_wrk(monkeypatch):
     monkeypatch.setenv("HIREFIRE_RQ_URL", redis_url)
     r = Redis.from_url(redis_url)
-    now = time.time()
+    expires_at = int(time.time()) + 90
     r.sadd("rq:queues", "rq:queue:default")
     r.rpush("rq:queue:default", "live-1")
-    r.zadd("rq:wip:default", {"w1": now - 1, "w2": now - 2})
+    r.zadd("rq:wip:default", {"w1": expires_at, "w2": expires_at})
 
     HireFire.configuration.buffer.flush()
     plan.execute(
@@ -398,7 +457,7 @@ def test_plan_execute_rq_jql_also_samples_wrk(monkeypatch):
     monkeypatch.setenv("HIREFIRE_RQ_URL", redis_url)
     r = Redis.from_url(redis_url)
     r.sadd("rq:queues", "rq:queue:default")
-    r.zadd("rq:wip:default", {"w1": time.time()})
+    r.zadd("rq:wip:default", {"w1": int(time.time()) + 90})
 
     HireFire.configuration.buffer.flush()
     plan.execute(
@@ -419,10 +478,10 @@ def test_plan_execute_rq_jql_also_samples_wrk(monkeypatch):
 def test_plan_execute_rq_empty_queues_samples_all_wrk(monkeypatch):
     monkeypatch.setenv("HIREFIRE_RQ_URL", redis_url)
     r = Redis.from_url(redis_url)
-    now = time.time()
+    expires_at = int(time.time()) + 90
     r.sadd("rq:queues", "rq:queue:default", "rq:queue:mailer")
-    r.zadd("rq:wip:default", {"w1": now})
-    r.zadd("rq:wip:mailer", {"w2": now})
+    r.zadd("rq:wip:default", {"w1": expires_at})
+    r.zadd("rq:wip:mailer", {"w2": expires_at})
 
     HireFire.configuration.buffer.flush()
     plan.execute(

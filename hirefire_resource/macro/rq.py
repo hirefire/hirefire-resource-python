@@ -133,8 +133,10 @@ def job_queue_working(*queues: str, redis_url: str | None = None) -> int:
             queue_names = _registered_queue_names(redis_client)
 
         pipeline = redis_client.pipeline()
+        current_time = time.time()
+
         for queue in queue_names:
-            pipeline.zcard(f"rq:wip:{queue}")
+            _count_working(pipeline, queue, current_time)
 
         return sum(pipeline.execute())
     finally:
@@ -150,6 +152,10 @@ _QUEUE_KEY_PREFIX = "rq:queue:"
 
 def _is_due_scheduled_score(score: float, now: float) -> bool:
     return score <= now
+
+
+def _count_working(pipeline: Any, queue: str, now: float) -> None:
+    pipeline.zcount(f"rq:wip:{queue}", f"({int(now)}", "+inf")
 
 
 def _registered_queue_names(redis_client: redis.Redis) -> set[str]:
