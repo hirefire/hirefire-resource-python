@@ -154,11 +154,18 @@ def test_job_queue_size_with_jobs():
 
 @pytest.mark.asyncio
 async def test_async_job_queue_size():
-    default = Queue("default", connection=Redis.from_url(redis_url))
+    r = Redis.from_url(redis_url)
+    default = Queue("default", connection=r)
     default.enqueue("my_function")
-    assert await async_job_queue_size(redis_url=redis_url) == 1
-    assert await async_job_queue_size("default", redis_url=redis_url) == 1
+    r.zadd("rq:wip:default", {"w1": int(time.time()) + 90})
+
+    assert await async_job_queue_size(redis_url=redis_url) == 2
+    assert await async_job_queue_size("default", redis_url=redis_url) == 2
     assert await async_job_queue_size("critical", redis_url=redis_url) == 0
+    assert (
+        await async_job_queue_size("default", redis_url=redis_url, skip_working=True)
+        == 1
+    )
 
 
 def test_job_queue_size_with_decode_responses():
@@ -226,24 +233,68 @@ def test_is_due_scheduled_score_is_inclusive():
     assert _is_due_scheduled_score(now, now) != (now < now)
 
 
-def test_job_queue_size_excludes_wip_and_future_scheduled():
+def test_job_queue_size_includes_running_jobs_by_default():
     r = Redis.from_url(redis_url)
-    now = time.time()
+    expires_at = int(time.time()) + 90
 
     r.rpush("rq:queue:default", "live-job-1")
-    r.sadd("rq:queues", "rq:queue:default")
-    r.zadd(
-        "rq:scheduled:default",
-        {
-            "due-job": now - 50,
-            "due-at-now": now,
-            "future-job": now + 120,
-        },
-    )
-    r.zadd("rq:wip:default", {"working-job": now - 10})
+    r.sadd("rq:queues", "rq:queue:default", "rq:queue:mailer")
+    r.zadd("rq:wip:default", {"working-1": expires_at, "working-2": expires_at})
+    r.zadd("rq:wip:mailer", {"working-3": expires_at})
 
-    assert job_queue_size("default", redis_url=redis_url) == 3
-    assert job_queue_size(redis_url=redis_url) == 3
+    size = job_queue_size("default", redis_url=redis_url)
+    _assert_int_count(size)
+    assert size == 3
+    assert job_queue_size("mailer", redis_url=redis_url) == 1
+    assert job_queue_size("default", "mailer", redis_url=redis_url) == 4
+    assert job_queue_size(redis_url=redis_url) == 4
+
+
+def test_job_queue_size_skip_working_counts_waiting_jobs_only():
+    r = Redis.from_url(redis_url)
+    expires_at = int(time.time()) + 90
+
+    r.rpush("rq:queue:default", "live-job-1")
+    r.sadd("rq:queues", "rq:queue:default", "rq:queue:mailer")
+    r.zadd("rq:wip:default", {"working-1": expires_at, "working-2": expires_at})
+    r.zadd("rq:wip:mailer", {"working-3": expires_at})
+
+    assert job_queue_size("default", redis_url=redis_url, skip_working=True) == 1
+    assert job_queue_size("mailer", redis_url=redis_url, skip_working=True) == 0
+    assert job_queue_size(redis_url=redis_url, skip_working=True) == 1
+    assert job_queue_size("default", redis_url=redis_url, skip_working=False) == 3
+    assert job_queue_size("default", redis_url=redis_url, skip_working=None) == 3
+
+
+def test_job_queue_size_excludes_abandoned_and_future_scheduled():
+    frozen = datetime(2026, 8, 2, 12, 0, 0, 750_000, tzinfo=timezone.utc)
+    with freeze_time(frozen):
+        now = time.time()
+        r = Redis.from_url(redis_url)
+
+        r.rpush("rq:queue:default", "live-job-1")
+        r.sadd("rq:queues", "rq:queue:default")
+        r.zadd(
+            "rq:scheduled:default",
+            {
+                "due-job": now - 50,
+                "due-at-now": now,
+                "future-job": now + 120,
+            },
+        )
+        r.zadd(
+            "rq:wip:default",
+            {
+                "abandoned": int(now) - 10,
+                "expires-this-second": int(now),
+                "running": int(now) + 90,
+                "no-expiry": float("inf"),
+            },
+        )
+
+        assert job_queue_size("default", redis_url=redis_url) == 5
+        assert job_queue_size(redis_url=redis_url) == 5
+        assert job_queue_size("default", redis_url=redis_url, skip_working=True) == 3
 
 
 def test_job_queue_size_includes_scheduled_score_equal_to_now():
@@ -302,14 +353,14 @@ def test_job_queue_latency_excludes_wip_and_future_scheduled():
             "future-job": now + 200,
         },
     )
-    r.zadd("rq:wip:default", {"working-job": now - 500})
+    r.zadd("rq:wip:default", {"working-job": int(now) + 90})
     r.sadd("rq:queues", "rq:queue:default")
 
     assert job_queue_latency("default", redis_url=redis_url) == pytest.approx(40, abs=1)
     assert job_queue_latency(redis_url=redis_url) == pytest.approx(40, abs=1)
 
 
-def test_job_queue_size_and_latency_waiting_only_mixed():
+def test_job_queue_size_and_latency_mixed():
     r = Redis.from_url(redis_url)
     now = time.time()
 
@@ -322,9 +373,14 @@ def test_job_queue_size_and_latency_waiting_only_mixed():
             "future-a": now + 60,
         },
     )
-    r.zadd("rq:wip:default", {"wip-a": now - 5, "wip-b": now - 1})
+    r.zadd(
+        "rq:wip:default",
+        {"wip-a": int(now) + 90, "wip-b": int(now) + 30, "abandoned": int(now) - 5},
+    )
 
-    assert job_queue_size("default", redis_url=redis_url) == 3
+    assert job_queue_size("default", redis_url=redis_url) == 5
+    assert job_queue_size("default", redis_url=redis_url, skip_working=True) == 3
+    assert job_queue_working("default", redis_url=redis_url) == 2
     assert job_queue_latency("default", redis_url=redis_url) == pytest.approx(30, abs=1)
 
 
@@ -350,8 +406,8 @@ def test_job_queue_working_counts_in_flight_and_filters_queues():
     assert job_queue_working("mailer", redis_url=redis_url) == 2
     assert job_queue_working("critical", redis_url=redis_url) == 0
     assert job_queue_working("default", "mailer", redis_url=redis_url) == 3
-    assert job_queue_size("default", redis_url=redis_url) == 1
-    assert job_queue_size("mailer", redis_url=redis_url) == 0
+    assert job_queue_size("default", redis_url=redis_url, skip_working=True) == 1
+    assert job_queue_size("mailer", redis_url=redis_url, skip_working=True) == 0
 
 
 def test_job_queue_working_counts_unexpired_members_only():
@@ -396,20 +452,26 @@ _seen_while_running: dict[str, int] = {}
 
 def _sample_while_running():
     _seen_while_running["working"] = job_queue_working("default", redis_url=redis_url)
+    _seen_while_running["size"] = job_queue_size("default", redis_url=redis_url)
+    _seen_while_running["waiting"] = job_queue_size(
+        "default", redis_url=redis_url, skip_working=True
+    )
 
 
-def test_job_queue_working_counts_the_job_a_worker_runs():
+def test_size_and_working_count_the_job_a_worker_runs():
     connection = Redis.from_url(redis_url)
     queue = Queue("default", connection=connection)
     queue.enqueue(_sample_while_running)
     _seen_while_running.clear()
+    assert job_queue_size("default", redis_url=redis_url) == 1
 
     SimpleWorker([queue], connection=connection).work(
         burst=True, logging_level="WARNING"
     )
 
-    assert _seen_while_running == {"working": 1}
+    assert _seen_while_running == {"working": 1, "size": 1, "waiting": 0}
     assert job_queue_working("default", redis_url=redis_url) == 0
+    assert job_queue_size("default", redis_url=redis_url) == 0
 
 
 @pytest.mark.asyncio
@@ -450,7 +512,31 @@ def test_plan_execute_rq_jqs_also_samples_wrk(monkeypatch):
     assert jqs_value == job_queue_size("default", redis_url=redis_url)
     assert wrk_value == job_queue_working("default", redis_url=redis_url)
     assert wrk_value == 2
-    assert jqs_value == 1
+    assert jqs_value == 3
+
+
+def test_plan_execute_rq_jqs_skip_working_still_samples_wrk(monkeypatch):
+    monkeypatch.setenv("HIREFIRE_RQ_URL", redis_url)
+    r = Redis.from_url(redis_url)
+    expires_at = int(time.time()) + 90
+    r.sadd("rq:queues", "rq:queue:default")
+    r.rpush("rq:queue:default", "live-1")
+    r.zadd("rq:wip:default", {"w1": expires_at, "w2": expires_at})
+
+    HireFire.configuration.buffer.flush()
+    plan.execute(
+        {
+            "name": "worker",
+            "adapter": "rq",
+            "strategy": "jqs",
+            "queues": ["default"],
+            "options": {"skip_working": True},
+        }
+    )
+
+    flushed = HireFire.configuration.buffer.flush()
+    assert list(flushed["worker"]["jqs"].values())[-1] == 1
+    assert list(flushed["worker"]["wrk"].values())[-1] == 2
 
 
 def test_plan_execute_rq_jql_also_samples_wrk(monkeypatch):

@@ -24,6 +24,31 @@ def test_supports_plan_strategy():
     assert rq_macro.supports_plan_strategy("jqs")
 
 
+def test_plan_options_allowlist_skip_working_for_jqs():
+    options = rq_macro.plan_options(
+        "jqs", {"skip_working": True, "redis_url": "redis://other/0"}
+    )
+
+    assert options == {"skip_working": True}
+
+
+def test_plan_options_keep_a_false_skip_working():
+    assert rq_macro.plan_options("jqs", {"skip_working": False}) == {
+        "skip_working": False
+    }
+
+
+def test_plan_options_drop_a_non_boolean_skip_working():
+    assert rq_macro.plan_options("jqs", {"skip_working": "true"}) == {}
+    assert rq_macro.plan_options("jqs", {"skip_working": 1}) == {}
+    assert rq_macro.plan_options("jqs", {"skip_working": None}) == {}
+    assert rq_macro.plan_options("jqs", None) == {}
+
+
+def test_plan_options_jql_never_receives_skip_working():
+    assert rq_macro.plan_options("jql", {"skip_working": True}) == {}
+
+
 def test_sample_wave_hooks_default_to_noops():
     from hirefire_resource.plan import hooks
 

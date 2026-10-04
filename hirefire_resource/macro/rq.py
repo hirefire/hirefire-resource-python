@@ -12,11 +12,15 @@ from hirefire_resource.utility import normalize_queues
 before_sample_job_queues = _plan_hooks.before_sample_job_queues
 after_sample_job_queues = _plan_hooks.after_sample_job_queues
 reinit_after_fork = _plan_hooks.reinit_after_fork
-plan_options = _plan_hooks.plan_options
 supports_plan_strategy = _plan_hooks.supports_plan_strategy
 queues_required = _plan_hooks.queues_required
 
 _SAMPLE_REDIS_TIMEOUT = 5.0
+_PLAN_OPTION_SCHEMA = {"jqs": {"skip_working": "boolean"}}
+
+
+def plan_options(strategy: object, options: object) -> dict[str, Any]:
+    return _plan_hooks.extract_plan_options(strategy, options, _PLAN_OPTION_SCHEMA)
 
 
 def _resolve_redis_url(redis_url: str | None) -> str:
@@ -97,7 +101,9 @@ async def async_job_queue_latency(*queues: str, redis_url: str | None = None) ->
     return await asyncio.to_thread(job_queue_latency, *queues, redis_url=redis_url)
 
 
-def job_queue_size(*queues: str, redis_url: str | None = None) -> int:
+def job_queue_size(
+    *queues: str, redis_url: str | None = None, skip_working: bool = False
+) -> int:
     redis_url = _resolve_redis_url(redis_url)
 
     redis_client = _open_redis(redis_url)
@@ -112,6 +118,8 @@ def job_queue_size(*queues: str, redis_url: str | None = None) -> int:
         for queue in queue_names:
             pipeline.llen(f"rq:queue:{queue}")
             pipeline.zcount(f"rq:scheduled:{queue}", "-inf", current_time)
+            if not skip_working:
+                _count_working(pipeline, queue, current_time)
 
         job_counts = pipeline.execute()
         return sum(job_counts)
@@ -119,8 +127,12 @@ def job_queue_size(*queues: str, redis_url: str | None = None) -> int:
         redis_client.close()
 
 
-async def async_job_queue_size(*queues: str, redis_url: str | None = None) -> int:
-    return await asyncio.to_thread(job_queue_size, *queues, redis_url=redis_url)
+async def async_job_queue_size(
+    *queues: str, redis_url: str | None = None, skip_working: bool = False
+) -> int:
+    return await asyncio.to_thread(
+        job_queue_size, *queues, redis_url=redis_url, skip_working=skip_working
+    )
 
 
 def job_queue_working(*queues: str, redis_url: str | None = None) -> int:
