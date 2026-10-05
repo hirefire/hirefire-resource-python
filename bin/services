@@ -29,12 +29,12 @@ up() {
   fi
 
   if [ "$started" -eq 1 ] || [ ! -f .env ]; then
-    printf 'REDIS_PORT=%s\nRABBITMQ_PORT=%s\nREDIS_URL=redis://localhost:%s/0\nAMQP_URL=amqp://guest:guest@localhost:%s\n' \
+    printf 'REDIS_PORT=%s\nRABBITMQ_PORT=%s\nREDIS_URL=redis://127.0.0.1:%s/0\nAMQP_URL=amqp://guest:guest@127.0.0.1:%s\n' \
       "$redis_port" "$rabbitmq_port" "$redis_port" "$rabbitmq_port" > .env
   fi
 
-  echo "Redis    -> localhost:${redis_port}"
-  echo "RabbitMQ -> localhost:${rabbitmq_port}"
+  echo "Redis    -> 127.0.0.1:${redis_port}"
+  echo "RabbitMQ -> 127.0.0.1:${rabbitmq_port}"
 }
 
 down() {
