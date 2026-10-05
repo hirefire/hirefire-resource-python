@@ -1351,6 +1351,48 @@ def test_execute_keeps_jqs_when_job_queue_working_raises(caplog):
     assert "wrk boom" in caplog.text
 
 
+def test_execute_drops_a_wrk_sample_that_is_not_ready_without_a_log(caplog):
+    import logging
+
+    caplog.set_level(logging.DEBUG)
+
+    class Macro:
+        @staticmethod
+        def supports_plan_strategy(strategy):
+            return True
+
+        @staticmethod
+        def plan_options(strategy, options):
+            return {}
+
+        @staticmethod
+        def plan_connection_options():
+            return {}
+
+        @staticmethod
+        def job_queue_size(*queues, **options):
+            return 9
+
+        @staticmethod
+        def job_queue_working(*queues, **options):
+            raise SampleNotReadyError("still counting")
+
+    with patch.object(plan, "_load_macro", return_value=Macro):
+        plan.execute(
+            {
+                "name": "worker",
+                "adapter": "rq",
+                "strategy": "jqs",
+                "queues": ["default"],
+            }
+        )
+
+    data = HireFire.configuration.buffer.flush()
+    assert list(data["worker"]["jqs"].values())[0] == 9
+    assert "wrk" not in data["worker"]
+    assert caplog.text == ""
+
+
 def test_execute_drops_invalid_wrk_without_clearing_jqs(caplog):
     import logging
 

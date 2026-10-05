@@ -272,6 +272,8 @@ def _sample_working(
             )
             return
         _record_sample(name, "wrk", coerce_sample(wrk))
+    except SampleNotReadyError:
+        return
     except Exception as error:
         _log(
             "error",
