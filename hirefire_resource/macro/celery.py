@@ -121,6 +121,13 @@ def _sample_connection(app: Celery) -> Iterator[Any]:
         connection.release()
 
 
+@contextmanager
+def _caller_connection(app: Any) -> Iterator[Any]:
+    with app.connection_or_acquire() as connection:
+        connection.connect()
+        yield connection
+
+
 @mitigate_connection_reset_error()
 def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
     queue_names = normalize_queues(*queues, allow_empty=False)
@@ -160,7 +167,7 @@ def job_queue_size(
         conn_cm = _sample_connection(app)
     else:
         app = celery_app
-        conn_cm = app.connection_or_acquire()
+        conn_cm = _caller_connection(app)
 
     with conn_cm as connection:
         with connection.channel() as channel:

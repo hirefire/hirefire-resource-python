@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from celery import Celery
-from kombu import Queue
+from kombu import Queue, pools
 
 from hirefire_resource import HireFire, plan
 from hirefire_resource.errors import MissingQueueError
@@ -440,6 +440,23 @@ def setup_priority_queue(priority_celery_app):
     with priority_celery_app.connection_or_acquire() as connection:
         channel = connection.default_channel
         channel.queue_delete(queue="priority_queue")
+
+
+def test_job_queue_size_reconnects_a_pooled_connection_that_kombu_closed(celery_app):
+    app = _celery(celery_app.conf.broker_url)
+    app.conf.broker_pool_limit = 2
+    celery_app.send_task("test_task", queue="celery")
+    previous = pools.get_limit()
+
+    try:
+        with pytest.raises(RuntimeError):
+            with app.connection_or_acquire() as connection:
+                connection.default_channel
+                raise RuntimeError("raised inside the block")
+
+        _assert_size(1, "celery", celery_app=app)
+    finally:
+        pools.set_limit(previous)
 
 
 def test_job_queue_size_priority_queue_with_broker_url(setup_priority_queue):
