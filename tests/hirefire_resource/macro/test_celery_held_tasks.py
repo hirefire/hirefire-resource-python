@@ -10,12 +10,18 @@ from freezegun import freeze_time
 from kombu.exceptions import OperationalError
 
 from hirefire_resource import plan
-from hirefire_resource.errors import SampleIncompleteError, SampleNotReadyError
+from hirefire_resource.errors import (
+    MissingQueueError,
+    SampleIncompleteError,
+    SampleNotReadyError,
+)
 from hirefire_resource.macro import celery as celery_macro
 from hirefire_resource.macro.celery import (
     _held_task_count,
     _HeldTasks,
     _inspect_held_tasks,
+    async_job_queue_working,
+    job_queue_working,
 )
 
 _WAIT_S = 5.0
@@ -378,7 +384,7 @@ def test_the_wait_for_the_first_count_logs_one_info_line(caplog):
     assert line.levelno == logging.INFO
     assert line.getMessage() == (
         "[HireFire] Counting the tasks Celery workers hold. "
-        "Job queue size samples start when the first count arrives."
+        "Samples that need the count start when the first count arrives."
     )
     assert [record for record in caplog.records if record.levelno > logging.INFO] == []
 
@@ -514,3 +520,70 @@ def test_the_plan_fork_hook_clears_the_counts():
     assert celery_macro._held_tasks == {}
     thread.join(_WAIT_S)
     assert not thread.is_alive()
+
+
+def _working_when_ready(*queues, **options):
+    deadline = time.monotonic() + _WAIT_S
+    while True:
+        try:
+            return job_queue_working(*queues, **options)
+        except SampleIncompleteError:
+            assert time.monotonic() < deadline, "no counts in time"
+            time.sleep(_POLL_S)
+
+
+def _holding_app():
+    due = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat()
+    later = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    return FakeApp(
+        FakeControl(
+            FakeInspect(
+                active={"worker-1": [_task("celery")], "worker-2": [_task("mailer")]},
+                reserved={"worker-1": [_task("celery"), _task("celery")]},
+                scheduled={
+                    "worker-2": [_scheduled("mailer", due), _scheduled("mailer", later)]
+                },
+            )
+        )
+    )
+
+
+def test_job_queue_working_returns_the_stored_held_task_count():
+    app = _holding_app()
+
+    with pytest.raises(SampleNotReadyError):
+        job_queue_working("celery", celery_app=app)
+
+    working = _working_when_ready("celery", celery_app=app)
+    assert type(working) is int
+    assert working == 3
+    assert _working_when_ready("mailer", celery_app=app) == 2
+    assert _working_when_ready("celery", "mailer", celery_app=app) == 5
+    assert _working_when_ready("other", celery_app=app) == 0
+    assert job_queue_working("celery", celery_app=app) == _held_task_count(
+        app, False, {"celery"}
+    )
+    assert len(_held_threads()) == 1
+
+
+def test_job_queue_working_requires_queue_names():
+    with pytest.raises(MissingQueueError):
+        job_queue_working(celery_app=FakeApp())
+
+    assert _held_threads() == []
+
+
+def test_job_queue_working_rejects_a_celery_app_with_a_broker_url():
+    with pytest.raises(ValueError, match="Cannot specify both"):
+        job_queue_working("celery", celery_app=FakeApp(), broker_url="redis://broker/0")
+
+    assert _held_threads() == []
+
+
+@pytest.mark.asyncio
+async def test_async_job_queue_working_returns_the_stored_held_task_count():
+    app = _holding_app()
+    assert _working_when_ready("celery", celery_app=app) == 3
+
+    assert await async_job_queue_working("celery", celery_app=app) == 3
+    assert await async_job_queue_working("celery", "mailer", celery_app=app) == 5

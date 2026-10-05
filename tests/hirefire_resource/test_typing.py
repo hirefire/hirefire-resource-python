@@ -62,4 +62,4 @@ def test_job_queue_macros_have_inline_annotations_in_source():
             }
             assert kwonly, f"{path.name}:{node.name} missing keyword-only options"
             assert all(kwonly.values()), f"{path.name}:{node.name} untyped keyword-only"
-    assert found == 14, found
+    assert found == 16, found

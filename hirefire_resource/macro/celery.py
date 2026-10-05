@@ -176,20 +176,8 @@ def job_queue_size(
     skip_working: bool = False,
 ) -> int:
     queue_names = normalize_queues(*queues, allow_empty=False)
-
-    if celery_app is not None and broker_url is not None:
-        raise ValueError(
-            "Cannot specify both 'celery_app' and 'broker_url'. "
-            "Use 'celery_app' to pass your configured Celery app (recommended for priority queues), "
-            "or 'broker_url' for simple setups."
-        )
-
-    if celery_app is None:
-        app = _owned_celery_app(broker_url)
-        conn_cm = _sample_connection(app)
-    else:
-        app = celery_app
-        conn_cm = _caller_connection(app)
+    app, owned = _sample_app(broker_url, celery_app)
+    conn_cm = _sample_connection(app) if owned else _caller_connection(app)
 
     with conn_cm as connection:
         with connection.channel() as channel:
@@ -197,7 +185,7 @@ def job_queue_size(
 
     if skip_working:
         return size
-    return size + _held_task_count(app, celery_app is None, queue_names)
+    return size + _held_task_count(app, owned, queue_names)
 
 
 async def async_job_queue_size(
@@ -213,6 +201,40 @@ async def async_job_queue_size(
         celery_app=celery_app,
         skip_working=skip_working,
     )
+
+
+def job_queue_working(
+    *queues: str,
+    broker_url: str | None = None,
+    celery_app: "Celery | None" = None,
+) -> int:
+    queue_names = normalize_queues(*queues, allow_empty=False)
+    app, owned = _sample_app(broker_url, celery_app)
+    return _held_task_count(app, owned, queue_names)
+
+
+async def async_job_queue_working(
+    *queues: str,
+    broker_url: str | None = None,
+    celery_app: "Celery | None" = None,
+) -> int:
+    return await asyncio.to_thread(
+        job_queue_working, *queues, broker_url=broker_url, celery_app=celery_app
+    )
+
+
+def _sample_app(
+    broker_url: str | None, celery_app: "Celery | None"
+) -> tuple[Any, bool]:
+    if celery_app is not None and broker_url is not None:
+        raise ValueError(
+            "Cannot specify both 'celery_app' and 'broker_url'. "
+            "Use 'celery_app' to pass your configured Celery app (recommended for priority queues), "
+            "or 'broker_url' for simple setups."
+        )
+    if celery_app is None:
+        return _owned_celery_app(broker_url), True
+    return celery_app, False
 
 
 @before_task_publish.connect
@@ -401,7 +423,7 @@ def _held_task_count(app: Any, owned: bool, queues: set[str]) -> int:
         HireFire.configuration.logger,
         "info",
         "[HireFire] Counting the tasks Celery workers hold. "
-        "Job queue size samples start when the first count arrives.",
+        "Samples that need the count start when the first count arrives.",
     )
     raise SampleNotReadyError(_HELD_TASKS_NOT_READY)
 
