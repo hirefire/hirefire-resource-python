@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `config.token` can set the HireFire token in code. 1.x read only `HIREFIRE_TOKEN`.
 - `HIREFIRE_SERVICE_NAME` sets the process name only on platforms that do not detect it automatically. On Heroku, `DYNO` is used.
 - `HIREFIRE_CELERY_BROKER_URL`, `HIREFIRE_RQ_URL`, and `HIREFIRE_DRAMATIQ_URL` (optional `HIREFIRE_DRAMATIQ_NAMESPACE`) set the broker URL for job queue samples.
-- `job_queue_working` / `async_job_queue_working` report how many jobs are currently in progress for RQ.
+- `job_queue_working` / `async_job_queue_working` report how many jobs are currently in progress for RQ and Celery.
 - Dramatiq adapter: job queue size and job queue latency (Redis queued plus delayed jobs that are due, RabbitMQ on the main queue only).
 - Support Python 3.13 and 3.14.
 - Support Django 5 and 6, Starlette 1, and RQ 2.
