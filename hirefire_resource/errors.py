@@ -13,3 +13,7 @@ class DuplicateDynoError(Exception):
 
 class SampleIncompleteError(Exception):
     pass
+
+
+class SampleNotReadyError(SampleIncompleteError):
+    pass

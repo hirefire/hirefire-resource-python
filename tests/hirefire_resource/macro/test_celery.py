@@ -14,7 +14,11 @@ from celery import Celery
 from kombu import Queue, pools
 
 from hirefire_resource import HireFire, plan
-from hirefire_resource.errors import MissingQueueError, SampleIncompleteError
+from hirefire_resource.errors import (
+    MissingQueueError,
+    SampleIncompleteError,
+    SampleNotReadyError,
+)
 from hirefire_resource.macro import celery as celery_macro
 from hirefire_resource.macro.celery import (
     ChannelError,
@@ -825,7 +829,7 @@ def test_job_queue_size_drops_the_first_sample_after_a_start(celery_app, monkeyp
     celery_app.send_task("test_task", queue="celery")
     monkeypatch.setattr(celery_app, "control", _held_tasks_control())
 
-    with pytest.raises(SampleIncompleteError, match="no recent count"):
+    with pytest.raises(SampleNotReadyError):
         job_queue_size("celery", celery_app=celery_app)
 
     _assert_size(5, "celery", celery_app=celery_app)
@@ -968,7 +972,7 @@ def test_plan_without_skip_working_drops_samples_until_the_workers_are_counted(
 ):
     import logging
 
-    caplog.set_level(logging.ERROR)
+    caplog.set_level(logging.INFO)
     monkeypatch.setenv("HIREFIRE_CELERY_BROKER_URL", celery_app.conf.broker_url)
     celery_app.send_task("test_task", queue="celery")
     _assert_size(1, "celery", broker_url=celery_app.conf.broker_url, skip_working=True)
@@ -982,9 +986,21 @@ def test_plan_without_skip_working_drops_samples_until_the_workers_are_counted(
     HireFire.configuration.buffer.flush()
     plan.execute(entry)
 
+    def logged():
+        return [
+            (record.levelno, record.getMessage())
+            for record in caplog.records
+            if record.name == "hirefire_resource"
+        ]
+
     assert HireFire.configuration.buffer.flush() == {}
-    assert "SampleIncompleteError" in caplog.text
-    assert "no recent count of the tasks its workers hold" in caplog.text
+    assert logged() == [
+        (
+            logging.INFO,
+            "[HireFire] Counting the tasks Celery workers hold. "
+            "Job queue size samples start when the first count arrives.",
+        )
+    ]
 
     deadline = time.monotonic() + _SIZE_WAIT_S
     flushed = {}
@@ -995,6 +1011,7 @@ def test_plan_without_skip_working_drops_samples_until_the_workers_are_counted(
 
     assert list(flushed["worker"]["jqs"].values())[-1] == 1
     assert "wrk" not in flushed["worker"]
+    assert len(logged()) == 1
 
 
 def test_plan_jql_never_asks_the_workers(celery_app, monkeypatch):

@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
+from hirefire_resource.errors import SampleNotReadyError
 from hirefire_resource.log import format_error, safe_log
 from hirefire_resource.sample import coerce_sample, format_sample_value, valid_sample
 
@@ -240,6 +241,8 @@ def _sample_job_strategy(
 
         _record_sample(name, strategy, coerce_sample(value))
         return True
+    except SampleNotReadyError:
+        return False
     except Exception as error:
         _log(
             "error",

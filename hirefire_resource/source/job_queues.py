@@ -1,6 +1,7 @@
 from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING
 
+from hirefire_resource.errors import SampleNotReadyError
 from hirefire_resource.log import format_error, safe_log
 from hirefire_resource.sample import coerce_sample, format_sample_value, valid_sample
 from hirefire_resource.source.job_queue import JobQueue
@@ -77,6 +78,8 @@ class JobQueues:
                 return
 
             self._buffer().sample(report_name, strategy, coerce_sample(value))
+        except SampleNotReadyError:
+            return
         except Exception as error:
             safe_log(
                 self._logger(),

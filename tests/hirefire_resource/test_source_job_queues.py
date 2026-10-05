@@ -2,6 +2,7 @@ import logging
 
 from hirefire_resource import HireFire
 from hirefire_resource.configuration import Configuration
+from hirefire_resource.errors import SampleNotReadyError
 from hirefire_resource.source.job_queue import JobQueue
 from hirefire_resource.source.job_queues import JobQueues
 
@@ -86,6 +87,27 @@ def test_raising_sampler_is_isolated_and_logged(caplog):
     assert "worker" not in data or "jql" not in data.get("worker", {})
     assert _strategy_value(data, "mailer", "jql") == 18
     assert "Redis down" in caplog.text
+
+
+def test_a_sampler_that_is_not_ready_is_dropped_without_a_log(caplog):
+    caplog.set_level(logging.DEBUG)
+
+    def not_ready():
+        raise SampleNotReadyError("still counting")
+
+    with HireFire.configure() as config:
+        config.dyno("worker", not_ready)
+        config.dyno("mailer", lambda: 18)
+
+    job_queues = HireFire.configuration.job_queues
+    job_queues.sample_job_queue(job_queues.find_by_name("worker"), "jqs")
+    job_queues.sample_job_queue(job_queues.find_by_name("mailer"), "jqs")
+
+    data = buffer().flush()
+    assert "worker" not in data
+    assert _strategy_value(data, "mailer", "jqs") == 18
+    assert "still counting" not in caplog.text
+    assert "worker" not in caplog.text
 
 
 def test_raising_sampler_redacts_url_userinfo(caplog):

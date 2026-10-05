@@ -23,8 +23,8 @@ except ImportError:
 
     AMQP_AVAILABLE = False
 
-from hirefire_resource.errors import SampleIncompleteError
-from hirefire_resource.log import format_error
+from hirefire_resource.errors import SampleIncompleteError, SampleNotReadyError
+from hirefire_resource.log import format_error, safe_log
 from hirefire_resource.plan import hooks as _plan_hooks
 from hirefire_resource.utility import normalize_queues
 
@@ -37,6 +37,7 @@ _HELD_TASKS_INSPECT_TIMEOUT = 1.0
 _HELD_TASKS_REFRESH_INTERVAL = 5.0
 _HELD_TASKS_MAX_AGE = 30.0
 _HELD_TASKS_IDLE_TIMEOUT = 60.0
+_HELD_TASKS_NOT_READY = "Celery has not counted the tasks its workers hold yet."
 
 _held_tasks_lock = threading.Lock()
 _held_tasks: dict[object, "_HeldTasks"] = {}
@@ -338,7 +339,7 @@ class _HeldTasks:
         self._owned = owned
         self._counts: dict[str, int] | None = None
         self._counted_at = 0.0
-        self._asked_at = time.monotonic()
+        self._started_at = self._asked_at = time.monotonic()
         self._error: str | None = None
         self.thread = threading.Thread(
             target=self._run, name="hirefire-celery-held-tasks", daemon=True
@@ -349,12 +350,15 @@ class _HeldTasks:
     def count(self, queues: set[str]) -> int:
         now = time.monotonic()
         self._asked_at = now
-        if self._counts is None or now - self._counted_at > _HELD_TASKS_MAX_AGE:
-            reason = f" The last refresh raised {self._error}." if self._error else ""
-            raise SampleIncompleteError(
-                "Celery has no recent count of the tasks its workers hold." + reason
-            )
-        return sum(self._counts.get(queue, 0) for queue in queues)
+        if self._counts is not None:
+            if now - self._counted_at <= _HELD_TASKS_MAX_AGE:
+                return sum(self._counts.get(queue, 0) for queue in queues)
+        elif self._error is None and now - self._started_at <= _HELD_TASKS_MAX_AGE:
+            raise SampleNotReadyError(_HELD_TASKS_NOT_READY)
+        reason = f" The last refresh raised {self._error}." if self._error else ""
+        raise SampleIncompleteError(
+            "Celery has no recent count of the tasks its workers hold." + reason
+        )
 
     def _run(self) -> None:
         while True:
@@ -386,10 +390,20 @@ def _held_task_count(app: Any, owned: bool, queues: set[str]) -> int:
     key: object = app.conf.broker_url if owned else id(app)
     with _held_tasks_lock:
         held = _held_tasks.get(key)
-        if held is None or not held.thread.is_alive():
-            held = _held_tasks[key] = _HeldTasks(key, app, owned)
-            held.thread.start()
-        return held.count(queues)
+        if held is not None and held.thread.is_alive():
+            return held.count(queues)
+        held = _held_tasks[key] = _HeldTasks(key, app, owned)
+        held.thread.start()
+
+    from hirefire_resource.hirefire import HireFire
+
+    safe_log(
+        HireFire.configuration.logger,
+        "info",
+        "[HireFire] Counting the tasks Celery workers hold. "
+        "Job queue size samples start when the first count arrives.",
+    )
+    raise SampleNotReadyError(_HELD_TASKS_NOT_READY)
 
 
 def _inspect_held_tasks(app: Any, owned: bool) -> dict[str, int]:

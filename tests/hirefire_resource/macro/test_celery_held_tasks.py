@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 from contextlib import nullcontext
@@ -9,7 +10,7 @@ from freezegun import freeze_time
 from kombu.exceptions import OperationalError
 
 from hirefire_resource import plan
-from hirefire_resource.errors import SampleIncompleteError
+from hirefire_resource.errors import SampleIncompleteError, SampleNotReadyError
 from hirefire_resource.macro import celery as celery_macro
 from hirefire_resource.macro.celery import (
     _held_task_count,
@@ -48,16 +49,19 @@ class FakeInspect:
 
 
 class FakeControl:
-    def __init__(self, inspect=None, error=None):
+    def __init__(self, inspect=None, error=None, gate=None):
         self.inspect_calls = []
         self.started_at = []
         self.reply = inspect if inspect is not None else FakeInspect()
         self.error = error
+        self.gate = gate
         self.mailbox = SimpleNamespace(producer_pool=object())
 
     def inspect(self, **kwargs):
         self.inspect_calls.append(kwargs)
         self.started_at.append(time.monotonic())
+        if self.gate is not None:
+            self.gate.wait(_WAIT_S)
         if self.error is not None:
             raise self.error
         return self.reply
@@ -246,11 +250,9 @@ def test_count_raises_until_a_pass_has_stored_counts():
     inspect = FakeInspect(active={"worker-1": [_task("celery"), _task("mailer")]})
     held = _HeldTasks("key", FakeApp(FakeControl(inspect)), False)
 
-    with pytest.raises(SampleIncompleteError) as raised:
+    with pytest.raises(SampleNotReadyError) as raised:
         held.count({"celery"})
-    assert str(raised.value) == (
-        "Celery has no recent count of the tasks its workers hold."
-    )
+    assert str(raised.value) == "Celery has not counted the tasks its workers hold yet."
 
     held._refresh()
 
@@ -268,8 +270,25 @@ def test_count_raises_when_the_counts_are_older_than_30_seconds():
     assert held.count({"celery"}) == 0
 
     held._counted_at = time.monotonic() - 31
-    with pytest.raises(SampleIncompleteError):
+    with pytest.raises(SampleIncompleteError) as raised:
         held.count({"celery"})
+    assert not isinstance(raised.value, SampleNotReadyError)
+
+
+def test_no_count_within_30_seconds_of_the_start_is_an_error():
+    held = _HeldTasks("key", FakeApp(), False)
+
+    held._started_at = time.monotonic() - 29
+    with pytest.raises(SampleNotReadyError):
+        held.count({"celery"})
+
+    held._started_at = time.monotonic() - 31
+    with pytest.raises(SampleIncompleteError) as raised:
+        held.count({"celery"})
+    assert not isinstance(raised.value, SampleNotReadyError)
+    assert str(raised.value) == (
+        "Celery has no recent count of the tasks its workers hold."
+    )
 
 
 def test_a_failed_pass_keeps_the_previous_counts():
@@ -301,6 +320,7 @@ def test_a_failed_first_pass_reports_the_error_without_credentials():
 
     with pytest.raises(SampleIncompleteError) as raised:
         held.count({"celery"})
+    assert not isinstance(raised.value, SampleNotReadyError)
     assert "OperationalError: cannot reach amqp://***@broker:5672//" in str(
         raised.value
     )
@@ -328,12 +348,57 @@ def test_the_first_call_starts_the_thread_and_has_no_count_yet():
     app = FakeApp(FakeControl(inspect))
     assert _held_threads() == []
 
-    with pytest.raises(SampleIncompleteError):
+    with pytest.raises(SampleNotReadyError):
         _held_task_count(app, False, {"celery"})
 
     assert len(_held_threads()) == 1
     assert _held_threads()[0].daemon
     assert _count_when_ready(app, False, {"celery"}) == 1
+
+
+def _first_count_lines(caplog):
+    return [
+        record
+        for record in caplog.records
+        if "Counting the tasks Celery workers hold" in record.getMessage()
+    ]
+
+
+def test_the_wait_for_the_first_count_logs_one_info_line(caplog):
+    caplog.set_level(logging.DEBUG)
+    gate = threading.Event()
+    inspect = FakeInspect(reserved={"worker-1": [_task("celery")]})
+    app = FakeApp(FakeControl(inspect, gate=gate))
+
+    for _ in range(4):
+        with pytest.raises(SampleNotReadyError):
+            _held_task_count(app, False, {"celery"})
+
+    (line,) = _first_count_lines(caplog)
+    assert line.levelno == logging.INFO
+    assert line.getMessage() == (
+        "[HireFire] Counting the tasks Celery workers hold. "
+        "Job queue size samples start when the first count arrives."
+    )
+    assert [record for record in caplog.records if record.levelno > logging.INFO] == []
+
+    gate.set()
+    assert _count_when_ready(app, False, {"celery"}) == 1
+    assert len(_first_count_lines(caplog)) == 1
+
+
+def test_a_restarted_thread_logs_the_wait_again(caplog, monkeypatch):
+    caplog.set_level(logging.INFO)
+    monkeypatch.setattr(celery_macro, "_HELD_TASKS_IDLE_TIMEOUT", 0.1)
+    app = FakeApp()
+
+    _count_when_ready(app, False, {"celery"})
+    (thread,) = _held_threads()
+    thread.join(_WAIT_S)
+    assert len(_first_count_lines(caplog)) == 1
+
+    _count_when_ready(app, False, {"celery"})
+    assert len(_first_count_lines(caplog)) == 2
 
 
 def test_one_thread_per_caller_app():

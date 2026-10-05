@@ -2,6 +2,7 @@ import sys
 from unittest.mock import patch
 
 from hirefire_resource import HireFire, plan
+from hirefire_resource.errors import SampleIncompleteError, SampleNotReadyError
 
 
 def test_queues_required_calls_loaded_macro_hook():
@@ -1212,6 +1213,65 @@ def test_execute_still_samples_wrk_when_job_strategy_raises(caplog):
     assert "Plan sampler for" in caplog.text
     assert "raised" in caplog.text
     assert "jqs boom" in caplog.text
+
+
+def _execute_with_a_size_that_raises(error):
+    class Macro:
+        @staticmethod
+        def supports_plan_strategy(strategy):
+            return True
+
+        @staticmethod
+        def plan_options(strategy, options):
+            return {}
+
+        @staticmethod
+        def plan_connection_options():
+            return {}
+
+        @staticmethod
+        def job_queue_size(*queues, **options):
+            raise error
+
+        @staticmethod
+        def job_queue_working(*queues, **options):
+            return 3
+
+    with patch.object(plan, "_load_macro", return_value=Macro):
+        plan.execute(
+            {
+                "name": "worker",
+                "adapter": "rq",
+                "strategy": "jqs",
+                "queues": ["default"],
+            }
+        )
+
+    return HireFire.configuration.buffer.flush()
+
+
+def test_execute_drops_a_sample_that_is_not_ready_without_a_log(caplog):
+    import logging
+
+    caplog.set_level(logging.DEBUG)
+
+    data = _execute_with_a_size_that_raises(SampleNotReadyError("still counting"))
+
+    assert data["worker"].get("jqs") is None
+    assert list(data["worker"]["wrk"].values())[0] == 3
+    assert caplog.text == ""
+
+
+def test_execute_logs_a_sample_that_is_incomplete(caplog):
+    import logging
+
+    caplog.set_level(logging.DEBUG)
+
+    data = _execute_with_a_size_that_raises(SampleIncompleteError("counts are stale"))
+
+    assert data["worker"].get("jqs") is None
+    assert "Plan sampler for 'worker' raised SampleIncompleteError" in caplog.text
+    assert "counts are stale" in caplog.text
 
 
 def test_execute_skips_wrk_when_macro_lacks_job_queue_working():
