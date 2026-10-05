@@ -20,7 +20,7 @@ from hirefire_resource.macro.rq import (
     job_queue_working,
 )
 
-redis_url = f"redis://localhost:{os.environ.get('REDIS_PORT', '6379')}/0"
+redis_url = f"redis://127.0.0.1:{os.environ.get('REDIS_PORT', '6379')}/0"
 queue_name = "default"
 
 

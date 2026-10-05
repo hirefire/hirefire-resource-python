@@ -33,8 +33,8 @@ from hirefire_resource.macro.celery import (
     job_queue_working,
 )
 
-redis_url = f"redis://localhost:{os.environ.get('REDIS_PORT', '6379')}/0"
-amqp_url = f"amqp://guest:guest@localhost:{os.environ.get('RABBITMQ_PORT', '5672')}"
+redis_url = f"redis://127.0.0.1:{os.environ.get('REDIS_PORT', '6379')}/0"
+amqp_url = f"amqp://guest:guest@127.0.0.1:{os.environ.get('RABBITMQ_PORT', '5672')}"
 broker_urls = [redis_url, amqp_url]
 
 _SIZE_WAIT_S = 2.0
