@@ -1,4 +1,5 @@
 import logging
+import socket
 import threading
 import time
 from contextlib import nullcontext
@@ -17,6 +18,7 @@ from hirefire_resource.errors import (
 )
 from hirefire_resource.macro import celery as celery_macro
 from hirefire_resource.macro.celery import (
+    _BudgetedConnection,
     _held_task_count,
     _HeldTasks,
     _inspect_held_tasks,
@@ -214,7 +216,10 @@ def test_inspects_a_caller_app_with_a_timeout_over_one_pooled_connection():
 
     _inspect_held_tasks(app, False)
 
-    assert app.control.inspect_calls == [{"timeout": 1.0, "connection": app.pooled}]
+    (call,) = app.control.inspect_calls
+    assert call["timeout"] == 1.0
+    assert isinstance(call["connection"], _BudgetedConnection)
+    assert call["connection"]._connection is app.pooled
     assert app.pooled.connects == 1
     assert app.connections == []
 
@@ -226,7 +231,10 @@ def test_inspects_an_owned_app_over_its_own_bounded_connection():
     _inspect_held_tasks(app, True)
 
     (connection,) = app.connections
-    assert app.control.inspect_calls == [{"timeout": 1.0, "connection": connection}]
+    (call,) = app.control.inspect_calls
+    assert call["timeout"] == 1.0
+    assert isinstance(call["connection"], _BudgetedConnection)
+    assert call["connection"]._connection is connection
     assert connection.ensured == [
         {"max_retries": 0, "interval_start": 0, "reraise_as_library_errors": True}
     ]
@@ -520,6 +528,120 @@ def test_the_plan_fork_hook_clears_the_counts():
     assert celery_macro._held_tasks == {}
     thread.join(_WAIT_S)
     assert not thread.is_alive()
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 100.0
+
+    def monotonic(self):
+        return self.now
+
+    def time(self):
+        return time.time()
+
+
+class TricklingConnection(FakeConnection):
+    def __init__(self, clock, seconds_per_reply):
+        super().__init__()
+        self.clock = clock
+        self.seconds_per_reply = seconds_per_reply
+        self.drained = []
+        self.default_channel = object()
+
+    def drain_events(self, **kwargs):
+        self.drained.append(kwargs)
+        self.clock.now += self.seconds_per_reply
+
+
+class CollectingInspect:
+    def __init__(self, connection):
+        self.connection = connection
+        self.replies = []
+
+    def _collect(self):
+        replies = 0
+        while True:
+            try:
+                self.connection.drain_events(timeout=1.0)
+            except socket.timeout:
+                break
+            replies += 1
+        self.replies.append(replies)
+        return {"worker-1": [_task("celery")]}
+
+    def active(self):
+        return self._collect()
+
+    def reserved(self):
+        return self._collect()
+
+    def scheduled(self):
+        return {}
+
+
+class CollectingControl(FakeControl):
+    def inspect(self, **kwargs):
+        self.reply = CollectingInspect(kwargs["connection"])
+        return super().inspect(**kwargs)
+
+
+def test_a_call_drains_with_its_timeout_unchanged_while_the_budget_lasts(monkeypatch):
+    clock = FakeClock()
+    monkeypatch.setattr(celery_macro, "time", clock)
+    connection = TricklingConnection(clock, 0.7)
+    budgeted = _BudgetedConnection(connection)
+
+    def call():
+        while True:
+            budgeted.drain_events(timeout=1.0)
+
+    with pytest.raises(socket.timeout):
+        budgeted.within_budget(call)
+
+    assert connection.drained == [{"timeout": 1.0}] * 3
+    assert clock.now == pytest.approx(102.1)
+
+
+def test_each_call_gets_its_own_budget(monkeypatch):
+    clock = FakeClock()
+    monkeypatch.setattr(celery_macro, "time", clock)
+    connection = TricklingConnection(clock, 1.5)
+    budgeted = _BudgetedConnection(connection)
+
+    def call():
+        budgeted.drain_events(timeout=1.0)
+        budgeted.drain_events(timeout=1.0)
+        with pytest.raises(socket.timeout):
+            budgeted.drain_events(timeout=1.0)
+
+    budgeted.within_budget(call)
+    budgeted.within_budget(call)
+
+    assert len(connection.drained) == 4
+
+
+def test_a_budgeted_connection_passes_everything_else_to_the_connection():
+    connection = TricklingConnection(FakeClock(), 0.7)
+    budgeted = _BudgetedConnection(connection)
+
+    assert budgeted.default_channel is connection.default_channel
+    assert budgeted.connect == connection.connect
+    with pytest.raises(AttributeError):
+        budgeted.no_such_attribute
+
+
+def test_a_pass_ends_each_inspect_call_that_replies_never_stop_reaching(monkeypatch):
+    clock = FakeClock()
+    monkeypatch.setattr(celery_macro, "time", clock)
+    app = FakeApp(CollectingControl())
+    app.pooled = TricklingConnection(clock, 0.7)
+
+    counts = _inspect_held_tasks(app, False)
+
+    assert app.control.reply.replies == [3, 3]
+    assert counts == {"celery": 2}
+    assert clock.now == pytest.approx(104.2)
 
 
 def _working_when_ready(*queues, **options):

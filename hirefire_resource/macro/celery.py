@@ -2,6 +2,7 @@ import asyncio
 import functools
 import json
 import os
+import socket
 import threading
 import time
 from contextlib import contextmanager
@@ -34,6 +35,7 @@ supports_plan_strategy = _plan_hooks.supports_plan_strategy
 
 _PLAN_OPTION_SCHEMA = {"jqs": {"skip_working": "boolean"}}
 _HELD_TASKS_INSPECT_TIMEOUT = 1.0
+_HELD_TASKS_INSPECT_BUDGET = 2.0
 _HELD_TASKS_REFRESH_INTERVAL = 5.0
 _HELD_TASKS_MAX_AGE = 30.0
 _HELD_TASKS_IDLE_TIMEOUT = 60.0
@@ -431,10 +433,14 @@ def _held_task_count(app: Any, owned: bool, queues: set[str]) -> int:
 def _inspect_held_tasks(app: Any, owned: bool) -> dict[str, int]:
     connect = _sample_connection(app) if owned else _caller_connection(app)
     with connect as connection:
+        budgeted = _BudgetedConnection(connection)
         inspect = app.control.inspect(
-            timeout=_HELD_TASKS_INSPECT_TIMEOUT, connection=connection
+            timeout=_HELD_TASKS_INSPECT_TIMEOUT, connection=budgeted
         )
-        collections = (inspect.active(), inspect.reserved(), inspect.scheduled())
+        collections = [
+            budgeted.within_budget(call)
+            for call in (inspect.active, inspect.reserved, inspect.scheduled)
+        ]
 
     now = time.time()
     counts: dict[str, int] = {}
@@ -449,6 +455,24 @@ def _inspect_held_tasks(app: Any, owned: bool) -> dict[str, int]:
                 if queue is not None:
                     counts[queue] = counts.get(queue, 0) + 1
     return counts
+
+
+class _BudgetedConnection:
+    def __init__(self, connection: Any) -> None:
+        self._connection = connection
+        self._ends = 0.0
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._connection, name)
+
+    def within_budget(self, call: Callable[[], Any]) -> Any:
+        self._ends = time.monotonic() + _HELD_TASKS_INSPECT_BUDGET
+        return call()
+
+    def drain_events(self, **kwargs: Any) -> Any:
+        if time.monotonic() >= self._ends:
+            raise socket.timeout()
+        return self._connection.drain_events(**kwargs)
 
 
 def _held_task_queue(task: Any, now: float) -> str | None:

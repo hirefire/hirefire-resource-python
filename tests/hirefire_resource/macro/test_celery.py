@@ -1194,6 +1194,26 @@ def test_job_queue_size_counts_the_tasks_a_real_worker_holds(celery_app, monkeyp
         assert len(_held_threads()) == 2
 
 
+def test_a_real_inspect_call_waits_only_while_its_budget_lasts(celery_app, monkeypatch):
+    monkeypatch.setattr(celery_macro, "_HELD_TASKS_INSPECT_TIMEOUT", 1.0)
+    monkeypatch.setattr(sys.modules[__name__], "_SIZE_WAIT_S", 30.0)
+    for _ in range(3):
+        celery_app.send_task("hirefire.test.hold", queue="celery")
+
+    with _worker(celery_app.conf.broker_url):
+        _assert_size(3, "celery", celery_app=celery_app)
+
+        monkeypatch.setattr(celery_macro, "_HELD_TASKS_INSPECT_BUDGET", 0.0)
+        started = time.monotonic()
+        celery_macro._inspect_held_tasks(celery_app, False)
+        assert time.monotonic() - started < 1.0
+
+        monkeypatch.setattr(celery_macro, "_HELD_TASKS_INSPECT_BUDGET", 2.0)
+        started = time.monotonic()
+        assert celery_macro._inspect_held_tasks(celery_app, False) == {"celery": 3}
+        assert time.monotonic() - started >= 2.5
+
+
 def _clear_broker_env(monkeypatch):
     for key in (
         "HIREFIRE_CELERY_BROKER_URL",
