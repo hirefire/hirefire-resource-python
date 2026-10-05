@@ -1,7 +1,11 @@
 import asyncio
 import math
 import os
+import subprocess
+import sys
+import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -10,7 +14,8 @@ from celery import Celery
 from kombu import Queue, pools
 
 from hirefire_resource import HireFire, plan
-from hirefire_resource.errors import MissingQueueError
+from hirefire_resource.errors import MissingQueueError, SampleIncompleteError
+from hirefire_resource.macro import celery as celery_macro
 from hirefire_resource.macro.celery import (
     ChannelError,
     _job_queue_latency_rabbitmq,
@@ -50,10 +55,14 @@ def _assert_size(expected, *queues, **kwargs):
     deadline = time.monotonic() + _SIZE_WAIT_S
     seen = None
     while time.monotonic() < deadline:
-        seen = job_queue_size(*queues, **kwargs)
-        _assert_int_count(seen)
-        if seen == expected:
-            return
+        try:
+            seen = job_queue_size(*queues, **kwargs)
+        except SampleIncompleteError as error:
+            seen = error
+        else:
+            _assert_int_count(seen)
+            if seen == expected:
+                return
         time.sleep(_SIZE_POLL_S)
     assert seen == expected
 
@@ -62,17 +71,40 @@ async def _assert_async_size(expected, *queues, **kwargs):
     deadline = time.monotonic() + _SIZE_WAIT_S
     seen = None
     while time.monotonic() < deadline:
-        seen = await async_job_queue_size(*queues, **kwargs)
-        _assert_int_count(seen)
-        if seen == expected:
-            return
+        try:
+            seen = await async_job_queue_size(*queues, **kwargs)
+        except SampleIncompleteError as error:
+            seen = error
+        else:
+            _assert_int_count(seen)
+            if seen == expected:
+                return
         await asyncio.sleep(_SIZE_POLL_S)
     assert seen == expected
+
+
+def _held_threads():
+    return [
+        thread
+        for thread in threading.enumerate()
+        if thread.name == "hirefire-celery-held-tasks"
+    ]
 
 
 @pytest.fixture(scope="session", params=broker_urls)
 def celery_app(request):
     return _celery(request.param)
+
+
+@pytest.fixture(autouse=True)
+def fast_held_tasks(monkeypatch):
+    monkeypatch.setattr(celery_macro, "_HELD_TASKS_INSPECT_TIMEOUT", 0.05)
+    monkeypatch.setattr(celery_macro, "_HELD_TASKS_REFRESH_INTERVAL", 0.05)
+    yield
+    celery_macro.reinit_after_fork()
+    for thread in _held_threads():
+        thread.join(10)
+    assert _held_threads() == []
 
 
 @pytest.fixture(autouse=True)
@@ -157,7 +189,9 @@ def test_job_queue_latency_with_jobs(celery_app):
     assert math.isclose(
         job_queue_latency("mailer", broker_url=celery_app.conf.broker_url), 8, abs_tol=1
     )
-    _assert_size(10, "celery", "mailer", broker_url=celery_app.conf.broker_url)
+    _assert_size(
+        10, "celery", "mailer", broker_url=celery_app.conf.broker_url, skip_working=True
+    )
 
 
 def test_job_queue_latency_with_jobs_multi(celery_app):
@@ -168,7 +202,9 @@ def test_job_queue_latency_with_jobs_multi(celery_app):
         8,
         abs_tol=1,
     )
-    _assert_size(10, "celery", "mailer", broker_url=celery_app.conf.broker_url)
+    _assert_size(
+        10, "celery", "mailer", broker_url=celery_app.conf.broker_url, skip_working=True
+    )
 
 
 @pytest.mark.asyncio
@@ -205,7 +241,7 @@ async def test_job_queue_latency_with_jobs_async(celery_app):
         abs_tol=1,
     )
     await _assert_async_size(
-        10, "celery", "mailer", broker_url=celery_app.conf.broker_url
+        10, "celery", "mailer", broker_url=celery_app.conf.broker_url, skip_working=True
     )
 
 
@@ -221,7 +257,7 @@ async def test_job_queue_latency_with_jobs_multi_async(celery_app):
         abs_tol=1,
     )
     await _assert_async_size(
-        10, "celery", "mailer", broker_url=celery_app.conf.broker_url
+        10, "celery", "mailer", broker_url=celery_app.conf.broker_url, skip_working=True
     )
 
 
@@ -231,7 +267,9 @@ def test_job_queue_size_missing_queue():
 
 
 def test_job_queue_size_without_jobs(celery_app):
-    size = job_queue_size("celery", broker_url=celery_app.conf.broker_url)
+    size = job_queue_size(
+        "celery", broker_url=celery_app.conf.broker_url, skip_working=True
+    )
     _assert_int_count(size)
     assert size == 0
 
@@ -241,8 +279,10 @@ def test_job_queue_size_with_jobs(celery_app):
         celery_app.send_task("test_task", queue="celery")
         celery_app.send_task("test_task", queue="mailer")
 
-    _assert_size(5, "celery", broker_url=celery_app.conf.broker_url)
-    _assert_size(10, "celery", "mailer", broker_url=celery_app.conf.broker_url)
+    _assert_size(5, "celery", broker_url=celery_app.conf.broker_url, skip_working=True)
+    _assert_size(
+        10, "celery", "mailer", broker_url=celery_app.conf.broker_url, skip_working=True
+    )
 
 
 def test_job_queue_size_dedupes_and_trims_queue_names(celery_app):
@@ -255,6 +295,7 @@ def test_job_queue_size_dedupes_and_trims_queue_names(celery_app):
         " celery ",
         "celery",
         broker_url=celery_app.conf.broker_url,
+        skip_working=True,
     )
 
 
@@ -341,6 +382,7 @@ def test_job_queue_size_reraises_operational_error(monkeypatch):
     )
     with pytest.raises(OperationalError, match="broker down"):
         job_queue_size("celery", broker_url="redis://localhost:6379/0")
+    assert celery_macro._held_tasks == {}
 
 
 def test_job_queue_latency_reraises_operational_error(monkeypatch):
@@ -392,7 +434,9 @@ async def test_async_job_queue_size_missing_queue():
 
 @pytest.mark.asyncio
 async def test_job_queue_size_without_jobs_async(celery_app):
-    size = await async_job_queue_size("celery", broker_url=celery_app.conf.broker_url)
+    size = await async_job_queue_size(
+        "celery", broker_url=celery_app.conf.broker_url, skip_working=True
+    )
     _assert_int_count(size)
     assert size == 0
 
@@ -403,9 +447,11 @@ async def test_job_queue_size_with_jobs_async(celery_app):
         celery_app.send_task("test_task", queue="celery")
         celery_app.send_task("test_task", queue="mailer")
 
-    await _assert_async_size(5, "celery", broker_url=celery_app.conf.broker_url)
     await _assert_async_size(
-        10, "celery", "mailer", broker_url=celery_app.conf.broker_url
+        5, "celery", broker_url=celery_app.conf.broker_url, skip_working=True
+    )
+    await _assert_async_size(
+        10, "celery", "mailer", broker_url=celery_app.conf.broker_url, skip_working=True
     )
 
 
@@ -454,7 +500,7 @@ def test_job_queue_size_reconnects_a_pooled_connection_that_kombu_closed(celery_
                 connection.default_channel
                 raise RuntimeError("raised inside the block")
 
-        _assert_size(1, "celery", celery_app=app)
+        _assert_size(1, "celery", celery_app=app, skip_working=True)
     finally:
         pools.set_limit(previous)
 
@@ -466,7 +512,7 @@ def test_job_queue_size_priority_queue_with_broker_url(setup_priority_queue):
     priority_celery_app.send_task("test_task", queue="priority_queue")
     priority_celery_app.send_task("test_task", queue="priority_queue")
 
-    _assert_size(2, "priority_queue", broker_url=broker_url)
+    _assert_size(2, "priority_queue", broker_url=broker_url, skip_working=True)
 
 
 def test_job_queue_size_priority_queue_with_celery_app_returns_correct_count(
@@ -478,7 +524,7 @@ def test_job_queue_size_priority_queue_with_celery_app_returns_correct_count(
     priority_celery_app.send_task("test_task", queue="priority_queue")
     priority_celery_app.send_task("test_task", queue="priority_queue")
 
-    _assert_size(3, "priority_queue", celery_app=priority_celery_app)
+    _assert_size(3, "priority_queue", celery_app=priority_celery_app, skip_working=True)
 
 
 def test_job_queue_size_raises_error_when_both_broker_url_and_celery_app_provided(
@@ -545,7 +591,9 @@ def test_job_queue_size_with_mismatched_priority_arguments(celery_app):
             Queue(queue_name, queue_arguments={"x-max-priority": 10}),
         ]
 
-        result_wrong = job_queue_size(queue_name, celery_app=wrong_app)
+        result_wrong = job_queue_size(
+            queue_name, celery_app=wrong_app, skip_working=True
+        )
         assert result_wrong in [0, 2]
 
         correct_app = Celery(broker=broker_url)
@@ -553,7 +601,7 @@ def test_job_queue_size_with_mismatched_priority_arguments(celery_app):
             Queue(queue_name, queue_arguments={"x-max-priority": 20}),
         ]
 
-        _assert_size(2, queue_name, celery_app=correct_app)
+        _assert_size(2, queue_name, celery_app=correct_app, skip_working=True)
 
     finally:
         try:
@@ -694,8 +742,9 @@ def test_job_queue_latency_rabbitmq_channel_error_is_float_zero():
     assert latency == 0
 
 
-def _inflating_inspect_control():
+def _held_tasks_control():
     due_eta = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat()
+    future_eta = (datetime.now(timezone.utc) + timedelta(seconds=300)).isoformat()
     active_task = {
         "delivery_info": {"routing_key": "celery"},
         "id": "active-1",
@@ -704,70 +753,332 @@ def _inflating_inspect_control():
         "delivery_info": {"routing_key": "celery"},
         "id": "reserved-1",
     }
-    scheduled_task = {
+    mailer_task = {
+        "delivery_info": {"routing_key": "mailer"},
+        "id": "reserved-2",
+    }
+    due_task = {
         "eta": due_eta,
+        "priority": 6,
         "request": {
             "delivery_info": {"routing_key": "celery"},
             "id": "scheduled-1",
         },
     }
+    future_task = {
+        "eta": future_eta,
+        "priority": 6,
+        "request": {
+            "delivery_info": {"routing_key": "celery"},
+            "id": "scheduled-2",
+        },
+    }
 
-    class InflatingInspect:
+    class HeldTasksInspect:
         def active(self):
             return {"worker@host": [active_task, dict(active_task, id="active-2")]}
 
         def reserved(self):
-            return {"worker@host": [reserved_task]}
+            return {"worker@host": [reserved_task, mailer_task]}
 
         def scheduled(self):
-            return {"worker@host": [scheduled_task]}
+            return {"worker@host": [due_task, future_task]}
 
     class TrackingControl:
         def __init__(self):
             self.inspect_calls = 0
+            self.error = None
 
         def inspect(self, *args, **kwargs):
             self.inspect_calls += 1
-            return InflatingInspect()
+            if self.error is not None:
+                raise self.error
+            return HeldTasksInspect()
 
     return TrackingControl()
 
 
-def test_job_queue_size_ignores_active_reserved_and_due_scheduled_inspect(
-    celery_app, monkeypatch
-):
+def test_job_queue_size_counts_the_tasks_workers_hold(celery_app, monkeypatch):
     celery_app.send_task("test_task", queue="celery")
-    celery_app.send_task("test_task", queue="celery")
-
-    control = _inflating_inspect_control()
-    monkeypatch.setattr(celery_app, "control", control)
-
-    _assert_size(2, "celery", celery_app=celery_app)
-    assert control.inspect_calls == 0
-
-
-def test_job_queue_size_without_broker_jobs_ignores_worker_inspect(
-    celery_app, monkeypatch
-):
-    control = _inflating_inspect_control()
-    monkeypatch.setattr(celery_app, "control", control)
-
-    assert job_queue_size("celery", celery_app=celery_app) == 0
-    assert control.inspect_calls == 0
-
-
-def test_job_queue_size_mixed_broker_and_inspect_counts_broker_only(
-    celery_app, monkeypatch
-):
     celery_app.send_task("test_task", queue="celery")
     celery_app.send_task("test_task", queue="mailer")
-    celery_app.send_task("test_task", queue="mailer")
-
-    control = _inflating_inspect_control()
+    control = _held_tasks_control()
     monkeypatch.setattr(celery_app, "control", control)
 
-    _assert_size(3, "celery", "mailer", celery_app=celery_app)
+    _assert_size(6, "celery", celery_app=celery_app)
+    _assert_size(2, "mailer", celery_app=celery_app)
+    _assert_size(8, "celery", "mailer", celery_app=celery_app)
+    assert control.inspect_calls > 0
+    assert len(_held_threads()) == 1
+
+
+def test_job_queue_size_without_broker_jobs_counts_the_tasks_workers_hold(
+    celery_app, monkeypatch
+):
+    monkeypatch.setattr(celery_app, "control", _held_tasks_control())
+
+    _assert_size(4, "celery", celery_app=celery_app)
+    _assert_size(0, "other", celery_app=celery_app)
+
+
+def test_job_queue_size_drops_the_first_sample_after_a_start(celery_app, monkeypatch):
+    celery_app.send_task("test_task", queue="celery")
+    monkeypatch.setattr(celery_app, "control", _held_tasks_control())
+
+    with pytest.raises(SampleIncompleteError, match="no recent count"):
+        job_queue_size("celery", celery_app=celery_app)
+
+    _assert_size(5, "celery", celery_app=celery_app)
+
+
+def test_job_queue_size_skip_working_never_asks_the_workers(celery_app, monkeypatch):
+    celery_app.send_task("test_task", queue="celery")
+    celery_app.send_task("test_task", queue="celery")
+    celery_app.send_task("test_task", queue="mailer")
+    control = _held_tasks_control()
+    monkeypatch.setattr(celery_app, "control", control)
+
+    _assert_size(2, "celery", celery_app=celery_app, skip_working=True)
+    _assert_size(3, "celery", "mailer", celery_app=celery_app, skip_working=True)
+    _assert_size(2, "celery", broker_url=celery_app.conf.broker_url, skip_working=True)
+
     assert control.inspect_calls == 0
+    assert celery_macro._held_tasks == {}
+    assert _held_threads() == []
+
+
+def test_job_queue_size_skip_working_false_or_none_counts_held_tasks(
+    celery_app, monkeypatch
+):
+    monkeypatch.setattr(celery_app, "control", _held_tasks_control())
+
+    _assert_size(4, "celery", celery_app=celery_app, skip_working=False)
+    _assert_size(4, "celery", celery_app=celery_app, skip_working=None)
+
+
+@pytest.mark.asyncio
+async def test_async_job_queue_size_counts_held_tasks_unless_skipped(
+    celery_app, monkeypatch
+):
+    celery_app.send_task("test_task", queue="celery")
+    monkeypatch.setattr(celery_app, "control", _held_tasks_control())
+
+    await _assert_async_size(1, "celery", celery_app=celery_app, skip_working=True)
+    assert celery_macro._held_tasks == {}
+
+    await _assert_async_size(5, "celery", celery_app=celery_app)
+
+
+def test_job_queue_size_by_broker_url_counts_no_held_tasks_when_no_worker_answers(
+    celery_app,
+):
+    broker_url = celery_app.conf.broker_url
+    celery_app.send_task("test_task", queue="celery")
+    celery_app.send_task("test_task", queue="celery")
+    previous = pools.get_limit()
+    pools.set_limit(7)
+
+    try:
+        with pytest.raises(SampleIncompleteError):
+            job_queue_size("celery", broker_url=broker_url)
+
+        _assert_size(2, "celery", broker_url=broker_url)
+        assert list(celery_macro._held_tasks) == [broker_url]
+        assert pools.get_limit() == 7
+    finally:
+        pools.set_limit(previous)
+
+
+def test_job_queue_size_reports_a_failing_worker_count(celery_app, monkeypatch):
+    from kombu.exceptions import OperationalError
+
+    control = _held_tasks_control()
+    control.error = OperationalError("broker down")
+    monkeypatch.setattr(celery_app, "control", control)
+
+    with pytest.raises(SampleIncompleteError):
+        job_queue_size("celery", celery_app=celery_app)
+
+    deadline = time.monotonic() + _SIZE_WAIT_S
+    message = ""
+    while "broker down" not in message and time.monotonic() < deadline:
+        with pytest.raises(SampleIncompleteError) as raised:
+            job_queue_size("celery", celery_app=celery_app)
+        message = str(raised.value)
+        time.sleep(_SIZE_POLL_S)
+
+    assert message == (
+        "Celery has no recent count of the tasks its workers hold. "
+        "The last refresh raised OperationalError: broker down."
+    )
+    assert job_queue_size("celery", celery_app=celery_app, skip_working=True) == 0
+
+
+def test_job_queue_size_drops_the_sample_when_the_counts_are_stale(
+    celery_app, monkeypatch
+):
+    control = _held_tasks_control()
+    monkeypatch.setattr(celery_app, "control", control)
+    _assert_size(4, "celery", celery_app=celery_app)
+
+    control.error = RuntimeError("workers unreachable")
+    monkeypatch.setattr(celery_macro, "_HELD_TASKS_MAX_AGE", 0.1)
+
+    deadline = time.monotonic() + _SIZE_WAIT_S
+    seen = None
+    while not isinstance(seen, SampleIncompleteError):
+        assert time.monotonic() < deadline, seen
+        try:
+            seen = job_queue_size("celery", celery_app=celery_app)
+        except SampleIncompleteError as error:
+            seen = error
+        time.sleep(_SIZE_POLL_S)
+
+    assert "RuntimeError: workers unreachable" in str(seen)
+
+
+def test_plan_skip_working_samples_the_broker_and_never_asks_the_workers(
+    celery_app, monkeypatch
+):
+    monkeypatch.setenv("HIREFIRE_CELERY_BROKER_URL", celery_app.conf.broker_url)
+    celery_app.send_task("test_task", queue="celery")
+    celery_app.send_task("test_task", queue="celery")
+    _assert_size(2, "celery", broker_url=celery_app.conf.broker_url, skip_working=True)
+
+    HireFire.configuration.buffer.flush()
+    plan.execute(
+        {
+            "name": "worker",
+            "adapter": "celery",
+            "strategy": "jqs",
+            "queues": ["celery"],
+            "options": {"skip_working": True},
+        }
+    )
+
+    flushed = HireFire.configuration.buffer.flush()
+    assert list(flushed["worker"]["jqs"].values())[-1] == 2
+    assert "wrk" not in flushed["worker"]
+    assert celery_macro._held_tasks == {}
+    assert _held_threads() == []
+
+
+def test_plan_without_skip_working_drops_samples_until_the_workers_are_counted(
+    celery_app, monkeypatch, caplog
+):
+    import logging
+
+    caplog.set_level(logging.ERROR)
+    monkeypatch.setenv("HIREFIRE_CELERY_BROKER_URL", celery_app.conf.broker_url)
+    celery_app.send_task("test_task", queue="celery")
+    _assert_size(1, "celery", broker_url=celery_app.conf.broker_url, skip_working=True)
+    entry = {
+        "name": "worker",
+        "adapter": "celery",
+        "strategy": "jqs",
+        "queues": ["celery"],
+    }
+
+    HireFire.configuration.buffer.flush()
+    plan.execute(entry)
+
+    assert HireFire.configuration.buffer.flush() == {}
+    assert "SampleIncompleteError" in caplog.text
+    assert "no recent count of the tasks its workers hold" in caplog.text
+
+    deadline = time.monotonic() + _SIZE_WAIT_S
+    flushed = {}
+    while "worker" not in flushed and time.monotonic() < deadline:
+        time.sleep(_SIZE_POLL_S)
+        plan.execute(entry)
+        flushed = HireFire.configuration.buffer.flush()
+
+    assert list(flushed["worker"]["jqs"].values())[-1] == 1
+    assert "wrk" not in flushed["worker"]
+
+
+def test_plan_jql_never_asks_the_workers(celery_app, monkeypatch):
+    monkeypatch.setenv("HIREFIRE_CELERY_BROKER_URL", celery_app.conf.broker_url)
+
+    HireFire.configuration.buffer.flush()
+    plan.execute(
+        {
+            "name": "worker",
+            "adapter": "celery",
+            "strategy": "jql",
+            "queues": ["celery"],
+            "options": {"skip_working": True},
+        }
+    )
+
+    flushed = HireFire.configuration.buffer.flush()
+    assert list(flushed["worker"]["jql"].values())[-1] == 0
+    assert celery_macro._held_tasks == {}
+
+
+@contextmanager
+def _worker(broker_url):
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "celery",
+            "--app",
+            "celery_worker_app",
+            "worker",
+            "--pool",
+            "threads",
+            "--concurrency",
+            "1",
+            "--queues",
+            "celery",
+            "--without-gossip",
+            "--without-mingle",
+            "--without-heartbeat",
+            "--loglevel",
+            "ERROR",
+        ],
+        cwd=os.path.dirname(os.path.abspath(__file__)),
+        env={**os.environ, "HIREFIRE_TEST_BROKER_URL": broker_url},
+    )
+    try:
+        yield
+    finally:
+        process.kill()
+        process.wait()
+
+
+def test_job_queue_size_counts_the_tasks_a_real_worker_holds(celery_app, monkeypatch):
+    monkeypatch.setattr(celery_macro, "_HELD_TASKS_INSPECT_TIMEOUT", 1.0)
+    monkeypatch.setattr(sys.modules[__name__], "_SIZE_WAIT_S", 30.0)
+    broker_url = celery_app.conf.broker_url
+
+    for _ in range(3):
+        celery_app.send_task("hirefire.test.hold", queue="celery")
+    celery_app.send_task(
+        "hirefire.test.hold",
+        queue="celery",
+        eta=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    for _ in range(2):
+        celery_app.send_task("hirefire.test.hold", queue="mailer")
+    _assert_size(4, "celery", broker_url=broker_url, skip_working=True)
+
+    with _worker(broker_url):
+        _assert_size(0, "celery", broker_url=broker_url, skip_working=True)
+        _assert_size(2, "celery", "mailer", celery_app=celery_app, skip_working=True)
+        assert celery_macro._held_tasks == {}
+
+        with pytest.raises(SampleIncompleteError):
+            job_queue_size("celery", celery_app=celery_app)
+        with pytest.raises(SampleIncompleteError):
+            job_queue_size("celery", broker_url=broker_url)
+        assert len(_held_threads()) == 2
+
+        _assert_size(3, "celery", celery_app=celery_app)
+        _assert_size(5, "celery", "mailer", celery_app=celery_app)
+        _assert_size(3, "celery", broker_url=broker_url)
+        _assert_size(5, "celery", "mailer", broker_url=broker_url)
 
 
 def _clear_broker_env(monkeypatch):

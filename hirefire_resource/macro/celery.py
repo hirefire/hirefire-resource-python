@@ -2,6 +2,7 @@ import asyncio
 import functools
 import json
 import os
+import threading
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -22,14 +23,33 @@ except ImportError:
 
     AMQP_AVAILABLE = False
 
+from hirefire_resource.errors import SampleIncompleteError
+from hirefire_resource.log import format_error
 from hirefire_resource.plan import hooks as _plan_hooks
 from hirefire_resource.utility import normalize_queues
 
 before_sample_job_queues = _plan_hooks.before_sample_job_queues
 after_sample_job_queues = _plan_hooks.after_sample_job_queues
-reinit_after_fork = _plan_hooks.reinit_after_fork
-plan_options = _plan_hooks.plan_options
 supports_plan_strategy = _plan_hooks.supports_plan_strategy
+
+_PLAN_OPTION_SCHEMA = {"jqs": {"skip_working": "boolean"}}
+_HELD_TASKS_INSPECT_TIMEOUT = 1.0
+_HELD_TASKS_REFRESH_INTERVAL = 5.0
+_HELD_TASKS_MAX_AGE = 30.0
+_HELD_TASKS_IDLE_TIMEOUT = 60.0
+
+_held_tasks_lock = threading.Lock()
+_held_tasks: dict[object, "_HeldTasks"] = {}
+
+
+def plan_options(strategy: object, options: object) -> dict[str, Any]:
+    return _plan_hooks.extract_plan_options(strategy, options, _PLAN_OPTION_SCHEMA)
+
+
+def reinit_after_fork() -> None:
+    global _held_tasks_lock, _held_tasks
+    _held_tasks_lock = threading.Lock()
+    _held_tasks = {}
 
 
 def queues_required() -> bool:
@@ -152,6 +172,7 @@ def job_queue_size(
     *queues: str,
     broker_url: str | None = None,
     celery_app: "Celery | None" = None,
+    skip_working: bool = False,
 ) -> int:
     queue_names = normalize_queues(*queues, allow_empty=False)
 
@@ -171,16 +192,25 @@ def job_queue_size(
 
     with conn_cm as connection:
         with connection.channel() as channel:
-            return _job_queue_size_broker(app, channel, queue_names)
+            size = _job_queue_size_broker(app, channel, queue_names)
+
+    if skip_working:
+        return size
+    return size + _held_task_count(app, celery_app is None, queue_names)
 
 
 async def async_job_queue_size(
     *queues: str,
     broker_url: str | None = None,
     celery_app: "Celery | None" = None,
+    skip_working: bool = False,
 ) -> int:
     return await asyncio.to_thread(
-        job_queue_size, *queues, broker_url=broker_url, celery_app=celery_app
+        job_queue_size,
+        *queues,
+        broker_url=broker_url,
+        celery_app=celery_app,
+        skip_working=skip_working,
     )
 
 
@@ -299,6 +329,103 @@ def _job_queue_size_rabbitmq(channel: Any, queue: str, arguments: Any = None) ->
         ).message_count
     except ChannelError:
         return 0
+
+
+class _HeldTasks:
+    def __init__(self, key: object, app: Any, owned: bool) -> None:
+        self._key = key
+        self._app = app
+        self._owned = owned
+        self._counts: dict[str, int] | None = None
+        self._counted_at = 0.0
+        self._asked_at = time.monotonic()
+        self._error: str | None = None
+        self.thread = threading.Thread(
+            target=self._run, name="hirefire-celery-held-tasks", daemon=True
+        )
+        if owned:
+            app.control.mailbox.producer_pool = None
+
+    def count(self, queues: set[str]) -> int:
+        now = time.monotonic()
+        self._asked_at = now
+        if self._counts is None or now - self._counted_at > _HELD_TASKS_MAX_AGE:
+            reason = f" The last refresh raised {self._error}." if self._error else ""
+            raise SampleIncompleteError(
+                "Celery has no recent count of the tasks its workers hold." + reason
+            )
+        return sum(self._counts.get(queue, 0) for queue in queues)
+
+    def _run(self) -> None:
+        while True:
+            started = time.monotonic()
+            self._refresh()
+            elapsed = time.monotonic() - started
+            threading.Event().wait(max(0.0, _HELD_TASKS_REFRESH_INTERVAL - elapsed))
+            with _held_tasks_lock:
+                if _held_tasks.get(self._key) is not self:
+                    return
+                if time.monotonic() - self._asked_at >= _HELD_TASKS_IDLE_TIMEOUT:
+                    del _held_tasks[self._key]
+                    return
+
+    def _refresh(self) -> None:
+        try:
+            counts = _inspect_held_tasks(self._app, self._owned)
+        except Exception as error:
+            with _held_tasks_lock:
+                self._error = format_error(error)
+            return
+        with _held_tasks_lock:
+            self._counts = counts
+            self._counted_at = time.monotonic()
+            self._error = None
+
+
+def _held_task_count(app: Any, owned: bool, queues: set[str]) -> int:
+    key: object = app.conf.broker_url if owned else id(app)
+    with _held_tasks_lock:
+        held = _held_tasks.get(key)
+        if held is None or not held.thread.is_alive():
+            held = _held_tasks[key] = _HeldTasks(key, app, owned)
+            held.thread.start()
+        return held.count(queues)
+
+
+def _inspect_held_tasks(app: Any, owned: bool) -> dict[str, int]:
+    connect = _sample_connection(app) if owned else _caller_connection(app)
+    with connect as connection:
+        inspect = app.control.inspect(
+            timeout=_HELD_TASKS_INSPECT_TIMEOUT, connection=connection
+        )
+        collections = (inspect.active(), inspect.reserved(), inspect.scheduled())
+
+    now = time.time()
+    counts: dict[str, int] = {}
+    for collection in collections:
+        if collection is None:
+            continue
+        for tasks in collection.values():
+            if not isinstance(tasks, list):
+                continue
+            for task in tasks:
+                queue = _held_task_queue(task, now)
+                if queue is not None:
+                    counts[queue] = counts.get(queue, 0) + 1
+    return counts
+
+
+def _held_task_queue(task: Any, now: float) -> str | None:
+    try:
+        eta = task.get("eta")
+        if eta:
+            if now < parse(eta).timestamp():
+                return None
+            task = task["request"]
+        queue = task["delivery_info"]["routing_key"]
+    except Exception:
+        return None
+    return queue if isinstance(queue, str) else None
 
 
 def plan_connection_options() -> dict[str, Any]:

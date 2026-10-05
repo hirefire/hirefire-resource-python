@@ -47,12 +47,42 @@ def test_supports_plan_strategy():
     assert not celery_macro.supports_plan_strategy("cpu")
 
 
+def test_plan_options_allowlist_skip_working_for_jqs():
+    options = celery_macro.plan_options(
+        "jqs", {"skip_working": True, "broker_url": "redis://other/0"}
+    )
+
+    assert options == {"skip_working": True}
+
+
+def test_plan_options_keep_a_false_skip_working():
+    assert celery_macro.plan_options("jqs", {"skip_working": False}) == {
+        "skip_working": False
+    }
+
+
+def test_plan_options_drop_a_non_boolean_skip_working():
+    assert celery_macro.plan_options("jqs", {"skip_working": "true"}) == {}
+    assert celery_macro.plan_options("jqs", {"skip_working": 1}) == {}
+    assert celery_macro.plan_options("jqs", {"skip_working": None}) == {}
+    assert celery_macro.plan_options("jqs", None) == {}
+
+
+def test_plan_options_jql_never_receives_skip_working():
+    assert celery_macro.plan_options("jql", {"skip_working": True}) == {}
+
+
 def test_sample_wave_hooks_default_to_noops():
     from hirefire_resource.plan import hooks
 
     assert celery_macro.before_sample_job_queues is hooks.before_sample_job_queues
     assert celery_macro.after_sample_job_queues is hooks.after_sample_job_queues
-    assert celery_macro.reinit_after_fork is hooks.reinit_after_fork
     assert celery_macro.before_sample_job_queues() is None
     assert celery_macro.after_sample_job_queues("token") is None
+
+
+def test_reinit_after_fork_is_the_macros_own_hook():
+    from hirefire_resource.plan import hooks
+
+    assert celery_macro.reinit_after_fork is not hooks.reinit_after_fork
     assert celery_macro.reinit_after_fork() is None

@@ -9,3 +9,7 @@ class MissingSamplerError(Exception):
 
 class DuplicateDynoError(Exception):
     pass
+
+
+class SampleIncompleteError(Exception):
+    pass
