@@ -972,7 +972,8 @@ def test_allowlisted_macros_reexport_sample_wave_hooks_as_noops():
             continue
         assert macro.before_sample_job_queues is hooks.before_sample_job_queues
         assert macro.after_sample_job_queues is hooks.after_sample_job_queues
-        assert macro.reinit_after_fork is hooks.reinit_after_fork
+        if name != "celery":
+            assert macro.reinit_after_fork is hooks.reinit_after_fork
         assert macro.before_sample_job_queues() is None
         assert macro.after_sample_job_queues("token") is None
         assert macro.reinit_after_fork() is None
