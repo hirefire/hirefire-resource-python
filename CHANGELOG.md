@@ -23,7 +23,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - Request queue time is sampled automatically from HTTP traffic. `config.dyno("web")` is not required.
-- Celery `job_queue_size` counts only ready messages in the broker. Active, reserved, and inspect-based scheduled tasks are not included.
+- Celery `job_queue_size` counts the tasks its workers hold, as on 1.x, and now asks the workers on a background thread every 5 seconds, so a sample never waits for them. Pass `skip_working=True` to count waiting tasks only.
+- Celery `job_queue_size` skips a sample when it has no count of the tasks its workers hold from the last 30 seconds, for example in the first seconds after a start. 1.x waited for the workers during the sample.
+- Breaking: RQ `job_queue_size` now includes running jobs. Pass `skip_working=True` to count waiting jobs only.
 - Official Python support is 3.11+. Official Django support is 4+.
 - A Celery connection reset is retried once immediately. The sample no longer sleeps up to 9 seconds.
 - Process names may be any non-empty string up to 128 bytes. The 1.x letter-start charset and 30-character cap are gone.
@@ -45,6 +47,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Request queue time ignores samples older than 60 seconds.
 - Celery queue samples time out after 5 seconds when the broker does not respond.
 - A Celery broker that is down no longer reports job queue size or latency as 0.
+- Celery `job_queue_size` with `celery_app` no longer raises `AttributeError` on every sample after an error closed a broker connection in the app's pool.
 - Celery Redis latency skips corrupt JSON instead of raising. Celery RabbitMQ latency always requeues the peeked message, even when the header parse fails.
 - RQ job queue latency skips an unreadable job timestamp instead of failing the whole sample.
 - RQ Redis samples time out after 5 seconds when the broker does not respond.
