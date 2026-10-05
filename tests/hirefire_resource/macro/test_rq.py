@@ -484,7 +484,7 @@ async def test_async_job_queue_working():
     assert await async_job_queue_working("critical", redis_url=redis_url) == 0
 
 
-def test_plan_execute_rq_jqs_also_samples_wrk(monkeypatch):
+def test_plan_execute_rq_jqs_counts_running_jobs_and_samples_no_wrk(monkeypatch):
     monkeypatch.setenv("HIREFIRE_RQ_URL", redis_url)
     r = Redis.from_url(redis_url)
     expires_at = int(time.time()) + 90
@@ -506,12 +506,10 @@ def test_plan_execute_rq_jqs_also_samples_wrk(monkeypatch):
     flushed = HireFire.configuration.buffer.flush()
     assert "worker" in flushed
     assert "jqs" in flushed["worker"]
-    assert "wrk" in flushed["worker"]
+    assert "wrk" not in flushed["worker"]
     jqs_value = list(flushed["worker"]["jqs"].values())[-1]
-    wrk_value = list(flushed["worker"]["wrk"].values())[-1]
     assert jqs_value == job_queue_size("default", redis_url=redis_url)
-    assert wrk_value == job_queue_working("default", redis_url=redis_url)
-    assert wrk_value == 2
+    assert job_queue_working("default", redis_url=redis_url) == 2
     assert jqs_value == 3
 
 
@@ -576,7 +574,7 @@ def test_plan_execute_rq_empty_queues_samples_all_wrk(monkeypatch):
             "adapter": "rq",
             "strategy": "jqs",
             "queues": [],
-            "options": {},
+            "options": {"skip_working": True},
         }
     )
 

@@ -1096,7 +1096,7 @@ def test_plan_without_skip_working_drops_samples_until_the_workers_are_counted(
         flushed = HireFire.configuration.buffer.flush()
 
     assert list(flushed["worker"]["jqs"].values())[-1] == 1
-    assert list(flushed["worker"]["wrk"].values())[-1] == 0
+    assert "wrk" not in flushed["worker"]
     assert len(logged()) == 1
 
 

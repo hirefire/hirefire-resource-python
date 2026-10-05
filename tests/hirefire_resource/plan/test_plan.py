@@ -198,7 +198,7 @@ def test_execute_live_gate_drops_a_sample_that_returns_after_stop():
 
         @staticmethod
         def plan_options(strategy, options):
-            return {}
+            return {"skip_working": True}
 
         @staticmethod
         def plan_connection_options():
@@ -1044,7 +1044,11 @@ def test_execute_known_adapter_unloadable_logs_distinct_from_unknown(caplog):
     assert HireFire.configuration.buffer.flush() == {}
 
 
-def test_execute_samples_wrk_when_macro_implements_job_queue_working():
+def _execute_with_a_working_macro(strategy, options):
+    from hirefire_resource.plan import hooks
+
+    working_calls = []
+
     class Macro:
         @staticmethod
         def supports_plan_strategy(strategy):
@@ -1052,7 +1056,9 @@ def test_execute_samples_wrk_when_macro_implements_job_queue_working():
 
         @staticmethod
         def plan_options(strategy, options):
-            return {}
+            return hooks.extract_plan_options(
+                strategy, options, {"jqs": {"skip_working": "boolean"}}
+            )
 
         @staticmethod
         def plan_connection_options():
@@ -1063,8 +1069,12 @@ def test_execute_samples_wrk_when_macro_implements_job_queue_working():
             return 7
 
         @staticmethod
+        def job_queue_latency(*queues, **options):
+            return 1.5
+
+        @staticmethod
         def job_queue_working(*queues, **options):
-            assert list(queues) == ["default"]
+            working_calls.append(queues)
             return 3
 
     with patch.object(plan, "_load_macro", return_value=Macro):
@@ -1072,14 +1082,39 @@ def test_execute_samples_wrk_when_macro_implements_job_queue_working():
             {
                 "name": "worker",
                 "adapter": "rq",
-                "strategy": "jqs",
+                "strategy": strategy,
                 "queues": ["default"],
+                "options": options,
             }
         )
 
-    data = HireFire.configuration.buffer.flush()
+    return HireFire.configuration.buffer.flush(), working_calls
+
+
+def test_execute_samples_no_wrk_for_jqs_without_skip_working():
+    for options in (None, {}, {"skip_working": False}, {"skip_working": "true"}):
+        data, working_calls = _execute_with_a_working_macro("jqs", options)
+
+        assert list(data["worker"]["jqs"].values())[0] == 7
+        assert "wrk" not in data["worker"]
+        assert working_calls == []
+
+
+def test_execute_samples_wrk_for_jqs_with_skip_working():
+    data, working_calls = _execute_with_a_working_macro("jqs", {"skip_working": True})
+
     assert list(data["worker"]["jqs"].values())[0] == 7
     assert list(data["worker"]["wrk"].values())[0] == 3
+    assert working_calls == [("default",)]
+
+
+def test_execute_samples_wrk_for_every_jql_entry():
+    for options in (None, {}, {"skip_working": False}):
+        data, working_calls = _execute_with_a_working_macro("jql", options)
+
+        assert list(data["worker"]["jql"].values())[0] == 1.5
+        assert list(data["worker"]["wrk"].values())[0] == 3
+        assert working_calls == [("default",)]
 
 
 def test_execute_passes_only_connection_options_to_job_queue_working():
@@ -1136,7 +1171,7 @@ def test_execute_still_samples_wrk_when_job_strategy_sample_invalid():
 
         @staticmethod
         def plan_options(strategy, options):
-            return {}
+            return {"skip_working": True}
 
         @staticmethod
         def plan_connection_options():
@@ -1181,7 +1216,7 @@ def test_execute_still_samples_wrk_when_job_strategy_raises(caplog):
 
         @staticmethod
         def plan_options(strategy, options):
-            return {}
+            return {"skip_working": True}
 
         @staticmethod
         def plan_connection_options():
@@ -1224,7 +1259,7 @@ def _execute_with_a_size_that_raises(error):
 
         @staticmethod
         def plan_options(strategy, options):
-            return {}
+            return {"skip_working": True}
 
         @staticmethod
         def plan_connection_options():
@@ -1283,7 +1318,7 @@ def test_execute_skips_wrk_when_macro_lacks_job_queue_working():
 
         @staticmethod
         def plan_options(strategy, options):
-            return {}
+            return {"skip_working": True}
 
         @staticmethod
         def plan_connection_options():
@@ -1320,7 +1355,7 @@ def test_execute_keeps_jqs_when_job_queue_working_raises(caplog):
 
         @staticmethod
         def plan_options(strategy, options):
-            return {}
+            return {"skip_working": True}
 
         @staticmethod
         def plan_connection_options():
@@ -1363,7 +1398,7 @@ def test_execute_drops_a_wrk_sample_that_is_not_ready_without_a_log(caplog):
 
         @staticmethod
         def plan_options(strategy, options):
-            return {}
+            return {"skip_working": True}
 
         @staticmethod
         def plan_connection_options():
@@ -1405,7 +1440,7 @@ def test_execute_drops_invalid_wrk_without_clearing_jqs(caplog):
 
         @staticmethod
         def plan_options(strategy, options):
-            return {}
+            return {"skip_working": True}
 
         @staticmethod
         def plan_connection_options():

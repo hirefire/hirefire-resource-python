@@ -206,13 +206,19 @@ def execute(entry: dict[str, Any], live: Callable[[], bool] | None = None) -> No
         _sample_job_strategy(
             macro, name, strategy, method_name, queues, options, live=live
         )
-        if hasattr(macro, "job_queue_working"):
+        if _samples_working(macro, strategy, options):
             _sample_working(macro, name, queues, connection_options, live=live)
     except Exception as error:
         _log(
             "error",
             f"[HireFire] Plan sampler for {name!r} raised {format_error(error)}",
         )
+
+
+def _samples_working(macro: Any, strategy: str, options: dict[str, Any]) -> bool:
+    if not hasattr(macro, "job_queue_working"):
+        return False
+    return strategy == "jql" or options.get("skip_working") is True
 
 
 def _sample_job_strategy(
