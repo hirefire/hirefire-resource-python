@@ -14,6 +14,7 @@ from mocket.mockhttp import Entry, Response
 from hirefire_resource import HireFire, plan
 from hirefire_resource.client import RequestError
 from hirefire_resource.dispatcher import Dispatcher
+from hirefire_resource.lease import Lease
 from hirefire_resource.source.cpu.usage import Usage
 from tests.helpers import at, set_HIREFIRE_TOKEN  # noqa: F401
 
@@ -564,7 +565,7 @@ def test_oversized_sample_trace_is_stripped_so_metrics_still_ship(caplog):
             {
                 "adapter": "rq",
                 "strategy": "jqs",
-                "queues": ["q" * 40_000],
+                "queues": ["q" * Dispatcher.PAYLOAD_SIZE_LIMIT],
                 "options": {},
                 "ms": 1.0,
             }
@@ -1148,8 +1149,8 @@ def test_413_advances_watermark_without_repopulate(caplog):
 
 
 @mocketize
-def test_payload_size_limit_is_32768():
-    assert Dispatcher.PAYLOAD_SIZE_LIMIT == 32_768
+def test_payload_size_limit_is_65536():
+    assert Dispatcher.PAYLOAD_SIZE_LIMIT == 65_536
 
 
 def test_healthy_running_snapshots_thread_ref():
@@ -2346,10 +2347,10 @@ def test_partial_plan_unsupported_jql_and_supported_jqs_holds_and_samples_size()
 
 
 @mocketize
-def test_payload_size_limit_is_32768_with_strict_greater_drop(caplog):
+def test_payload_size_limit_is_65536_with_strict_greater_drop(caplog):
     caplog.set_level(logging.ERROR)
     limit = Dispatcher.PAYLOAD_SIZE_LIMIT
-    assert limit == 32_768
+    assert limit == 65_536
     stub_lease()
     posts = {"n": 0}
     dispatcher = configure_web_only()
@@ -2373,6 +2374,40 @@ def test_payload_size_limit_is_32768_with_strict_greater_drop(caplog):
                 dispatcher._tick()
     assert posts["n"] == 1
     assert "Dropped metrics payload" in caplog.text
+
+
+@mocketize
+def test_three_sample_waves_of_a_full_plan_with_working_counts_ship_in_one_payload(
+    caplog,
+):
+    caplog.set_level(logging.ERROR)
+    stub_lease()
+    bodies = capture_ingest_bodies()
+    dispatcher = HireFire.configuration.dispatcher
+    buffer = HireFire.configuration.buffer
+    names = [f"worker_{i:03d}".ljust(40, "x") for i in range(Lease.MAX_JOB_QUEUES)]
+
+    with freeze_time(at(1000)) as frozen:
+        for second in (1000, 1015, 1030):
+            frozen.move_to(at(second))
+            for name in names:
+                buffer.sample(name, "jqs", 1234)
+                buffer.sample(name, "wrk", 12)
+        dispatcher._tick()
+
+    assert len(bodies) == 1
+    assert [entry["name"] for entry in bodies[0]] == names
+    assert all(
+        [len(series) for series in entry["metrics"].values()] == [3, 3]
+        for entry in bodies[0]
+    )
+    sizes = [
+        len(request.body)
+        for request in Mocket.request_list()
+        if request.path == "/metrics/ingest"
+    ]
+    assert sizes[0] > 32_768
+    assert "Dropped metrics payload" not in caplog.text
 
 
 @mocketize
