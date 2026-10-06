@@ -1727,6 +1727,32 @@ def test_unknown_plan_adapter_skips_without_local_fallback(caplog):
 
 
 @mocketize
+def test_a_full_plan_of_unknown_adapters_warns_once_per_entry(caplog):
+    caplog.set_level(logging.ERROR)
+    assert Dispatcher.WARN_MAP_LIMIT == Lease.MAX_JOB_QUEUES
+    plan = {
+        "version": 1,
+        "job_queues": [
+            {
+                "name": f"worker_{i}",
+                "strategy": "jql",
+                "adapter": "nope",
+                "queues": [],
+                "options": {},
+            }
+            for i in range(Lease.MAX_JOB_QUEUES)
+        ],
+    }
+    stub_lease(granted=True, plan=plan)
+    capture_ingest_bodies()
+    HireFire.configuration.dyno("other", lambda: 0)
+    dispatcher = HireFire.configuration.dispatcher
+    dispatcher._job_queue_tick()
+    dispatcher._sample_job_queues()
+    assert caplog.text.count("Unknown plan adapter") == Lease.MAX_JOB_QUEUES
+
+
+@mocketize
 def test_known_unloaded_adapter_skips_without_local_fallback(caplog):
     caplog.set_level(logging.ERROR)
     plan = {
