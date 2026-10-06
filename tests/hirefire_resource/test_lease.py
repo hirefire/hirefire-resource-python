@@ -501,6 +501,73 @@ def test_ignores_oversized_grant_body(caplog):
 
 
 @mocketize
+def test_accepts_grant_body_of_exactly_max_body_bytes(caplog):
+    caplog.set_level(logging.ERROR)
+    assert Lease.MAX_BODY_BYTES == 131_072
+    body = json.dumps(
+        {
+            "version": 1,
+            "job_queues": [
+                {
+                    "name": "worker",
+                    "strategy": "jql",
+                    "adapter": None,
+                    "queues": [],
+                    "options": {},
+                }
+            ],
+        }
+    )
+    body += " " * (Lease.MAX_BODY_BYTES - len(body))
+    Entry.single_register(
+        Entry.POST,
+        LEASE_URL,
+        status=200,
+        headers={
+            "HireFire-Lease-Granted": "true",
+            "HireFire-Sample-Frequency": "15",
+        },
+        body=body,
+    )
+    lease = Lease()
+    lease.request_if_due(hold=lambda _plan: True)
+    assert [entry["name"] for entry in lease.job_queues] == ["worker"]
+    assert caplog.text == ""
+
+
+@mocketize
+def test_accepts_a_plan_of_max_job_queues_with_three_queues_each(caplog):
+    caplog.set_level(logging.ERROR)
+    assert Lease.MAX_JOB_QUEUES == 256
+    entries = [
+        {
+            "name": f"background_worker_{i}",
+            "strategy": "jqs",
+            "adapter": "rq",
+            "queues": [f"critical_{i}", f"default_{i}", f"low_priority_{i}"],
+            "options": {"skip_working": True},
+        }
+        for i in range(Lease.MAX_JOB_QUEUES)
+    ]
+    body = json.dumps({"version": 1, "job_queues": entries})
+    assert len(body) > 32_768
+    Entry.single_register(
+        Entry.POST,
+        LEASE_URL,
+        status=200,
+        headers={
+            "HireFire-Lease-Granted": "true",
+            "HireFire-Sample-Frequency": "15",
+        },
+        body=body,
+    )
+    lease = Lease()
+    lease.request_if_due(hold=lambda _plan: True)
+    assert lease.job_queues == entries
+    assert caplog.text == ""
+
+
+@mocketize
 def test_truncates_plan_to_max_job_queues(caplog):
     caplog.set_level(logging.ERROR)
     entries = [
