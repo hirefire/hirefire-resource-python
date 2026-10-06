@@ -1149,8 +1149,8 @@ def test_413_advances_watermark_without_repopulate(caplog):
 
 
 @mocketize
-def test_payload_size_limit_is_65536():
-    assert Dispatcher.PAYLOAD_SIZE_LIMIT == 65_536
+def test_payload_size_limit_is_131072():
+    assert Dispatcher.PAYLOAD_SIZE_LIMIT == 131_072
 
 
 def test_healthy_running_snapshots_thread_ref():
@@ -2373,10 +2373,10 @@ def test_partial_plan_unsupported_jql_and_supported_jqs_holds_and_samples_size()
 
 
 @mocketize
-def test_payload_size_limit_is_65536_with_strict_greater_drop(caplog):
+def test_payload_size_limit_is_131072_with_strict_greater_drop(caplog):
     caplog.set_level(logging.ERROR)
     limit = Dispatcher.PAYLOAD_SIZE_LIMIT
-    assert limit == 65_536
+    assert limit == 131_072
     stub_lease()
     posts = {"n": 0}
     dispatcher = configure_web_only()
@@ -2403,7 +2403,7 @@ def test_payload_size_limit_is_65536_with_strict_greater_drop(caplog):
 
 
 @mocketize
-def test_three_sample_waves_of_a_full_plan_with_working_counts_ship_in_one_payload(
+def test_seven_sample_waves_of_a_full_plan_with_the_longest_names_ship_in_one_payload(
     caplog,
 ):
     caplog.set_level(logging.ERROR)
@@ -2411,10 +2411,13 @@ def test_three_sample_waves_of_a_full_plan_with_working_counts_ship_in_one_paylo
     bodies = capture_ingest_bodies()
     dispatcher = HireFire.configuration.dispatcher
     buffer = HireFire.configuration.buffer
-    names = [f"worker_{i:03d}".ljust(40, "x") for i in range(Lease.MAX_JOB_QUEUES)]
+    names = [
+        f"worker_{i:03d}".ljust(Lease.MAX_NAME_BYTES, "x")
+        for i in range(Lease.MAX_JOB_QUEUES)
+    ]
 
     with freeze_time(at(1000)) as frozen:
-        for second in (1000, 1015, 1030):
+        for second in (1000, 1005, 1010, 1015, 1020, 1025, 1030):
             frozen.move_to(at(second))
             for name in names:
                 buffer.sample(name, "jqs", 1234)
@@ -2424,7 +2427,7 @@ def test_three_sample_waves_of_a_full_plan_with_working_counts_ship_in_one_paylo
     assert len(bodies) == 1
     assert [entry["name"] for entry in bodies[0]] == names
     assert all(
-        [len(series) for series in entry["metrics"].values()] == [3, 3]
+        [len(series) for series in entry["metrics"].values()] == [7, 7]
         for entry in bodies[0]
     )
     sizes = [
@@ -2432,7 +2435,7 @@ def test_three_sample_waves_of_a_full_plan_with_working_counts_ship_in_one_paylo
         for request in Mocket.request_list()
         if request.path == "/metrics/ingest"
     ]
-    assert sizes[0] > 32_768
+    assert sizes[0] > 65_536
     assert "Dropped metrics payload" not in caplog.text
 
 
