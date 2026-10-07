@@ -118,8 +118,7 @@ def _sample_transport_options(url: str) -> dict[str, float]:
     }
 
 
-def _owned_celery_app(broker_url: str | None = None) -> Celery:
-    url = _resolve_broker_url(broker_url)
+def _owned_celery_app(url: str) -> Celery:
     app = Celery(broker=url)
     app.conf.broker_pool_limit = None
     app.conf.broker_transport_options = _sample_transport_options(url)
@@ -131,8 +130,8 @@ def _owned_celery_app(broker_url: str | None = None) -> Celery:
 
 
 @contextmanager
-def _sample_connection(app: Celery) -> Iterator[Any]:
-    connection = app.connection()
+def _sample_connection(app: Celery, url: str) -> Iterator[Any]:
+    connection = app.connection(url)
     try:
         connection._ensure_connection(
             max_retries=0,
@@ -154,9 +153,10 @@ def _caller_connection(app: Any) -> Iterator[Any]:
 @mitigate_connection_reset_error()
 def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
     queue_names = normalize_queues(*queues, allow_empty=False)
-    app = _owned_celery_app(broker_url)
+    url = _resolve_broker_url(broker_url)
+    app = _owned_celery_app(url)
 
-    with _sample_connection(app) as connection:
+    with _sample_connection(app, url) as connection:
         with connection.channel() as channel:
             if hasattr(channel, "_size"):
                 fn = _job_queue_latency_redis
@@ -178,8 +178,10 @@ def job_queue_size(
     skip_working: bool = False,
 ) -> int:
     queue_names = normalize_queues(*queues, allow_empty=False)
-    app, owned = _sample_app(broker_url, celery_app)
-    conn_cm = _sample_connection(app) if owned else _caller_connection(app)
+    app, url = _sample_app(broker_url, celery_app)
+    conn_cm = (
+        _sample_connection(app, url) if url is not None else _caller_connection(app)
+    )
 
     with conn_cm as connection:
         with connection.channel() as channel:
@@ -187,7 +189,7 @@ def job_queue_size(
 
     if skip_working:
         return size
-    return size + _held_task_count(app, owned, queue_names)
+    return size + _held_task_count(app, url, queue_names)
 
 
 async def async_job_queue_size(
@@ -211,8 +213,8 @@ def job_queue_working(
     celery_app: "Celery | None" = None,
 ) -> int:
     queue_names = normalize_queues(*queues, allow_empty=False)
-    app, owned = _sample_app(broker_url, celery_app)
-    return _held_task_count(app, owned, queue_names)
+    app, url = _sample_app(broker_url, celery_app)
+    return _held_task_count(app, url, queue_names)
 
 
 async def async_job_queue_working(
@@ -227,7 +229,7 @@ async def async_job_queue_working(
 
 def _sample_app(
     broker_url: str | None, celery_app: "Celery | None"
-) -> tuple[Any, bool]:
+) -> tuple[Any, str | None]:
     if celery_app is not None and broker_url is not None:
         raise ValueError(
             "Cannot specify both 'celery_app' and 'broker_url'. "
@@ -235,8 +237,9 @@ def _sample_app(
             "or 'broker_url' for simple setups."
         )
     if celery_app is None:
-        return _owned_celery_app(broker_url), True
-    return celery_app, False
+        url = _resolve_broker_url(broker_url)
+        return _owned_celery_app(url), url
+    return celery_app, None
 
 
 @before_task_publish.connect
@@ -287,6 +290,7 @@ def _resolve_broker_url(broker_url: str | None) -> str:
         return broker_url
 
     for key in (
+        "CELERY_BROKER_URL",
         "AMQP_URL",
         "RABBITMQ_URL",
         "RABBITMQ_BIGWIG_URL",
@@ -357,10 +361,10 @@ def _job_queue_size_rabbitmq(channel: Any, queue: str, arguments: Any = None) ->
 
 
 class _HeldTasks:
-    def __init__(self, key: object, app: Any, owned: bool) -> None:
+    def __init__(self, key: object, app: Any, url: str | None) -> None:
         self._key = key
         self._app = app
-        self._owned = owned
+        self._url = url
         self._counts: dict[str, int] | None = None
         self._counted_at = 0.0
         self._started_at = self._asked_at = time.monotonic()
@@ -368,7 +372,7 @@ class _HeldTasks:
         self.thread = threading.Thread(
             target=self._run, name="hirefire-celery-held-tasks", daemon=True
         )
-        if owned:
+        if url is not None:
             app.control.mailbox.producer_pool = None
 
     def count(self, queues: set[str]) -> int:
@@ -399,7 +403,7 @@ class _HeldTasks:
 
     def _refresh(self) -> None:
         try:
-            counts = _inspect_held_tasks(self._app, self._owned)
+            counts = _inspect_held_tasks(self._app, self._url)
         except Exception as error:
             with _held_tasks_lock:
                 self._error = format_error(error)
@@ -410,13 +414,13 @@ class _HeldTasks:
             self._error = None
 
 
-def _held_task_count(app: Any, owned: bool, queues: set[str]) -> int:
-    key: object = app.conf.broker_url if owned else id(app)
+def _held_task_count(app: Any, url: str | None, queues: set[str]) -> int:
+    key: object = url if url is not None else id(app)
     with _held_tasks_lock:
         held = _held_tasks.get(key)
         if held is not None and held.thread.is_alive():
             return held.count(queues)
-        held = _held_tasks[key] = _HeldTasks(key, app, owned)
+        held = _held_tasks[key] = _HeldTasks(key, app, url)
         held.thread.start()
 
     from hirefire_resource.hirefire import HireFire
@@ -430,8 +434,10 @@ def _held_task_count(app: Any, owned: bool, queues: set[str]) -> int:
     raise SampleNotReadyError(_HELD_TASKS_NOT_READY)
 
 
-def _inspect_held_tasks(app: Any, owned: bool) -> dict[str, int]:
-    connect = _sample_connection(app) if owned else _caller_connection(app)
+def _inspect_held_tasks(app: Any, url: str | None) -> dict[str, int]:
+    connect = (
+        _sample_connection(app, url) if url is not None else _caller_connection(app)
+    )
     with connect as connection:
         budgeted = _BudgetedConnection(connection)
         inspect = app.control.inspect(

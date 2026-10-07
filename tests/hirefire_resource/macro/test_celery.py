@@ -384,7 +384,8 @@ def test_job_queue_size_reraises_operational_error(monkeypatch):
         yield None
 
     monkeypatch.setattr(
-        "hirefire_resource.macro.celery._sample_connection", lambda _app: boom()
+        "hirefire_resource.macro.celery._sample_connection",
+        lambda _app, _url: boom(),
     )
     with pytest.raises(OperationalError, match="broker down"):
         job_queue_size("celery", broker_url="redis://localhost:6379/0")
@@ -402,7 +403,8 @@ def test_job_queue_latency_reraises_operational_error(monkeypatch):
         yield None
 
     monkeypatch.setattr(
-        "hirefire_resource.macro.celery._sample_connection", lambda _app: boom()
+        "hirefire_resource.macro.celery._sample_connection",
+        lambda _app, _url: boom(),
     )
     with pytest.raises(OperationalError, match="broker down"):
         job_queue_latency("celery", broker_url="redis://localhost:6379/0")
@@ -1205,18 +1207,19 @@ def test_a_real_inspect_call_waits_only_while_its_budget_lasts(celery_app, monke
 
         monkeypatch.setattr(celery_macro, "_HELD_TASKS_INSPECT_BUDGET", 0.0)
         started = time.monotonic()
-        celery_macro._inspect_held_tasks(celery_app, False)
+        celery_macro._inspect_held_tasks(celery_app, None)
         assert time.monotonic() - started < 1.0
 
         monkeypatch.setattr(celery_macro, "_HELD_TASKS_INSPECT_BUDGET", 2.0)
         started = time.monotonic()
-        assert celery_macro._inspect_held_tasks(celery_app, False) == {"celery": 3}
+        assert celery_macro._inspect_held_tasks(celery_app, None) == {"celery": 3}
         assert time.monotonic() - started >= 2.5
 
 
 def _clear_broker_env(monkeypatch):
     for key in (
         "HIREFIRE_CELERY_BROKER_URL",
+        "CELERY_BROKER_URL",
         "AMQP_URL",
         "RABBITMQ_URL",
         "RABBITMQ_BIGWIG_URL",
@@ -1241,7 +1244,11 @@ def test_resolve_broker_url_multi_key_precedence(monkeypatch):
     monkeypatch.setenv("RABBITMQ_BIGWIG_URL", "amqp://bigwig")
     monkeypatch.setenv("RABBITMQ_URL", "amqp://rabbitmq-url")
     monkeypatch.setenv("AMQP_URL", "amqp://amqp-url")
+    monkeypatch.setenv("CELERY_BROKER_URL", "redis://celery-broker/0")
     monkeypatch.setenv("HIREFIRE_CELERY_BROKER_URL", "redis://hirefire/0")
+    assert _resolve_broker_url(None) == "redis://celery-broker/0"
+
+    monkeypatch.delenv("CELERY_BROKER_URL")
     assert _resolve_broker_url(None) == "amqp://amqp-url"
 
     monkeypatch.delenv("AMQP_URL")
@@ -1251,7 +1258,53 @@ def test_resolve_broker_url_multi_key_precedence(monkeypatch):
 def test_resolve_broker_url_explicit_wins_over_env(monkeypatch):
     _clear_broker_env(monkeypatch)
     monkeypatch.setenv("REDIS_URL", "redis://from-env/0")
+    monkeypatch.setenv("CELERY_BROKER_URL", "redis://celery-broker/0")
     assert _resolve_broker_url("redis://explicit/0") == "redis://explicit/0"
+
+
+DEAD_BROKER_URL = "redis://127.0.0.1:1/0"
+
+
+def test_an_explicit_broker_url_wins_over_celery_broker_url(celery_app, monkeypatch):
+    broker_url = celery_app.conf.broker_url
+    celery_app.send_task("test_task", queue="celery")
+    monkeypatch.setenv("CELERY_BROKER_URL", DEAD_BROKER_URL)
+
+    _assert_size(1, "celery", broker_url=broker_url, skip_working=True)
+    _assert_float_seconds(job_queue_latency("celery", broker_url=broker_url))
+    _assert_size(1, "celery", broker_url=broker_url)
+    assert job_queue_working("celery", broker_url=broker_url) == 0
+
+
+def test_celery_broker_url_wins_over_the_fallback_list(celery_app, monkeypatch):
+    broker_url = celery_app.conf.broker_url
+    celery_app.send_task("test_task", queue="celery")
+    _clear_broker_env(monkeypatch)
+    monkeypatch.setenv("AMQP_URL", "amqp://guest:guest@127.0.0.1:1")
+    monkeypatch.setenv("REDIS_URL", DEAD_BROKER_URL)
+    monkeypatch.setenv("CELERY_BROKER_URL", broker_url)
+
+    _assert_size(1, "celery", skip_working=True)
+    _assert_float_seconds(job_queue_latency("celery"))
+
+
+def test_a_plan_broker_url_wins_over_celery_broker_url(celery_app, monkeypatch):
+    monkeypatch.setenv("HIREFIRE_CELERY_BROKER_URL", celery_app.conf.broker_url)
+    celery_app.send_task("test_task", queue="celery")
+    monkeypatch.setenv("CELERY_BROKER_URL", DEAD_BROKER_URL)
+    entry = {
+        "name": "worker",
+        "adapter": "celery",
+        "strategy": "jqs",
+        "queues": ["celery"],
+        "options": {"skip_working": True},
+    }
+
+    HireFire.configuration.buffer.flush()
+    plan.execute(entry)
+
+    flushed = HireFire.configuration.buffer.flush()
+    assert list(flushed["worker"]["jqs"].values())[-1] == 1
 
 
 def test_hirefire_celery_broker_url_is_plan_only(monkeypatch):

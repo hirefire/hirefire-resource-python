@@ -48,6 +48,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Request queue time ignores samples older than 60 seconds.
 - Celery queue samples time out after 5 seconds when the broker does not respond.
 - A Celery broker that is down no longer reports job queue size or latency as 0.
+- A `broker_url` passed to a Celery macro is used. `CELERY_BROKER_URL` overruled it before, without an error.
 - Celery `job_queue_size` with `celery_app` no longer raises `AttributeError` on every sample after an error closed a broker connection in the app's pool.
 - Celery Redis latency skips corrupt JSON instead of raising. Celery RabbitMQ latency always requeues the peeked message, even when the header parse fails.
 - RQ job queue latency skips an unreadable job timestamp instead of failing the whole sample.

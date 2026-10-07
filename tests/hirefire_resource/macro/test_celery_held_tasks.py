@@ -92,16 +92,17 @@ class FakeConnection:
 
 
 class FakeApp:
-    def __init__(self, control=None, broker_url="redis://broker/0"):
+    def __init__(self, control=None):
         self.control = control if control is not None else FakeControl()
-        self.conf = SimpleNamespace(broker_url=broker_url)
         self.connections = []
+        self.connection_urls = []
         self.pooled = FakeConnection()
 
     def connection_or_acquire(self):
         return nullcontext(self.pooled)
 
-    def connection(self):
+    def connection(self, url):
+        self.connection_urls.append(url)
         self.connections.append(FakeConnection())
         return self.connections[-1]
 
@@ -121,11 +122,11 @@ def _wait_until(condition):
         time.sleep(_POLL_S)
 
 
-def _count_when_ready(app, owned, queues):
+def _count_when_ready(app, url, queues):
     deadline = time.monotonic() + _WAIT_S
     while True:
         try:
-            return _held_task_count(app, owned, queues)
+            return _held_task_count(app, url, queues)
         except SampleIncompleteError:
             assert time.monotonic() < deadline, "no counts in time"
             time.sleep(_POLL_S)
@@ -149,7 +150,7 @@ def test_counts_active_reserved_and_due_scheduled_tasks_by_queue():
         scheduled={"worker-2": [_scheduled("mailer", due)]},
     )
 
-    counts = _inspect_held_tasks(FakeApp(FakeControl(inspect)), False)
+    counts = _inspect_held_tasks(FakeApp(FakeControl(inspect)), None)
 
     assert counts == {"celery": 3, "mailer": 2}
 
@@ -168,7 +169,7 @@ def test_skips_a_scheduled_task_that_is_not_due():
     )
 
     with freeze_time(frozen):
-        counts = _inspect_held_tasks(FakeApp(FakeControl(inspect)), False)
+        counts = _inspect_held_tasks(FakeApp(FakeControl(inspect)), None)
 
     assert counts == {"celery": 2}
 
@@ -180,11 +181,11 @@ def test_skips_a_collection_that_no_worker_answered():
         scheduled={"worker-1": []},
     )
 
-    assert _inspect_held_tasks(FakeApp(FakeControl(inspect)), False) == {"celery": 1}
+    assert _inspect_held_tasks(FakeApp(FakeControl(inspect)), None) == {"celery": 1}
 
 
 def test_counts_nothing_when_no_worker_answers():
-    assert _inspect_held_tasks(FakeApp(), False) == {}
+    assert _inspect_held_tasks(FakeApp(), None) == {}
 
 
 def test_skips_a_task_it_cannot_read():
@@ -208,13 +209,13 @@ def test_skips_a_task_it_cannot_read():
         },
     )
 
-    assert _inspect_held_tasks(FakeApp(FakeControl(inspect)), False) == {"celery": 1}
+    assert _inspect_held_tasks(FakeApp(FakeControl(inspect)), None) == {"celery": 1}
 
 
 def test_inspects_a_caller_app_with_a_timeout_over_one_pooled_connection():
     app = FakeApp()
 
-    _inspect_held_tasks(app, False)
+    _inspect_held_tasks(app, None)
 
     (call,) = app.control.inspect_calls
     assert call["timeout"] == 1.0
@@ -226,11 +227,12 @@ def test_inspects_a_caller_app_with_a_timeout_over_one_pooled_connection():
 
 def test_inspects_an_owned_app_over_its_own_bounded_connection():
     app = FakeApp()
-    _HeldTasks("redis://broker/0", app, True)
+    _HeldTasks("redis://broker/0", app, "redis://broker/0")
 
-    _inspect_held_tasks(app, True)
+    _inspect_held_tasks(app, "redis://broker/0")
 
     (connection,) = app.connections
+    assert app.connection_urls == ["redis://broker/0"]
     (call,) = app.control.inspect_calls
     assert call["timeout"] == 1.0
     assert isinstance(call["connection"], _BudgetedConnection)
@@ -246,7 +248,7 @@ def test_a_caller_app_keeps_its_producer_pool():
     app = FakeApp()
     producer_pool = app.control.mailbox.producer_pool
 
-    _HeldTasks(id(app), app, False)
+    _HeldTasks(id(app), app, None)
 
     assert app.control.mailbox.producer_pool is producer_pool
 
@@ -255,14 +257,14 @@ def test_an_owned_connection_is_released_when_inspect_raises():
     app = FakeApp(FakeControl(error=OperationalError("broker down")))
 
     with pytest.raises(OperationalError):
-        _inspect_held_tasks(app, True)
+        _inspect_held_tasks(app, "redis://broker/0")
 
     assert app.connections[0].released == 1
 
 
 def test_count_raises_until_a_pass_has_stored_counts():
     inspect = FakeInspect(active={"worker-1": [_task("celery"), _task("mailer")]})
-    held = _HeldTasks("key", FakeApp(FakeControl(inspect)), False)
+    held = _HeldTasks("key", FakeApp(FakeControl(inspect)), None)
 
     with pytest.raises(SampleNotReadyError) as raised:
         held.count({"celery"})
@@ -276,7 +278,7 @@ def test_count_raises_until_a_pass_has_stored_counts():
 
 
 def test_count_raises_when_the_counts_are_older_than_30_seconds():
-    held = _HeldTasks("key", FakeApp(), False)
+    held = _HeldTasks("key", FakeApp(), None)
     held._refresh()
     assert held.count({"celery"}) == 0
 
@@ -290,7 +292,7 @@ def test_count_raises_when_the_counts_are_older_than_30_seconds():
 
 
 def test_no_count_within_30_seconds_of_the_start_is_an_error():
-    held = _HeldTasks("key", FakeApp(), False)
+    held = _HeldTasks("key", FakeApp(), None)
 
     held._started_at = time.monotonic() - 29
     with pytest.raises(SampleNotReadyError):
@@ -307,7 +309,7 @@ def test_no_count_within_30_seconds_of_the_start_is_an_error():
 
 def test_a_failed_pass_keeps_the_previous_counts():
     control = FakeControl(FakeInspect(active={"worker-1": [_task("celery")]}))
-    held = _HeldTasks("key", FakeApp(control), False)
+    held = _HeldTasks("key", FakeApp(control), None)
     held._refresh()
     counted_at = held._counted_at
 
@@ -328,7 +330,7 @@ def test_a_failed_pass_keeps_the_previous_counts():
 
 def test_a_failed_first_pass_reports_the_error_without_credentials():
     error = OperationalError("cannot reach amqp://user:secret@broker:5672//")
-    held = _HeldTasks("key", FakeApp(FakeControl(error=error)), False)
+    held = _HeldTasks("key", FakeApp(FakeControl(error=error)), None)
 
     held._refresh()
 
@@ -343,7 +345,7 @@ def test_a_failed_first_pass_reports_the_error_without_credentials():
 
 def test_a_successful_pass_clears_the_error():
     control = FakeControl(error=OperationalError("broker down"))
-    held = _HeldTasks("key", FakeApp(control), False)
+    held = _HeldTasks("key", FakeApp(control), None)
     held._refresh()
 
     control.error = None
@@ -363,11 +365,11 @@ def test_the_first_call_starts_the_thread_and_has_no_count_yet():
     assert _held_threads() == []
 
     with pytest.raises(SampleNotReadyError):
-        _held_task_count(app, False, {"celery"})
+        _held_task_count(app, None, {"celery"})
 
     assert len(_held_threads()) == 1
     assert _held_threads()[0].daemon
-    assert _count_when_ready(app, False, {"celery"}) == 1
+    assert _count_when_ready(app, None, {"celery"}) == 1
 
 
 def _first_count_lines(caplog):
@@ -386,7 +388,7 @@ def test_the_wait_for_the_first_count_logs_one_info_line(caplog):
 
     for _ in range(4):
         with pytest.raises(SampleNotReadyError):
-            _held_task_count(app, False, {"celery"})
+            _held_task_count(app, None, {"celery"})
 
     (line,) = _first_count_lines(caplog)
     assert line.levelno == logging.INFO
@@ -397,7 +399,7 @@ def test_the_wait_for_the_first_count_logs_one_info_line(caplog):
     assert [record for record in caplog.records if record.levelno > logging.INFO] == []
 
     gate.set()
-    assert _count_when_ready(app, False, {"celery"}) == 1
+    assert _count_when_ready(app, None, {"celery"}) == 1
     assert len(_first_count_lines(caplog)) == 1
 
 
@@ -406,12 +408,12 @@ def test_a_restarted_thread_logs_the_wait_again(caplog, monkeypatch):
     monkeypatch.setattr(celery_macro, "_HELD_TASKS_IDLE_TIMEOUT", 0.1)
     app = FakeApp()
 
-    _count_when_ready(app, False, {"celery"})
+    _count_when_ready(app, None, {"celery"})
     (thread,) = _held_threads()
     thread.join(_WAIT_S)
     assert len(_first_count_lines(caplog)) == 1
 
-    _count_when_ready(app, False, {"celery"})
+    _count_when_ready(app, None, {"celery"})
     assert len(_first_count_lines(caplog)) == 2
 
 
@@ -419,26 +421,26 @@ def test_one_thread_per_caller_app():
     first, second = FakeApp(), FakeApp()
 
     for _ in range(3):
-        _count_when_ready(first, False, {"celery"})
+        _count_when_ready(first, None, {"celery"})
     assert list(celery_macro._held_tasks) == [id(first)]
     assert len(_held_threads()) == 1
 
-    _count_when_ready(second, False, {"celery"})
+    _count_when_ready(second, None, {"celery"})
     assert list(celery_macro._held_tasks) == [id(first), id(second)]
     assert len(_held_threads()) == 2
 
 
 def test_one_thread_per_broker_url_for_owned_apps():
-    first = FakeApp(broker_url="redis://broker/0")
-    again = FakeApp(broker_url="redis://broker/0")
-    other = FakeApp(broker_url="redis://broker/1")
+    first = FakeApp()
+    again = FakeApp()
+    other = FakeApp()
 
-    _count_when_ready(first, True, {"celery"})
-    _count_when_ready(again, True, {"celery"})
+    _count_when_ready(first, "redis://broker/0", {"celery"})
+    _count_when_ready(again, "redis://broker/0", {"celery"})
     assert list(celery_macro._held_tasks) == ["redis://broker/0"]
     assert again.control.inspect_calls == []
 
-    _count_when_ready(other, True, {"celery"})
+    _count_when_ready(other, "redis://broker/1", {"celery"})
     assert list(celery_macro._held_tasks) == ["redis://broker/0", "redis://broker/1"]
     assert len(_held_threads()) == 2
 
@@ -447,7 +449,7 @@ def test_the_next_pass_starts_one_interval_after_the_last_one_started(monkeypatc
     monkeypatch.setattr(celery_macro, "_HELD_TASKS_REFRESH_INTERVAL", 0.2)
     app = FakeApp()
 
-    _count_when_ready(app, False, {"celery"})
+    _count_when_ready(app, None, {"celery"})
     _wait_until(lambda: len(app.control.started_at) >= 3)
 
     first, second, third = app.control.started_at[:3]
@@ -459,7 +461,7 @@ def test_the_thread_stops_when_no_call_has_asked_for_the_idle_timeout(monkeypatc
     monkeypatch.setattr(celery_macro, "_HELD_TASKS_IDLE_TIMEOUT", 0.1)
     app = FakeApp()
 
-    _count_when_ready(app, False, {"celery"})
+    _count_when_ready(app, None, {"celery"})
     (thread,) = _held_threads()
     thread.join(_WAIT_S)
 
@@ -467,7 +469,7 @@ def test_the_thread_stops_when_no_call_has_asked_for_the_idle_timeout(monkeypatc
     assert celery_macro._held_tasks == {}
 
     with pytest.raises(SampleIncompleteError):
-        _held_task_count(app, False, {"celery"})
+        _held_task_count(app, None, {"celery"})
     assert len(_held_threads()) == 1
     assert _held_threads()[0] is not thread
 
@@ -476,11 +478,11 @@ def test_a_call_within_the_idle_timeout_keeps_the_thread(monkeypatch):
     monkeypatch.setattr(celery_macro, "_HELD_TASKS_IDLE_TIMEOUT", 0.3)
     app = FakeApp()
 
-    _count_when_ready(app, False, {"celery"})
+    _count_when_ready(app, None, {"celery"})
     (thread,) = _held_threads()
     deadline = time.monotonic() + 0.6
     while time.monotonic() < deadline:
-        _held_task_count(app, False, {"celery"})
+        _held_task_count(app, None, {"celery"})
         time.sleep(0.02)
 
     assert thread.is_alive()
@@ -489,12 +491,12 @@ def test_a_call_within_the_idle_timeout_keeps_the_thread(monkeypatch):
 
 def test_a_dead_thread_is_replaced():
     app = FakeApp()
-    _count_when_ready(app, False, {"celery"})
-    stale = _HeldTasks(id(app), app, False)
+    _count_when_ready(app, None, {"celery"})
+    stale = _HeldTasks(id(app), app, None)
     celery_macro._held_tasks[id(app)] = stale
 
     with pytest.raises(SampleIncompleteError):
-        _held_task_count(app, False, {"celery"})
+        _held_task_count(app, None, {"celery"})
 
     held = celery_macro._held_tasks[id(app)]
     assert held is not stale
@@ -503,7 +505,7 @@ def test_a_dead_thread_is_replaced():
 
 def test_reinit_after_fork_clears_the_counts_and_replaces_the_lock():
     app = FakeApp()
-    _count_when_ready(app, False, {"celery"})
+    _count_when_ready(app, None, {"celery"})
     (thread,) = _held_threads()
     inherited_lock = celery_macro._held_tasks_lock
 
@@ -513,14 +515,14 @@ def test_reinit_after_fork_clears_the_counts_and_replaces_the_lock():
     assert celery_macro._held_tasks == {}
     assert celery_macro._held_tasks_lock is not inherited_lock
     with pytest.raises(SampleIncompleteError):
-        _held_task_count(app, False, {"celery"})
+        _held_task_count(app, None, {"celery"})
     thread.join(_WAIT_S)
     assert not thread.is_alive()
 
 
 def test_the_plan_fork_hook_clears_the_counts():
     app = FakeApp()
-    _count_when_ready(app, False, {"celery"})
+    _count_when_ready(app, None, {"celery"})
     (thread,) = _held_threads()
 
     plan.reinit_macros_after_fork()
@@ -637,7 +639,7 @@ def test_a_pass_ends_each_inspect_call_that_replies_never_stop_reaching(monkeypa
     app = FakeApp(CollectingControl())
     app.pooled = TricklingConnection(clock, 0.7)
 
-    counts = _inspect_held_tasks(app, False)
+    counts = _inspect_held_tasks(app, None)
 
     assert app.control.reply.replies == [3, 3]
     assert counts == {"celery": 2}
@@ -683,7 +685,7 @@ def test_job_queue_working_returns_the_stored_held_task_count():
     assert _working_when_ready("celery", "mailer", celery_app=app) == 5
     assert _working_when_ready("other", celery_app=app) == 0
     assert job_queue_working("celery", celery_app=app) == _held_task_count(
-        app, False, {"celery"}
+        app, None, {"celery"}
     )
     assert len(_held_threads()) == 1
 
