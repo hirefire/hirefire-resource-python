@@ -69,6 +69,35 @@ def test_latest_sample_wins_across_multiple_samples():
     assert _strategy_value(buffer().flush(), "worker", "jql") == 9
 
 
+def test_sample_job_queue_awaits_an_async_sampler():
+    async def sampler():
+        return 42
+
+    with HireFire.configure() as config:
+        config.dyno("worker", sampler)
+
+    job_queues = HireFire.configuration.job_queues
+    job_queues.sample_job_queue(job_queues.find_by_name("worker"), "jql")
+
+    assert _strategy_value(buffer().flush(), "worker", "jql") == 42
+
+
+def test_raising_async_sampler_is_isolated_and_logged(caplog):
+    caplog.set_level(logging.ERROR)
+
+    async def boom():
+        raise RuntimeError("Redis down")
+
+    with HireFire.configure() as config:
+        config.dyno("worker", boom)
+
+    job_queues = HireFire.configuration.job_queues
+    job_queues.sample_job_queue(job_queues.find_by_name("worker"), "jql")
+
+    assert buffer().flush() == {}
+    assert "Redis down" in caplog.text
+
+
 def test_raising_sampler_is_isolated_and_logged(caplog):
     caplog.set_level(logging.ERROR)
 

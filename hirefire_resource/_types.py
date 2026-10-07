@@ -1,3 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
+from typing import Any
 
-Sampler = Callable[[], float]
+Sampler = Callable[[], float | Coroutine[Any, Any, float]]

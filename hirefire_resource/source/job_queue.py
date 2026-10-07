@@ -1,3 +1,6 @@
+import asyncio
+from collections.abc import Coroutine
+
 from hirefire_resource._types import Sampler
 
 
@@ -7,4 +10,7 @@ class JobQueue:
         self._sampler = sampler
 
     def sample(self) -> float:
-        return self._sampler()
+        value = self._sampler()
+        if isinstance(value, Coroutine):
+            return asyncio.run(value)
+        return value

@@ -1891,6 +1891,38 @@ def test_strategy_only_plan_uses_local_sampler(caplog):
 
 
 @mocketize
+def test_strategy_only_plan_awaits_an_async_local_sampler_off_the_main_thread():
+    plan = {
+        "version": 1,
+        "job_queues": [
+            {
+                "name": "worker",
+                "strategy": "jqs",
+                "adapter": None,
+                "queues": [],
+                "options": {},
+            }
+        ],
+    }
+    stub_lease(granted=True, plan=plan)
+    bodies = capture_ingest_bodies()
+
+    async def sampler():
+        return 7
+
+    HireFire.configuration.dyno("worker", sampler)
+    dispatcher = HireFire.configuration.dispatcher
+    thread = threading.Thread(target=dispatcher._job_queue_tick)
+    thread.start()
+    thread.join(5)
+    assert not thread.is_alive()
+    dispatcher._tick()
+
+    entry = next(e for e in bodies[0] if e["name"] == "worker")
+    assert list(entry["metrics"]["jqs"].values())[0] == 7
+
+
+@mocketize
 def test_strategy_only_plan_reports_lease_name_not_local_dyno_spelling():
     plan = {
         "version": 1,
