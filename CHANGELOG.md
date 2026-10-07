@@ -29,8 +29,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Official Python support is 3.11+. Official Django support is 4+.
 - A Celery connection reset is retried once immediately. The sample no longer sleeps up to 9 seconds.
 - A `config.dyno` sampler that returns a coroutine is awaited on the metrics thread, in an event loop of its own. 1.x awaited it in the app's event loop while answering the poll, so a sampler that needs a client bound to that loop no longer works.
-- Process names may be any non-empty string up to 128 bytes. The 1.x letter-start charset and 30-character cap are gone.
+- Process names may be any non-empty string up to 128 bytes. The 1.x letter-start charset and 30-character cap are gone. An invalid name raises `ValueError` (1.x raised `InvalidDynoNameError`).
 - `config.dyno` without a sampler raises `MissingSamplerError` except when the name is `"web"` (1.x raised `MissingDynoProcError`). Duplicate dyno names raise `DuplicateDynoError`.
+- Breaking: the second parameter of `config.dyno` is named `sampler` (1.x named it `proc`). A call that passes the sampler by position is not affected.
 - Breaking: the Flask and Quart middleware wrap the inner app, as the Flask and Quart docs show: `app.wsgi_app = HireFireMiddleware(app.wsgi_app)` and `app.asgi_app = HireFireMiddleware(app.asgi_app)`. 1.x took the app itself.
 
 ### Deprecated
