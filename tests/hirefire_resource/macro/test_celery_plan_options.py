@@ -86,3 +86,15 @@ def test_reinit_after_fork_is_the_macros_own_hook():
 
     assert celery_macro.reinit_after_fork is not hooks.reinit_after_fork
     assert celery_macro.reinit_after_fork() is None
+
+
+def test_the_macro_takes_the_strategies_and_options_the_server_sends():
+    assert celery_macro.supports_plan_strategy("jqs") is True
+    assert celery_macro.supports_plan_strategy("jql") is True
+    assert celery_macro.queues_required() is True
+    assert hasattr(celery_macro, "job_queue_working") is True
+    assert celery_macro.plan_options("jqs", {"skip_working": True}) == {
+        "skip_working": True
+    }
+    assert celery_macro.plan_options("jqs", {}) == {}
+    assert celery_macro.plan_options("jql", {"skip_working": True}) == {}

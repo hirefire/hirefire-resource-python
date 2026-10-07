@@ -60,3 +60,13 @@ def test_sample_wave_hooks_open_and_close_dq_memo():
     assert token is True
     dramatiq_macro.after_sample_job_queues(token)
     dramatiq_macro.reinit_after_fork()
+
+
+def test_the_macro_takes_the_strategies_and_options_the_server_sends():
+    assert dramatiq_macro.supports_plan_strategy("jqs") is True
+    assert dramatiq_macro.supports_plan_strategy("jql") is True
+    assert dramatiq_macro.queues_required() is True
+    assert hasattr(dramatiq_macro, "job_queue_working") is False
+    assert dramatiq_macro.plan_options("jqs", {"skip_working": True}) == {}
+    assert dramatiq_macro.plan_options("jqs", {}) == {}
+    assert dramatiq_macro.plan_options("jql", {"skip_working": True}) == {}

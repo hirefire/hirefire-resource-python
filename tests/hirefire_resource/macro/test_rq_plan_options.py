@@ -58,3 +58,15 @@ def test_sample_wave_hooks_default_to_noops():
     assert rq_macro.before_sample_job_queues() is None
     assert rq_macro.after_sample_job_queues("token") is None
     assert rq_macro.reinit_after_fork() is None
+
+
+def test_the_macro_takes_the_strategies_and_options_the_server_sends():
+    assert rq_macro.supports_plan_strategy("jqs") is True
+    assert rq_macro.supports_plan_strategy("jql") is True
+    assert rq_macro.queues_required() is False
+    assert hasattr(rq_macro, "job_queue_working") is True
+    assert rq_macro.plan_options("jqs", {"skip_working": True}) == {
+        "skip_working": True
+    }
+    assert rq_macro.plan_options("jqs", {}) == {}
+    assert rq_macro.plan_options("jql", {"skip_working": True}) == {}
