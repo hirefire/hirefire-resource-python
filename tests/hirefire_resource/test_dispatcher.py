@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from freezegun import freeze_time
 from mocket import Mocket, mocketize
-from mocket.mockhttp import Entry, Response
+from mocket.mockhttp import Entry, Request, Response
 
 from hirefire_resource import HireFire, plan
 from hirefire_resource.client import RequestError
@@ -55,12 +55,22 @@ def stub_lease(granted=False, plan=None, trace=False):
     )
 
 
+def complete_body(request):
+    if "body" not in vars(request):
+        expected = int(request.headers.get("content-length", 0))
+        received, _closed = request._parser.trailing_data
+        if expected == 0 or len(received) < expected:
+            return None
+    return request.body
+
+
 class IngestBodies:
     def _items(self):
         return [
-            json.loads(request.body)
-            for request in Mocket.request_list()
+            json.loads(body)
+            for request in list(Mocket.request_list())
             if request.path == "/metrics/ingest"
+            and (body := complete_body(request)) is not None
         ]
 
     def __len__(self):
@@ -79,6 +89,29 @@ class IngestBodies:
 def capture_ingest_bodies(status=200):
     Entry.single_register(Entry.POST, INGEST_URL, status=status)
     return IngestBodies()
+
+
+INGEST_HEAD = (
+    b"POST /metrics/ingest HTTP/1.1\r\n"
+    b"Host: data.hirefire.io\r\n"
+    b"Content-Length: 2\r\n\r\n"
+)
+
+
+@mocketize
+def test_ingest_bodies_skip_a_request_whose_body_has_not_arrived():
+    Mocket.collect(Request(INGEST_HEAD))
+
+    assert list(IngestBodies()) == []
+
+
+@mocketize
+def test_ingest_bodies_read_a_request_whose_body_arrived():
+    Mocket.collect(Request(INGEST_HEAD + b"[]"))
+    bodies = IngestBodies()
+
+    assert list(bodies) == [[]]
+    assert list(bodies) == [[]]
 
 
 def configure_web_and_workers(monkeypatch=None):
@@ -909,9 +942,11 @@ def test_a_hung_worker_sampler_does_not_stall_web_dispatch():
     Entry.single_register(Entry.POST, INGEST_URL, status=200)
     bodies = IngestBodies()
 
+    entered = threading.Event()
     release = threading.Event()
 
     def hung_sampler():
+        entered.set()
         release.wait()
         return 1
 
@@ -919,11 +954,11 @@ def test_a_hung_worker_sampler_does_not_stall_web_dispatch():
     config.dyno("web")
     config.dyno("worker", hung_sampler)
     dispatcher = config.dispatcher
-
-    config.buffer.sample("web", "rqt", 5)
     dispatcher.start()
 
     try:
+        assert entered.wait(timeout=5), "worker sampler never started"
+        config.buffer.sample("web", "rqt", 5)
         deadline = time.time() + 5
         while not any(entry["name"] == "web" for body in bodies for entry in body):
             assert time.time() < deadline, "web metrics never dispatched"
