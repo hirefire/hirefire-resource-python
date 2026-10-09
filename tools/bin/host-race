@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/env"
+cd "$TOOLS_ROOT"
+out="$TOOLS_RESULTS/hosts"
+mkdir -p "$out"
+ls dist/*.whl >/dev/null 2>&1 || poetry build -q
+docker build -q -t hirefire-python-hosts -f tools/hosts/Dockerfile . >"$out/build.log" 2>&1
+docker run --rm -e RACE_RUNS="${RACE_RUNS:-10}" -v "$out":/results hirefire-python-hosts python preload_race.py

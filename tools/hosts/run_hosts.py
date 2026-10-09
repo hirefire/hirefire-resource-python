@@ -56,6 +56,7 @@ HOSTS = [
         UWSGI + ["--enable-threads", "--lazy-apps"],
         "web",
     ),
+    ("uwsgi --py-call-uwsgi-fork-hooks", UWSGI + ["--py-call-uwsgi-fork-hooks"], "web"),
     (
         "celery prefork",
         [
@@ -196,7 +197,8 @@ def run(name, command, role):
     first_log = read(log_path)
     result["senders_after_requests"] = digest(first_log, process.pid)
 
-    victim = workers[0] if workers else None
+    booted = [int(pid) for pid, _ppid in BOOT.findall(boot_log) if int(pid) in workers]
+    victim = booted[0] if booted else (workers[0] if workers else None)
     restart = {"killed_worker": bool(victim)}
     if victim:
         mark = len(first_log)
