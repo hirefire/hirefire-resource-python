@@ -394,7 +394,7 @@ def check_lenses(directory, errors):
         named = sorted(set(re.findall(r"P-\d\d", body)))
         lines.append(
             f"  {lens}: {answered - before} of {len(LENS_POINTS[lens])} points, "
-            f"findings named: {', '.join(named) or 'none'}"
+            f"{len(named)} findings named"
         )
     return len(sections), answered, total, lines
 
