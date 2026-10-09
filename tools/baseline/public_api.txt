@@ -1,0 +1,382 @@
+hirefire_resource.__all__ = ['HireFire', '__version__']
+hirefire_resource.HireFire  (import from hirefire_resource.hirefire)
+hirefire_resource._types.Any  (import from typing)
+hirefire_resource._types.Callable  (import from collections.abc)
+hirefire_resource._types.Coroutine  (import from collections.abc)
+hirefire_resource._types.Sampler  (import from collections.abc)
+hirefire_resource.buffer.Any  (import from typing)
+hirefire_resource.buffer.Buffer  class
+hirefire_resource.buffer.Buffer.SAMPLE_COUNT_LIMIT  attribute = 1000000
+hirefire_resource.buffer.Buffer.__init__(self, ttl: int = 60) -> None  method
+hirefire_resource.buffer.Buffer.discard_inherited(self) -> None  method
+hirefire_resource.buffer.Buffer.flush(self) -> dict[str, dict[str, dict[int, typing.Any]]]  method
+hirefire_resource.buffer.Buffer.reinit_after_fork(self) -> None  method
+hirefire_resource.buffer.Buffer.reinit_locks_after_fork(self) -> None  method
+hirefire_resource.buffer.Buffer.repopulate(self, name: str, strategy: str, data: dict[int, typing.Any]) -> None  method
+hirefire_resource.buffer.Buffer.rqt_parts(bucket: Any) -> tuple[float, int]  staticmethod
+hirefire_resource.buffer.Buffer.sample(self, name: str, strategy: str, value: float) -> None  method
+hirefire_resource.buffer.rqt  (import from hirefire_resource.strategy)
+hirefire_resource.client.Client  class
+hirefire_resource.client.Client.KEEP_ALIVE_TIMEOUT  attribute = 60
+hirefire_resource.client.Client.__init__(self, timeout: int = 5) -> None  method
+hirefire_resource.client.Client.close(self) -> None  method
+hirefire_resource.client.Client.request_lease(self, process_id: str) -> hirefire_resource.client.Response  method
+hirefire_resource.client.Client.submit_samples(self, body: str) -> 'Response | None | str'  method
+hirefire_resource.client.Message  (import from email.message)
+hirefire_resource.client.PAYLOAD_TOO_LARGE = 'payload_too_large'  constant
+hirefire_resource.client.ParseResult  (import from urllib.parse)
+hirefire_resource.client.RequestError(Exception)  class
+hirefire_resource.client.Response  class
+hirefire_resource.client.Response.__init__(self, status: int, headers: email.message.Message, body: str = '') -> None  method
+hirefire_resource.client.Response.body  attribute = ''
+hirefire_resource.client.STALE_CONNECTION_ERRORS = (<class 'http.client.RemoteDisconnected'>, <class 'http.client.BadStatusLine'>, <class 'http.client.IncompleteRead'>, <c  constant
+hirefire_resource.client.VERSION = '2.0.0'  constant
+hirefire_resource.client.cast  (import from typing)
+hirefire_resource.client.dataclass  (import from dataclasses)
+hirefire_resource.client.urlparse  (import from urllib.parse)
+hirefire_resource.configuration.__all__ = ['Configuration', 'DuplicateDynoError', 'MissingSamplerError']
+hirefire_resource.configuration.Buffer  (import from hirefire_resource.buffer)
+hirefire_resource.configuration.CPU  (import from hirefire_resource.source.cpu)
+hirefire_resource.configuration.Configuration  class
+hirefire_resource.configuration.Configuration.__init__(self) -> None  method
+hirefire_resource.configuration.Configuration.active_cpu_sources(self) -> list[hirefire_resource.source.cpu.CPU]  method
+hirefire_resource.configuration.Configuration.buffer(self) -> hirefire_resource.buffer.Buffer  property
+hirefire_resource.configuration.Configuration.dispatcher(self) -> hirefire_resource.dispatcher.Dispatcher  property
+hirefire_resource.configuration.Configuration.dyno(self, name: str, sampler: collections.abc.Callable[[], float | collections.abc.Coroutine[Any, Any, float]] | None = None) -> None  method
+hirefire_resource.configuration.Configuration.http_name(self) -> str | None  method
+hirefire_resource.configuration.Configuration.http_source(self) -> hirefire_resource.source.http.HTTP | None  method
+hirefire_resource.configuration.Configuration.mark_http_active(self) -> None  method
+hirefire_resource.configuration.Configuration.prefork_web_handoff(self) -> bool  method
+hirefire_resource.configuration.Configuration.reset_after_fork(self) -> None  method
+hirefire_resource.configuration.Configuration.rqt_enabled(self) -> bool  method
+hirefire_resource.configuration.Configuration.rqt_liveness(self) -> bool  method
+hirefire_resource.configuration.Configuration.soft_identity(self) -> str | None  method
+hirefire_resource.configuration.Configuration.stop_dispatcher(self, flush: bool = True) -> None  method
+hirefire_resource.configuration.Configuration.token(self) -> str | None  property (settable)
+hirefire_resource.configuration.Dispatcher  (import from hirefire_resource.dispatcher)
+hirefire_resource.configuration.DuplicateDynoError  (import from hirefire_resource.errors)
+hirefire_resource.configuration.HTTP  (import from hirefire_resource.source.http)
+hirefire_resource.configuration.JobQueue  (import from hirefire_resource.source.job_queue)
+hirefire_resource.configuration.JobQueues  (import from hirefire_resource.source.job_queues)
+hirefire_resource.configuration.MAX_NAME_BYTES = 128  constant
+hirefire_resource.configuration.MissingSamplerError  (import from hirefire_resource.errors)
+hirefire_resource.configuration.Sampler  (import from collections.abc)
+hirefire_resource.configuration.safe_log  (import from hirefire_resource.log)
+hirefire_resource.dispatcher.Any  (import from typing)
+hirefire_resource.dispatcher.Buffer  (import from hirefire_resource.buffer)
+hirefire_resource.dispatcher.Callable  (import from typing)
+hirefire_resource.dispatcher.Client  (import from hirefire_resource.client)
+hirefire_resource.dispatcher.Dispatcher  class
+hirefire_resource.dispatcher.Dispatcher.DEFAULT_DISPATCH_FREQUENCY  attribute = 1
+hirefire_resource.dispatcher.Dispatcher.JOIN_TIMEOUT  attribute = 5
+hirefire_resource.dispatcher.Dispatcher.MAX_DISPATCH_FREQUENCY  attribute = 30
+hirefire_resource.dispatcher.Dispatcher.METRIC_VALUE_LIMIT  attribute = 1000000000000000.0
+hirefire_resource.dispatcher.Dispatcher.PAYLOAD_SIZE_LIMIT  attribute = 131072
+hirefire_resource.dispatcher.Dispatcher.RQT_BACKFILL_LIMIT  attribute = 60
+hirefire_resource.dispatcher.Dispatcher.SAMPLE_COUNT_LIMIT  attribute = 1000000
+hirefire_resource.dispatcher.Dispatcher.WARN_MAP_LIMIT  attribute = 256
+hirefire_resource.dispatcher.Dispatcher.__init__(self) -> None  method
+hirefire_resource.dispatcher.Dispatcher.abandon_inherited_state(self) -> None  method
+hirefire_resource.dispatcher.Dispatcher.ensure_job_queue_loop(self) -> None  method
+hirefire_resource.dispatcher.Dispatcher.running(self) -> bool  method
+hirefire_resource.dispatcher.Dispatcher.start(self) -> bool  method
+hirefire_resource.dispatcher.Dispatcher.stop(self, flush: bool = True) -> bool  method
+hirefire_resource.dispatcher.Lease  (import from hirefire_resource.lease)
+hirefire_resource.dispatcher.PAYLOAD_TOO_LARGE = 'payload_too_large'  constant
+hirefire_resource.dispatcher.Probe  (import from hirefire_resource.probe)
+hirefire_resource.dispatcher.RQT = 'rqt'  constant
+hirefire_resource.dispatcher.Response  (import from hirefire_resource.client)
+hirefire_resource.dispatcher.TYPE_CHECKING = False  constant
+hirefire_resource.dispatcher.format_error  (import from hirefire_resource.log)
+hirefire_resource.dispatcher.rqt  (import from hirefire_resource.strategy)
+hirefire_resource.dispatcher.safe_log  (import from hirefire_resource.log)
+hirefire_resource.errors.DuplicateDynoError(Exception)  class
+hirefire_resource.errors.MissingQueueError(Exception)  class
+hirefire_resource.errors.MissingQueueError.__init__(self) -> None  method
+hirefire_resource.errors.MissingSamplerError(Exception)  class
+hirefire_resource.errors.SampleIncompleteError(Exception)  class
+hirefire_resource.errors.SampleNotReadyError(SampleIncompleteError)  class
+hirefire_resource.hirefire.Configuration  (import from hirefire_resource.configuration)
+hirefire_resource.hirefire.HireFire  class
+hirefire_resource.hirefire.HireFire.after_fork_in_child(cls) -> None  classmethod
+hirefire_resource.hirefire.HireFire.after_fork_in_parent(cls) -> None  classmethod
+hirefire_resource.hirefire.HireFire.boot(cls) -> hirefire_resource.configuration.Configuration  classmethod
+hirefire_resource.hirefire.HireFire.configuration  attribute = <hirefire_resource.configuration.Configuration object at 0x10a960980>
+hirefire_resource.hirefire.HireFire.configure(cls) -> collections.abc.Iterator[hirefire_resource.configuration.Configuration]  classmethod
+hirefire_resource.hirefire.HireFire.install_fork_hooks(cls) -> None  classmethod
+hirefire_resource.hirefire.HireFire.reset(cls) -> None  classmethod
+hirefire_resource.hirefire.Iterator  (import from collections.abc)
+hirefire_resource.hirefire.contextmanager  (import from contextlib)
+hirefire_resource.hirefire.safe_log  (import from hirefire_resource.log)
+hirefire_resource.identity.explicit() -> str | None  function
+hirefire_resource.identity.heroku_conflict() -> bool  function
+hirefire_resource.identity.heroku_dyno() -> str | None  function
+hirefire_resource.identity.heroku_web_process() -> bool  function
+hirefire_resource.identity.platform_http_role() -> bool  function
+hirefire_resource.identity.presence(value: object | None) -> str | None  function
+hirefire_resource.identity.render_service() -> str | None  function
+hirefire_resource.identity.render_web_service() -> bool  function
+hirefire_resource.identity.resolve() -> str | None  function
+hirefire_resource.lease.Any  (import from typing)
+hirefire_resource.lease.Callable  (import from collections.abc)
+hirefire_resource.lease.Client  (import from hirefire_resource.client)
+hirefire_resource.lease.Lease  class
+hirefire_resource.lease.Lease.GrantBody(job_queues: list[dict[str, typing.Any]], trace: bool = False) -> None  class
+hirefire_resource.lease.Lease.MAX_BODY_BYTES  attribute = 131072
+hirefire_resource.lease.Lease.MAX_JOB_QUEUES  attribute = 256
+hirefire_resource.lease.Lease.MAX_NAME_BYTES  attribute = 128
+hirefire_resource.lease.Lease.SAMPLE_FREQUENCY_BOUNDS  attribute = (1, 3600)
+hirefire_resource.lease.Lease.TTL_BOUNDS  attribute = (5, 3600)
+hirefire_resource.lease.Lease.__init__(self) -> None  method
+hirefire_resource.lease.Lease.close(self) -> None  method
+hirefire_resource.lease.Lease.demote(self) -> None  method
+hirefire_resource.lease.Lease.granted(self) -> bool  method
+hirefire_resource.lease.Lease.request_if_due(self, hold: collections.abc.Callable[[list[dict[str, typing.Any]]], bool]) -> None  method
+hirefire_resource.lease.Lease.sample_if_due(self, sampler: collections.abc.Callable[[], None]) -> None  method
+hirefire_resource.lease.Lease.trace(self) -> bool  method
+hirefire_resource.lease.RequestError  (import from hirefire_resource.client)
+hirefire_resource.lease.dataclass  (import from dataclasses)
+hirefire_resource.lease.safe_log  (import from hirefire_resource.log)
+hirefire_resource.log.format_error(error: BaseException) -> str  function
+hirefire_resource.log.safe_log(logger: object, level: str, message: str) -> None  function
+hirefire_resource.macro.celery.AMQP_AVAILABLE = True  constant
+hirefire_resource.macro.celery.Any  (import from typing)
+hirefire_resource.macro.celery.Callable  (import from typing)
+hirefire_resource.macro.celery.Celery  (import from celery.app.base)
+hirefire_resource.macro.celery.ChannelError  (import from amqp.exceptions)
+hirefire_resource.macro.celery.Iterator  (import from typing)
+hirefire_resource.macro.celery.SampleIncompleteError  (import from hirefire_resource.errors)
+hirefire_resource.macro.celery.SampleNotReadyError  (import from hirefire_resource.errors)
+hirefire_resource.macro.celery.TypeVar  (import from typing)
+hirefire_resource.macro.celery.after_sample_job_queues  (import from hirefire_resource.plan.hooks)
+hirefire_resource.macro.celery.async_job_queue_latency(*queues: str, broker_url: str | None = None) -> float  async function
+hirefire_resource.macro.celery.async_job_queue_size(*queues: str, broker_url: str | None = None, celery_app: 'Celery | None' = None, skip_working: bool = False) -> int  async function
+hirefire_resource.macro.celery.async_job_queue_working(*queues: str, broker_url: str | None = None, celery_app: 'Celery | None' = None) -> int  async function
+hirefire_resource.macro.celery.before_sample_job_queues  (import from hirefire_resource.plan.hooks)
+hirefire_resource.macro.celery.before_task_publish  (import from celery.utils.dispatch.signal)
+hirefire_resource.macro.celery.cast  (import from typing)
+hirefire_resource.macro.celery.contextmanager  (import from contextlib)
+hirefire_resource.macro.celery.datetime  (import from datetime)
+hirefire_resource.macro.celery.format_error  (import from hirefire_resource.log)
+hirefire_resource.macro.celery.job_queue_latency(*queues: str, broker_url: str | None = None) -> float  function
+hirefire_resource.macro.celery.job_queue_size(*queues: str, broker_url: str | None = None, celery_app: 'Celery | None' = None, skip_working: bool = False) -> int  function
+hirefire_resource.macro.celery.job_queue_working(*queues: str, broker_url: str | None = None, celery_app: 'Celery | None' = None) -> int  function
+hirefire_resource.macro.celery.mitigate_connection_reset_error(retries: int = 2, delay: float = 0) -> Callable[[~_F], ~_F]  function
+hirefire_resource.macro.celery.normalize_queues  (import from hirefire_resource.utility)
+hirefire_resource.macro.celery.parse  (import from dateutil.parser._parser)
+hirefire_resource.macro.celery.plan_connection_options() -> dict[str, typing.Any]  function
+hirefire_resource.macro.celery.plan_options(strategy: object, options: object) -> dict[str, typing.Any]  function
+hirefire_resource.macro.celery.queues_required() -> bool  function
+hirefire_resource.macro.celery.reinit_after_fork() -> None  function
+hirefire_resource.macro.celery.run_at_header_signal(sender: Any = None, headers: Any = None, body: Any = None, properties: Any = None, **kwargs: Any) -> None  function
+hirefire_resource.macro.celery.safe_log  (import from hirefire_resource.log)
+hirefire_resource.macro.celery.supports_plan_strategy  (import from hirefire_resource.plan.hooks)
+hirefire_resource.macro.celery.timezone  (import from datetime)
+hirefire_resource.macro.dramatiq.AMQPChannelError  (import from pika.exceptions)
+hirefire_resource.macro.dramatiq.Any  (import from typing)
+hirefire_resource.macro.dramatiq.PIKA_AVAILABLE = True  constant
+hirefire_resource.macro.dramatiq.after_sample_job_queues(token: object = None) -> None  function
+hirefire_resource.macro.dramatiq.async_job_queue_latency(*queues: str, broker_url: str | None = None, broker: object | None = None, namespace: str | None = None) -> float  async function
+hirefire_resource.macro.dramatiq.async_job_queue_size(*queues: str, broker_url: str | None = None, broker: object | None = None, namespace: str | None = None) -> int  async function
+hirefire_resource.macro.dramatiq.before_sample_job_queues() -> object  function
+hirefire_resource.macro.dramatiq.job_queue_latency(*queues: str, broker_url: str | None = None, broker: object | None = None, namespace: str | None = None) -> float  function
+hirefire_resource.macro.dramatiq.job_queue_size(*queues: str, broker_url: str | None = None, broker: object | None = None, namespace: str | None = None) -> int  function
+hirefire_resource.macro.dramatiq.normalize_queues  (import from hirefire_resource.utility)
+hirefire_resource.macro.dramatiq.plan_connection_options() -> dict[str, typing.Any]  function
+hirefire_resource.macro.dramatiq.plan_options  (import from hirefire_resource.plan.hooks)
+hirefire_resource.macro.dramatiq.presence  (import from hirefire_resource.identity)
+hirefire_resource.macro.dramatiq.queues_required() -> bool  function
+hirefire_resource.macro.dramatiq.reinit_after_fork() -> None  function
+hirefire_resource.macro.dramatiq.supports_plan_strategy  (import from hirefire_resource.plan.hooks)
+hirefire_resource.macro.rq.Any  (import from typing)
+hirefire_resource.macro.rq.after_sample_job_queues  (import from hirefire_resource.plan.hooks)
+hirefire_resource.macro.rq.async_job_queue_latency(*queues: str, redis_url: str | None = None) -> float  async function
+hirefire_resource.macro.rq.async_job_queue_size(*queues: str, redis_url: str | None = None, skip_working: bool = False) -> int  async function
+hirefire_resource.macro.rq.async_job_queue_working(*queues: str, redis_url: str | None = None) -> int  async function
+hirefire_resource.macro.rq.before_sample_job_queues  (import from hirefire_resource.plan.hooks)
+hirefire_resource.macro.rq.datetime  (import from datetime)
+hirefire_resource.macro.rq.job_queue_latency(*queues: str, redis_url: str | None = None) -> float  function
+hirefire_resource.macro.rq.job_queue_size(*queues: str, redis_url: str | None = None, skip_working: bool = False) -> int  function
+hirefire_resource.macro.rq.job_queue_working(*queues: str, redis_url: str | None = None) -> int  function
+hirefire_resource.macro.rq.normalize_queues  (import from hirefire_resource.utility)
+hirefire_resource.macro.rq.plan_connection_options() -> dict[str, typing.Any]  function
+hirefire_resource.macro.rq.plan_options(strategy: object, options: object) -> dict[str, typing.Any]  function
+hirefire_resource.macro.rq.queues_required  (import from hirefire_resource.plan.hooks)
+hirefire_resource.macro.rq.reinit_after_fork  (import from hirefire_resource.plan.hooks)
+hirefire_resource.macro.rq.supports_plan_strategy  (import from hirefire_resource.plan.hooks)
+hirefire_resource.middleware.Callable  (import from collections.abc)
+hirefire_resource.middleware.HireFire  (import from hirefire_resource.hirefire)
+hirefire_resource.middleware.REQUEST_QUEUE_TIME_LIMIT = 60000  constant
+hirefire_resource.middleware.calculate_request_queue_time(request_start: str) -> int | None  function
+hirefire_resource.middleware.present_header(value: object | None) -> str | None  function
+hirefire_resource.middleware.process_request_queue_time(request_start: str | None = None, *, extract: collections.abc.Callable[[], object | None] | None = None) -> None  function
+hirefire_resource.middleware.round_half_up  (import from hirefire_resource.utility)
+hirefire_resource.middleware.safe_log  (import from hirefire_resource.log)
+hirefire_resource.middleware.asgi.Any  (import from typing)
+hirefire_resource.middleware.asgi.Awaitable  (import from collections.abc)
+hirefire_resource.middleware.asgi.Callable  (import from collections.abc)
+hirefire_resource.middleware.asgi.Mapping  (import from collections.abc)
+hirefire_resource.middleware.asgi.MutableMapping  (import from collections.abc)
+hirefire_resource.middleware.asgi.Receive  (import from collections.abc)
+hirefire_resource.middleware.asgi.Scope  (import from collections.abc)
+hirefire_resource.middleware.asgi.Send  (import from collections.abc)
+hirefire_resource.middleware.asgi.present_header  (import from hirefire_resource.middleware)
+hirefire_resource.middleware.asgi.request_start_from_scope(scope: collections.abc.Mapping[str, typing.Any]) -> str | None  function
+hirefire_resource.middleware.asgi.django.Any  (import from typing)
+hirefire_resource.middleware.asgi.django.HireFireMiddleware  class
+hirefire_resource.middleware.asgi.django.HireFireMiddleware.__init__(self, inner: Any) -> None  method
+hirefire_resource.middleware.asgi.django.Receive  (import from collections.abc)
+hirefire_resource.middleware.asgi.django.Scope  (import from collections.abc)
+hirefire_resource.middleware.asgi.django.Send  (import from collections.abc)
+hirefire_resource.middleware.asgi.django.process_request_queue_time  (import from hirefire_resource.middleware)
+hirefire_resource.middleware.asgi.django.request_start_from_scope  (import from hirefire_resource.middleware.asgi)
+hirefire_resource.middleware.asgi.quart.Any  (import from typing)
+hirefire_resource.middleware.asgi.quart.HireFireMiddleware  class
+hirefire_resource.middleware.asgi.quart.HireFireMiddleware.__init__(self, app: Any) -> None  method
+hirefire_resource.middleware.asgi.quart.Receive  (import from collections.abc)
+hirefire_resource.middleware.asgi.quart.Scope  (import from collections.abc)
+hirefire_resource.middleware.asgi.quart.Send  (import from collections.abc)
+hirefire_resource.middleware.asgi.quart.process_request_queue_time  (import from hirefire_resource.middleware)
+hirefire_resource.middleware.asgi.quart.request_start_from_scope  (import from hirefire_resource.middleware.asgi)
+hirefire_resource.middleware.asgi.starlette.Any  (import from typing)
+hirefire_resource.middleware.asgi.starlette.HireFireMiddleware  class
+hirefire_resource.middleware.asgi.starlette.HireFireMiddleware.__init__(self, app: Any) -> None  method
+hirefire_resource.middleware.asgi.starlette.Receive  (import from collections.abc)
+hirefire_resource.middleware.asgi.starlette.Scope  (import from collections.abc)
+hirefire_resource.middleware.asgi.starlette.Send  (import from collections.abc)
+hirefire_resource.middleware.asgi.starlette.process_request_queue_time  (import from hirefire_resource.middleware)
+hirefire_resource.middleware.asgi.starlette.request_start_from_scope  (import from hirefire_resource.middleware.asgi)
+hirefire_resource.middleware.wsgi.Any  (import from typing)
+hirefire_resource.middleware.wsgi.Mapping  (import from collections.abc)
+hirefire_resource.middleware.wsgi.present_header  (import from hirefire_resource.middleware)
+hirefire_resource.middleware.wsgi.request_start_from_environ(environ: collections.abc.Mapping[str, typing.Any]) -> str | None  function
+hirefire_resource.middleware.wsgi.django.Any  (import from typing)
+hirefire_resource.middleware.wsgi.django.HireFireMiddleware  class
+hirefire_resource.middleware.wsgi.django.HireFireMiddleware.__init__(self, get_response: Any) -> None  method
+hirefire_resource.middleware.wsgi.django.process_request_queue_time  (import from hirefire_resource.middleware)
+hirefire_resource.middleware.wsgi.django.request_start_from_environ  (import from hirefire_resource.middleware.wsgi)
+hirefire_resource.middleware.wsgi.flask.Any  (import from typing)
+hirefire_resource.middleware.wsgi.flask.HireFireMiddleware  class
+hirefire_resource.middleware.wsgi.flask.HireFireMiddleware.__init__(self, app: Any) -> None  method
+hirefire_resource.middleware.wsgi.flask.Iterable  (import from collections.abc)
+hirefire_resource.middleware.wsgi.flask.Mapping  (import from collections.abc)
+hirefire_resource.middleware.wsgi.flask.process_request_queue_time  (import from hirefire_resource.middleware)
+hirefire_resource.middleware.wsgi.flask.request_start_from_environ  (import from hirefire_resource.middleware.wsgi)
+hirefire_resource.plan.ADAPTER_MODULES = {'celery': 'hirefire_resource.macro.celery', 'rq': 'hirefire_resource.macro.rq', 'dramatiq': 'hirefire_resource.macro.dr  constant
+hirefire_resource.plan.Any  (import from typing)
+hirefire_resource.plan.Callable  (import from collections.abc)
+hirefire_resource.plan.Iterator  (import from collections.abc)
+hirefire_resource.plan.LIBRARY_CHECKS = {'celery': 'celery', 'rq': 'rq', 'dramatiq': 'dramatiq'}  constant
+hirefire_resource.plan.MAX_QUEUES = 64  constant
+hirefire_resource.plan.MAX_QUEUE_NAME_BYTES = 128  constant
+hirefire_resource.plan.STRATEGIES = {'jql': 'job_queue_latency', 'jqs': 'job_queue_size'}  constant
+hirefire_resource.plan.SampleNotReadyError  (import from hirefire_resource.errors)
+hirefire_resource.plan.any_allowlisted_job_queue_library_loaded() -> bool  function
+hirefire_resource.plan.around_job_queue_sample() -> collections.abc.Iterator[None]  function
+hirefire_resource.plan.coerce_sample  (import from hirefire_resource.sample)
+hirefire_resource.plan.contextmanager  (import from contextlib)
+hirefire_resource.plan.executable(adapter: object) -> bool  function
+hirefire_resource.plan.execute(entry: dict[str, typing.Any], live: collections.abc.Callable[[], bool] | None = None) -> None  function
+hirefire_resource.plan.format_error  (import from hirefire_resource.log)
+hirefire_resource.plan.format_sample_value  (import from hirefire_resource.sample)
+hirefire_resource.plan.known_adapter(adapter: object) -> bool  function
+hirefire_resource.plan.known_strategy(strategy: object) -> bool  function
+hirefire_resource.plan.library_loaded(adapter: object) -> bool  function
+hirefire_resource.plan.named_plan_queues(queues: object) -> bool  function
+hirefire_resource.plan.normalize_queues(queues: object, name: str) -> list[str] | None  function
+hirefire_resource.plan.queues_required(adapter: object) -> bool  function
+hirefire_resource.plan.reinit_macros_after_fork() -> None  function
+hirefire_resource.plan.safe_log  (import from hirefire_resource.log)
+hirefire_resource.plan.sampleable_entry(entry: dict[str, typing.Any]) -> bool  function
+hirefire_resource.plan.supports_strategy(adapter: object, strategy: object) -> bool  function
+hirefire_resource.plan.valid_sample  (import from hirefire_resource.sample)
+hirefire_resource.plan.hooks.Any  (import from typing)
+hirefire_resource.plan.hooks.after_sample_job_queues(token: object = None) -> None  function
+hirefire_resource.plan.hooks.before_sample_job_queues() -> object | None  function
+hirefire_resource.plan.hooks.coerce_plan_value(type_name: str, value: object) -> object | None  function
+hirefire_resource.plan.hooks.extract_plan_options(strategy: object, options: object, schema: dict[str, dict[str, str]]) -> dict[str, typing.Any]  function
+hirefire_resource.plan.hooks.plan_connection_options() -> dict[str, typing.Any]  function
+hirefire_resource.plan.hooks.plan_options(strategy: object, options: object) -> dict[str, typing.Any]  function
+hirefire_resource.plan.hooks.queues_required() -> bool  function
+hirefire_resource.plan.hooks.reinit_after_fork() -> None  function
+hirefire_resource.plan.hooks.supports_plan_strategy(strategy: object) -> bool  function
+hirefire_resource.plan.size_only.supports_plan_strategy(strategy: object) -> bool  function
+hirefire_resource.probe.Any  (import from typing)
+hirefire_resource.probe.Callable  (import from typing)
+hirefire_resource.probe.Probe  class
+hirefire_resource.probe.Probe.__init__(self) -> 'None'  method
+hirefire_resource.probe.Probe.finish(self) -> 'dict[str, Any]'  method
+hirefire_resource.probe.Probe.log_to(self, logger: 'Any') -> 'None'  method
+hirefire_resource.probe.Probe.measure(self, entry: 'Any', fn: 'Callable[[], T]') -> 'T'  method
+hirefire_resource.probe.Probe.record(self, entry: 'Any', ms: 'float') -> 'Probe'  method
+hirefire_resource.probe.Probe.start(cls) -> 'Probe'  classmethod
+hirefire_resource.probe.T = ~T  constant
+hirefire_resource.probe.TypeVar  (import from typing)
+hirefire_resource.probe.annotations  (import from __future__)
+hirefire_resource.probe.safe_log  (import from hirefire_resource.log)
+hirefire_resource.sample.TypeGuard  (import from typing)
+hirefire_resource.sample.coerce_sample(value: int | float) -> int | float  function
+hirefire_resource.sample.format_sample_value(value: object) -> str  function
+hirefire_resource.sample.valid_sample(value: object) -> TypeGuard[int | float]  function
+hirefire_resource.source.cpu.CPU  class
+hirefire_resource.source.cpu.CPU.__init__(self, name: str) -> None  method
+hirefire_resource.source.cpu.CPU.sample(self) -> None  method
+hirefire_resource.source.cpu.Usage  (import from hirefire_resource.source.cpu.usage)
+hirefire_resource.source.cpu.round_half_up  (import from hirefire_resource.utility)
+hirefire_resource.source.cpu.usage.Usage  class
+hirefire_resource.source.cpu.usage.Usage.CEDAR_MEMORY_LIMIT  attribute = '/sys/fs/cgroup/memory/memory.limit_in_bytes'
+hirefire_resource.source.cpu.usage.Usage.CEDAR_SHARED_ENTITLEMENTS  attribute = {536870912: 1.0, 1073741824: 2.0}
+hirefire_resource.source.cpu.usage.Usage.CGROUP_V1_PERIOD  attribute = '/sys/fs/cgroup/cpu/cpu.cfs_period_us'
+hirefire_resource.source.cpu.usage.Usage.CGROUP_V1_QUOTA  attribute = '/sys/fs/cgroup/cpu/cpu.cfs_quota_us'
+hirefire_resource.source.cpu.usage.Usage.CGROUP_V1_USAGE  attribute = '/sys/fs/cgroup/cpuacct/cpuacct.usage'
+hirefire_resource.source.cpu.usage.Usage.CGROUP_V2_QUOTA  attribute = '/sys/fs/cgroup/cpu.max'
+hirefire_resource.source.cpu.usage.Usage.CGROUP_V2_USAGE  attribute = '/sys/fs/cgroup/cpu.stat'
+hirefire_resource.source.cpu.usage.Usage.PROC_STAT_GLOB  attribute = '/proc/[0-9]*/stat'
+hirefire_resource.source.cpu.usage.Usage.available_cpus(cls) -> float | None  classmethod
+hirefire_resource.source.cpu.usage.Usage.cgroup_v1_quota(cls) -> float | None  classmethod
+hirefire_resource.source.cpu.usage.Usage.cgroup_v1_seconds(cls) -> float | None  classmethod
+hirefire_resource.source.cpu.usage.Usage.cgroup_v2_quota(cls) -> float | None  classmethod
+hirefire_resource.source.cpu.usage.Usage.cgroup_v2_seconds(cls) -> float | None  classmethod
+hirefire_resource.source.cpu.usage.Usage.clock_ticks(cls) -> int  classmethod
+hirefire_resource.source.cpu.usage.Usage.heroku_entitlement(cls) -> float | None  classmethod
+hirefire_resource.source.cpu.usage.Usage.positive_clock_ticks(cls) -> int  classmethod
+hirefire_resource.source.cpu.usage.Usage.proc_namespace_seconds(cls) -> float | None  classmethod
+hirefire_resource.source.cpu.usage.Usage.process_seconds(cls) -> float  classmethod
+hirefire_resource.source.cpu.usage.Usage.processor_count(cls) -> int | None  classmethod
+hirefire_resource.source.cpu.usage.Usage.read(cls, path: str) -> str | None  classmethod
+hirefire_resource.source.cpu.usage.Usage.reading(cls) -> tuple[float | None, str | None]  classmethod
+hirefire_resource.source.cpu.usage.Usage.render_entitlement(cls) -> float | None  classmethod
+hirefire_resource.source.cpu.usage.Usage.stat_ticks(cls, content: str) -> int | None  classmethod
+hirefire_resource.source.http.HTTP  class
+hirefire_resource.source.http.HTTP.__init__(self, name: str) -> None  method
+hirefire_resource.source.http.HTTP.sample(self, request_queue_time: int) -> None  method
+hirefire_resource.source.http.RQT = 'rqt'  constant
+hirefire_resource.source.job_queue.Coroutine  (import from collections.abc)
+hirefire_resource.source.job_queue.JobQueue  class
+hirefire_resource.source.job_queue.JobQueue.__init__(self, name: str, sampler: collections.abc.Callable[[], float | collections.abc.Coroutine[typing.Any, typing.Any, float]]) -> None  method
+hirefire_resource.source.job_queue.JobQueue.sample(self) -> float  method
+hirefire_resource.source.job_queue.Sampler  (import from collections.abc)
+hirefire_resource.source.job_queues.Callable  (import from collections.abc)
+hirefire_resource.source.job_queues.Iterator  (import from collections.abc)
+hirefire_resource.source.job_queues.JobQueue  (import from hirefire_resource.source.job_queue)
+hirefire_resource.source.job_queues.JobQueues  class
+hirefire_resource.source.job_queues.JobQueues.__init__(self, configuration: 'Configuration | None' = None) -> None  method
+hirefire_resource.source.job_queues.JobQueues.any(self) -> bool  method
+hirefire_resource.source.job_queues.JobQueues.append(self, job_queue: hirefire_resource.source.job_queue.JobQueue) -> None  method
+hirefire_resource.source.job_queues.JobQueues.find_by_name(self, name: str) -> hirefire_resource.source.job_queue.JobQueue | None  method
+hirefire_resource.source.job_queues.JobQueues.sample_job_queue(self, job_queue: hirefire_resource.source.job_queue.JobQueue | None, strategy: str, live: collections.abc.Callable[[], bool] | None = None, name: str | None = None) -> None  method
+hirefire_resource.source.job_queues.SampleNotReadyError  (import from hirefire_resource.errors)
+hirefire_resource.source.job_queues.TYPE_CHECKING = False  constant
+hirefire_resource.source.job_queues.coerce_sample  (import from hirefire_resource.sample)
+hirefire_resource.source.job_queues.format_error  (import from hirefire_resource.log)
+hirefire_resource.source.job_queues.format_sample_value  (import from hirefire_resource.sample)
+hirefire_resource.source.job_queues.safe_log  (import from hirefire_resource.log)
+hirefire_resource.source.job_queues.valid_sample  (import from hirefire_resource.sample)
+hirefire_resource.strategy.RQT = 'rqt'  constant
+hirefire_resource.strategy.rqt(strategy: object) -> bool  function
+hirefire_resource.utility.MissingQueueError  (import from hirefire_resource.errors)
+hirefire_resource.utility.normalize_queues(*queues: object, allow_empty: bool) -> set[str]  function
+hirefire_resource.utility.round_half_up(value: float, ndigits: int = 0) -> float  function
+hirefire_resource.version.PackageNotFoundError  (import from importlib.metadata)
+hirefire_resource.version.VERSION = '2.0.0'  constant
+hirefire_resource.version.version  (import from importlib.metadata)

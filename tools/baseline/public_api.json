@@ -1,0 +1,1732 @@
+{
+  "hirefire_resource": {
+    "all": [
+      "HireFire",
+      "__version__"
+    ],
+    "names": {
+      "HireFire": {
+        "from": "hirefire_resource.hirefire",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource._types": {
+    "names": {
+      "Any": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "Callable": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "Coroutine": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "Sampler": {
+        "from": "collections.abc",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.buffer": {
+    "names": {
+      "Any": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "Buffer": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "SAMPLE_COUNT_LIMIT": {
+            "kind": "attribute",
+            "value": "1000000"
+          },
+          "__init__": {
+            "kind": "method",
+            "signature": "(self, ttl: int = 60) -> None"
+          },
+          "discard_inherited": {
+            "kind": "method",
+            "signature": "(self) -> None"
+          },
+          "flush": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, dict[str, dict[int, typing.Any]]]"
+          },
+          "reinit_after_fork": {
+            "kind": "method",
+            "signature": "(self) -> None"
+          },
+          "reinit_locks_after_fork": {
+            "kind": "method",
+            "signature": "(self) -> None"
+          },
+          "repopulate": {
+            "kind": "method",
+            "signature": "(self, name: str, strategy: str, data: dict[int, typing.Any]) -> None"
+          },
+          "rqt_parts": {
+            "kind": "staticmethod",
+            "signature": "(bucket: Any) -> tuple[float, int]"
+          },
+          "sample": {
+            "kind": "method",
+            "signature": "(self, name: str, strategy: str, value: float) -> None"
+          }
+        }
+      },
+      "rqt": {
+        "from": "hirefire_resource.strategy",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.client": {
+    "names": {
+      "Client": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "KEEP_ALIVE_TIMEOUT": {
+            "kind": "attribute",
+            "value": "60"
+          },
+          "__init__": {
+            "kind": "method",
+            "signature": "(self, timeout: int = 5) -> None"
+          },
+          "close": {
+            "kind": "method",
+            "signature": "(self) -> None"
+          },
+          "request_lease": {
+            "kind": "method",
+            "signature": "(self, process_id: str) -> hirefire_resource.client.Response"
+          },
+          "submit_samples": {
+            "kind": "method",
+            "signature": "(self, body: str) -> 'Response | None | str'"
+          }
+        }
+      },
+      "Message": {
+        "from": "email.message",
+        "kind": "import"
+      },
+      "PAYLOAD_TOO_LARGE": {
+        "kind": "constant",
+        "value": "'payload_too_large'"
+      },
+      "ParseResult": {
+        "from": "urllib.parse",
+        "kind": "import"
+      },
+      "RequestError": {
+        "bases": [
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {}
+      },
+      "Response": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "__init__": {
+            "kind": "method",
+            "signature": "(self, status: int, headers: email.message.Message, body: str = '') -> None"
+          },
+          "body": {
+            "kind": "attribute",
+            "value": "''"
+          }
+        }
+      },
+      "STALE_CONNECTION_ERRORS": {
+        "kind": "constant",
+        "value": "(<class 'http.client.RemoteDisconnected'>, <class 'http.client.BadStatusLine'>, <class 'http.client.IncompleteRead'>, <c"
+      },
+      "VERSION": {
+        "kind": "constant",
+        "value": "'2.0.0'"
+      },
+      "cast": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "dataclass": {
+        "from": "dataclasses",
+        "kind": "import"
+      },
+      "urlparse": {
+        "from": "urllib.parse",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.configuration": {
+    "all": [
+      "Configuration",
+      "DuplicateDynoError",
+      "MissingSamplerError"
+    ],
+    "names": {
+      "Buffer": {
+        "from": "hirefire_resource.buffer",
+        "kind": "import"
+      },
+      "CPU": {
+        "from": "hirefire_resource.source.cpu",
+        "kind": "import"
+      },
+      "Configuration": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "__init__": {
+            "kind": "method",
+            "signature": "(self) -> None"
+          },
+          "active_cpu_sources": {
+            "kind": "method",
+            "signature": "(self) -> list[hirefire_resource.source.cpu.CPU]"
+          },
+          "buffer": {
+            "kind": "property",
+            "signature": "(self) -> hirefire_resource.buffer.Buffer"
+          },
+          "dispatcher": {
+            "kind": "property",
+            "signature": "(self) -> hirefire_resource.dispatcher.Dispatcher"
+          },
+          "dyno": {
+            "kind": "method",
+            "signature": "(self, name: str, sampler: collections.abc.Callable[[], float | collections.abc.Coroutine[Any, Any, float]] | None = None) -> None"
+          },
+          "http_name": {
+            "kind": "method",
+            "signature": "(self) -> str | None"
+          },
+          "http_source": {
+            "kind": "method",
+            "signature": "(self) -> hirefire_resource.source.http.HTTP | None"
+          },
+          "mark_http_active": {
+            "kind": "method",
+            "signature": "(self) -> None"
+          },
+          "prefork_web_handoff": {
+            "kind": "method",
+            "signature": "(self) -> bool"
+          },
+          "reset_after_fork": {
+            "kind": "method",
+            "signature": "(self) -> None"
+          },
+          "rqt_enabled": {
+            "kind": "method",
+            "signature": "(self) -> bool"
+          },
+          "rqt_liveness": {
+            "kind": "method",
+            "signature": "(self) -> bool"
+          },
+          "soft_identity": {
+            "kind": "method",
+            "signature": "(self) -> str | None"
+          },
+          "stop_dispatcher": {
+            "kind": "method",
+            "signature": "(self, flush: bool = True) -> None"
+          },
+          "token": {
+            "kind": "property (settable)",
+            "signature": "(self) -> str | None"
+          }
+        }
+      },
+      "Dispatcher": {
+        "from": "hirefire_resource.dispatcher",
+        "kind": "import"
+      },
+      "DuplicateDynoError": {
+        "from": "hirefire_resource.errors",
+        "kind": "import"
+      },
+      "HTTP": {
+        "from": "hirefire_resource.source.http",
+        "kind": "import"
+      },
+      "JobQueue": {
+        "from": "hirefire_resource.source.job_queue",
+        "kind": "import"
+      },
+      "JobQueues": {
+        "from": "hirefire_resource.source.job_queues",
+        "kind": "import"
+      },
+      "MAX_NAME_BYTES": {
+        "kind": "constant",
+        "value": "128"
+      },
+      "MissingSamplerError": {
+        "from": "hirefire_resource.errors",
+        "kind": "import"
+      },
+      "Sampler": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "safe_log": {
+        "from": "hirefire_resource.log",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.dispatcher": {
+    "names": {
+      "Any": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "Buffer": {
+        "from": "hirefire_resource.buffer",
+        "kind": "import"
+      },
+      "Callable": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "Client": {
+        "from": "hirefire_resource.client",
+        "kind": "import"
+      },
+      "Dispatcher": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "DEFAULT_DISPATCH_FREQUENCY": {
+            "kind": "attribute",
+            "value": "1"
+          },
+          "JOIN_TIMEOUT": {
+            "kind": "attribute",
+            "value": "5"
+          },
+          "MAX_DISPATCH_FREQUENCY": {
+            "kind": "attribute",
+            "value": "30"
+          },
+          "METRIC_VALUE_LIMIT": {
+            "kind": "attribute",
+            "value": "1000000000000000.0"
+          },
+          "PAYLOAD_SIZE_LIMIT": {
+            "kind": "attribute",
+            "value": "131072"
+          },
+          "RQT_BACKFILL_LIMIT": {
+            "kind": "attribute",
+            "value": "60"
+          },
+          "SAMPLE_COUNT_LIMIT": {
+            "kind": "attribute",
+            "value": "1000000"
+          },
+          "WARN_MAP_LIMIT": {
+            "kind": "attribute",
+            "value": "256"
+          },
+          "__init__": {
+            "kind": "method",
+            "signature": "(self) -> None"
+          },
+          "abandon_inherited_state": {
+            "kind": "method",
+            "signature": "(self) -> None"
+          },
+          "ensure_job_queue_loop": {
+            "kind": "method",
+            "signature": "(self) -> None"
+          },
+          "running": {
+            "kind": "method",
+            "signature": "(self) -> bool"
+          },
+          "start": {
+            "kind": "method",
+            "signature": "(self) -> bool"
+          },
+          "stop": {
+            "kind": "method",
+            "signature": "(self, flush: bool = True) -> bool"
+          }
+        }
+      },
+      "Lease": {
+        "from": "hirefire_resource.lease",
+        "kind": "import"
+      },
+      "PAYLOAD_TOO_LARGE": {
+        "kind": "constant",
+        "value": "'payload_too_large'"
+      },
+      "Probe": {
+        "from": "hirefire_resource.probe",
+        "kind": "import"
+      },
+      "RQT": {
+        "kind": "constant",
+        "value": "'rqt'"
+      },
+      "Response": {
+        "from": "hirefire_resource.client",
+        "kind": "import"
+      },
+      "TYPE_CHECKING": {
+        "kind": "constant",
+        "value": "False"
+      },
+      "format_error": {
+        "from": "hirefire_resource.log",
+        "kind": "import"
+      },
+      "rqt": {
+        "from": "hirefire_resource.strategy",
+        "kind": "import"
+      },
+      "safe_log": {
+        "from": "hirefire_resource.log",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.errors": {
+    "names": {
+      "DuplicateDynoError": {
+        "bases": [
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {}
+      },
+      "MissingQueueError": {
+        "bases": [
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {
+          "__init__": {
+            "kind": "method",
+            "signature": "(self) -> None"
+          }
+        }
+      },
+      "MissingSamplerError": {
+        "bases": [
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {}
+      },
+      "SampleIncompleteError": {
+        "bases": [
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {}
+      },
+      "SampleNotReadyError": {
+        "bases": [
+          "SampleIncompleteError"
+        ],
+        "kind": "class",
+        "members": {}
+      }
+    }
+  },
+  "hirefire_resource.hirefire": {
+    "names": {
+      "Configuration": {
+        "from": "hirefire_resource.configuration",
+        "kind": "import"
+      },
+      "HireFire": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "after_fork_in_child": {
+            "kind": "classmethod",
+            "signature": "(cls) -> None"
+          },
+          "after_fork_in_parent": {
+            "kind": "classmethod",
+            "signature": "(cls) -> None"
+          },
+          "boot": {
+            "kind": "classmethod",
+            "signature": "(cls) -> hirefire_resource.configuration.Configuration"
+          },
+          "configuration": {
+            "kind": "attribute",
+            "value": "<hirefire_resource.configuration.Configuration object at 0x10a960980>"
+          },
+          "configure": {
+            "kind": "classmethod",
+            "signature": "(cls) -> collections.abc.Iterator[hirefire_resource.configuration.Configuration]"
+          },
+          "install_fork_hooks": {
+            "kind": "classmethod",
+            "signature": "(cls) -> None"
+          },
+          "reset": {
+            "kind": "classmethod",
+            "signature": "(cls) -> None"
+          }
+        }
+      },
+      "Iterator": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "contextmanager": {
+        "from": "contextlib",
+        "kind": "import"
+      },
+      "safe_log": {
+        "from": "hirefire_resource.log",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.identity": {
+    "names": {
+      "explicit": {
+        "kind": "function",
+        "signature": "() -> str | None"
+      },
+      "heroku_conflict": {
+        "kind": "function",
+        "signature": "() -> bool"
+      },
+      "heroku_dyno": {
+        "kind": "function",
+        "signature": "() -> str | None"
+      },
+      "heroku_web_process": {
+        "kind": "function",
+        "signature": "() -> bool"
+      },
+      "platform_http_role": {
+        "kind": "function",
+        "signature": "() -> bool"
+      },
+      "presence": {
+        "kind": "function",
+        "signature": "(value: object | None) -> str | None"
+      },
+      "render_service": {
+        "kind": "function",
+        "signature": "() -> str | None"
+      },
+      "render_web_service": {
+        "kind": "function",
+        "signature": "() -> bool"
+      },
+      "resolve": {
+        "kind": "function",
+        "signature": "() -> str | None"
+      }
+    }
+  },
+  "hirefire_resource.lease": {
+    "names": {
+      "Any": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "Callable": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "Client": {
+        "from": "hirefire_resource.client",
+        "kind": "import"
+      },
+      "Lease": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "GrantBody": {
+            "kind": "class",
+            "signature": "(job_queues: list[dict[str, typing.Any]], trace: bool = False) -> None"
+          },
+          "MAX_BODY_BYTES": {
+            "kind": "attribute",
+            "value": "131072"
+          },
+          "MAX_JOB_QUEUES": {
+            "kind": "attribute",
+            "value": "256"
+          },
+          "MAX_NAME_BYTES": {
+            "kind": "attribute",
+            "value": "128"
+          },
+          "SAMPLE_FREQUENCY_BOUNDS": {
+            "kind": "attribute",
+            "value": "(1, 3600)"
+          },
+          "TTL_BOUNDS": {
+            "kind": "attribute",
+            "value": "(5, 3600)"
+          },
+          "__init__": {
+            "kind": "method",
+            "signature": "(self) -> None"
+          },
+          "close": {
+            "kind": "method",
+            "signature": "(self) -> None"
+          },
+          "demote": {
+            "kind": "method",
+            "signature": "(self) -> None"
+          },
+          "granted": {
+            "kind": "method",
+            "signature": "(self) -> bool"
+          },
+          "request_if_due": {
+            "kind": "method",
+            "signature": "(self, hold: collections.abc.Callable[[list[dict[str, typing.Any]]], bool]) -> None"
+          },
+          "sample_if_due": {
+            "kind": "method",
+            "signature": "(self, sampler: collections.abc.Callable[[], None]) -> None"
+          },
+          "trace": {
+            "kind": "method",
+            "signature": "(self) -> bool"
+          }
+        }
+      },
+      "RequestError": {
+        "from": "hirefire_resource.client",
+        "kind": "import"
+      },
+      "dataclass": {
+        "from": "dataclasses",
+        "kind": "import"
+      },
+      "safe_log": {
+        "from": "hirefire_resource.log",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.log": {
+    "names": {
+      "format_error": {
+        "kind": "function",
+        "signature": "(error: BaseException) -> str"
+      },
+      "safe_log": {
+        "kind": "function",
+        "signature": "(logger: object, level: str, message: str) -> None"
+      }
+    }
+  },
+  "hirefire_resource.macro": {
+    "names": {}
+  },
+  "hirefire_resource.macro.celery": {
+    "names": {
+      "AMQP_AVAILABLE": {
+        "kind": "constant",
+        "value": "True"
+      },
+      "Any": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "Callable": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "Celery": {
+        "from": "celery.app.base",
+        "kind": "import"
+      },
+      "ChannelError": {
+        "from": "amqp.exceptions",
+        "kind": "import"
+      },
+      "Iterator": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "SampleIncompleteError": {
+        "from": "hirefire_resource.errors",
+        "kind": "import"
+      },
+      "SampleNotReadyError": {
+        "from": "hirefire_resource.errors",
+        "kind": "import"
+      },
+      "TypeVar": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "after_sample_job_queues": {
+        "from": "hirefire_resource.plan.hooks",
+        "kind": "import"
+      },
+      "async_job_queue_latency": {
+        "kind": "async function",
+        "signature": "(*queues: str, broker_url: str | None = None) -> float"
+      },
+      "async_job_queue_size": {
+        "kind": "async function",
+        "signature": "(*queues: str, broker_url: str | None = None, celery_app: 'Celery | None' = None, skip_working: bool = False) -> int"
+      },
+      "async_job_queue_working": {
+        "kind": "async function",
+        "signature": "(*queues: str, broker_url: str | None = None, celery_app: 'Celery | None' = None) -> int"
+      },
+      "before_sample_job_queues": {
+        "from": "hirefire_resource.plan.hooks",
+        "kind": "import"
+      },
+      "before_task_publish": {
+        "from": "celery.utils.dispatch.signal",
+        "kind": "import"
+      },
+      "cast": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "contextmanager": {
+        "from": "contextlib",
+        "kind": "import"
+      },
+      "datetime": {
+        "from": "datetime",
+        "kind": "import"
+      },
+      "format_error": {
+        "from": "hirefire_resource.log",
+        "kind": "import"
+      },
+      "job_queue_latency": {
+        "kind": "function",
+        "signature": "(*queues: str, broker_url: str | None = None) -> float"
+      },
+      "job_queue_size": {
+        "kind": "function",
+        "signature": "(*queues: str, broker_url: str | None = None, celery_app: 'Celery | None' = None, skip_working: bool = False) -> int"
+      },
+      "job_queue_working": {
+        "kind": "function",
+        "signature": "(*queues: str, broker_url: str | None = None, celery_app: 'Celery | None' = None) -> int"
+      },
+      "mitigate_connection_reset_error": {
+        "kind": "function",
+        "signature": "(retries: int = 2, delay: float = 0) -> Callable[[~_F], ~_F]"
+      },
+      "normalize_queues": {
+        "from": "hirefire_resource.utility",
+        "kind": "import"
+      },
+      "parse": {
+        "from": "dateutil.parser._parser",
+        "kind": "import"
+      },
+      "plan_connection_options": {
+        "kind": "function",
+        "signature": "() -> dict[str, typing.Any]"
+      },
+      "plan_options": {
+        "kind": "function",
+        "signature": "(strategy: object, options: object) -> dict[str, typing.Any]"
+      },
+      "queues_required": {
+        "kind": "function",
+        "signature": "() -> bool"
+      },
+      "reinit_after_fork": {
+        "kind": "function",
+        "signature": "() -> None"
+      },
+      "run_at_header_signal": {
+        "kind": "function",
+        "signature": "(sender: Any = None, headers: Any = None, body: Any = None, properties: Any = None, **kwargs: Any) -> None"
+      },
+      "safe_log": {
+        "from": "hirefire_resource.log",
+        "kind": "import"
+      },
+      "supports_plan_strategy": {
+        "from": "hirefire_resource.plan.hooks",
+        "kind": "import"
+      },
+      "timezone": {
+        "from": "datetime",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.macro.dramatiq": {
+    "names": {
+      "AMQPChannelError": {
+        "from": "pika.exceptions",
+        "kind": "import"
+      },
+      "Any": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "PIKA_AVAILABLE": {
+        "kind": "constant",
+        "value": "True"
+      },
+      "after_sample_job_queues": {
+        "kind": "function",
+        "signature": "(token: object = None) -> None"
+      },
+      "async_job_queue_latency": {
+        "kind": "async function",
+        "signature": "(*queues: str, broker_url: str | None = None, broker: object | None = None, namespace: str | None = None) -> float"
+      },
+      "async_job_queue_size": {
+        "kind": "async function",
+        "signature": "(*queues: str, broker_url: str | None = None, broker: object | None = None, namespace: str | None = None) -> int"
+      },
+      "before_sample_job_queues": {
+        "kind": "function",
+        "signature": "() -> object"
+      },
+      "job_queue_latency": {
+        "kind": "function",
+        "signature": "(*queues: str, broker_url: str | None = None, broker: object | None = None, namespace: str | None = None) -> float"
+      },
+      "job_queue_size": {
+        "kind": "function",
+        "signature": "(*queues: str, broker_url: str | None = None, broker: object | None = None, namespace: str | None = None) -> int"
+      },
+      "normalize_queues": {
+        "from": "hirefire_resource.utility",
+        "kind": "import"
+      },
+      "plan_connection_options": {
+        "kind": "function",
+        "signature": "() -> dict[str, typing.Any]"
+      },
+      "plan_options": {
+        "from": "hirefire_resource.plan.hooks",
+        "kind": "import"
+      },
+      "presence": {
+        "from": "hirefire_resource.identity",
+        "kind": "import"
+      },
+      "queues_required": {
+        "kind": "function",
+        "signature": "() -> bool"
+      },
+      "reinit_after_fork": {
+        "kind": "function",
+        "signature": "() -> None"
+      },
+      "supports_plan_strategy": {
+        "from": "hirefire_resource.plan.hooks",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.macro.rq": {
+    "names": {
+      "Any": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "after_sample_job_queues": {
+        "from": "hirefire_resource.plan.hooks",
+        "kind": "import"
+      },
+      "async_job_queue_latency": {
+        "kind": "async function",
+        "signature": "(*queues: str, redis_url: str | None = None) -> float"
+      },
+      "async_job_queue_size": {
+        "kind": "async function",
+        "signature": "(*queues: str, redis_url: str | None = None, skip_working: bool = False) -> int"
+      },
+      "async_job_queue_working": {
+        "kind": "async function",
+        "signature": "(*queues: str, redis_url: str | None = None) -> int"
+      },
+      "before_sample_job_queues": {
+        "from": "hirefire_resource.plan.hooks",
+        "kind": "import"
+      },
+      "datetime": {
+        "from": "datetime",
+        "kind": "import"
+      },
+      "job_queue_latency": {
+        "kind": "function",
+        "signature": "(*queues: str, redis_url: str | None = None) -> float"
+      },
+      "job_queue_size": {
+        "kind": "function",
+        "signature": "(*queues: str, redis_url: str | None = None, skip_working: bool = False) -> int"
+      },
+      "job_queue_working": {
+        "kind": "function",
+        "signature": "(*queues: str, redis_url: str | None = None) -> int"
+      },
+      "normalize_queues": {
+        "from": "hirefire_resource.utility",
+        "kind": "import"
+      },
+      "plan_connection_options": {
+        "kind": "function",
+        "signature": "() -> dict[str, typing.Any]"
+      },
+      "plan_options": {
+        "kind": "function",
+        "signature": "(strategy: object, options: object) -> dict[str, typing.Any]"
+      },
+      "queues_required": {
+        "from": "hirefire_resource.plan.hooks",
+        "kind": "import"
+      },
+      "reinit_after_fork": {
+        "from": "hirefire_resource.plan.hooks",
+        "kind": "import"
+      },
+      "supports_plan_strategy": {
+        "from": "hirefire_resource.plan.hooks",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.middleware": {
+    "names": {
+      "Callable": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "HireFire": {
+        "from": "hirefire_resource.hirefire",
+        "kind": "import"
+      },
+      "REQUEST_QUEUE_TIME_LIMIT": {
+        "kind": "constant",
+        "value": "60000"
+      },
+      "calculate_request_queue_time": {
+        "kind": "function",
+        "signature": "(request_start: str) -> int | None"
+      },
+      "present_header": {
+        "kind": "function",
+        "signature": "(value: object | None) -> str | None"
+      },
+      "process_request_queue_time": {
+        "kind": "function",
+        "signature": "(request_start: str | None = None, *, extract: collections.abc.Callable[[], object | None] | None = None) -> None"
+      },
+      "round_half_up": {
+        "from": "hirefire_resource.utility",
+        "kind": "import"
+      },
+      "safe_log": {
+        "from": "hirefire_resource.log",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.middleware.asgi": {
+    "names": {
+      "Any": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "Awaitable": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "Callable": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "Mapping": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "MutableMapping": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "Receive": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "Scope": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "Send": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "present_header": {
+        "from": "hirefire_resource.middleware",
+        "kind": "import"
+      },
+      "request_start_from_scope": {
+        "kind": "function",
+        "signature": "(scope: collections.abc.Mapping[str, typing.Any]) -> str | None"
+      }
+    }
+  },
+  "hirefire_resource.middleware.asgi.django": {
+    "names": {
+      "Any": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "HireFireMiddleware": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "__init__": {
+            "kind": "method",
+            "signature": "(self, inner: Any) -> None"
+          }
+        }
+      },
+      "Receive": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "Scope": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "Send": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "process_request_queue_time": {
+        "from": "hirefire_resource.middleware",
+        "kind": "import"
+      },
+      "request_start_from_scope": {
+        "from": "hirefire_resource.middleware.asgi",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.middleware.asgi.quart": {
+    "names": {
+      "Any": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "HireFireMiddleware": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "__init__": {
+            "kind": "method",
+            "signature": "(self, app: Any) -> None"
+          }
+        }
+      },
+      "Receive": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "Scope": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "Send": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "process_request_queue_time": {
+        "from": "hirefire_resource.middleware",
+        "kind": "import"
+      },
+      "request_start_from_scope": {
+        "from": "hirefire_resource.middleware.asgi",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.middleware.asgi.starlette": {
+    "names": {
+      "Any": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "HireFireMiddleware": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "__init__": {
+            "kind": "method",
+            "signature": "(self, app: Any) -> None"
+          }
+        }
+      },
+      "Receive": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "Scope": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "Send": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "process_request_queue_time": {
+        "from": "hirefire_resource.middleware",
+        "kind": "import"
+      },
+      "request_start_from_scope": {
+        "from": "hirefire_resource.middleware.asgi",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.middleware.wsgi": {
+    "names": {
+      "Any": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "Mapping": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "present_header": {
+        "from": "hirefire_resource.middleware",
+        "kind": "import"
+      },
+      "request_start_from_environ": {
+        "kind": "function",
+        "signature": "(environ: collections.abc.Mapping[str, typing.Any]) -> str | None"
+      }
+    }
+  },
+  "hirefire_resource.middleware.wsgi.django": {
+    "names": {
+      "Any": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "HireFireMiddleware": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "__init__": {
+            "kind": "method",
+            "signature": "(self, get_response: Any) -> None"
+          }
+        }
+      },
+      "process_request_queue_time": {
+        "from": "hirefire_resource.middleware",
+        "kind": "import"
+      },
+      "request_start_from_environ": {
+        "from": "hirefire_resource.middleware.wsgi",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.middleware.wsgi.flask": {
+    "names": {
+      "Any": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "HireFireMiddleware": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "__init__": {
+            "kind": "method",
+            "signature": "(self, app: Any) -> None"
+          }
+        }
+      },
+      "Iterable": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "Mapping": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "process_request_queue_time": {
+        "from": "hirefire_resource.middleware",
+        "kind": "import"
+      },
+      "request_start_from_environ": {
+        "from": "hirefire_resource.middleware.wsgi",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.plan": {
+    "names": {
+      "ADAPTER_MODULES": {
+        "kind": "constant",
+        "value": "{'celery': 'hirefire_resource.macro.celery', 'rq': 'hirefire_resource.macro.rq', 'dramatiq': 'hirefire_resource.macro.dr"
+      },
+      "Any": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "Callable": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "Iterator": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "LIBRARY_CHECKS": {
+        "kind": "constant",
+        "value": "{'celery': 'celery', 'rq': 'rq', 'dramatiq': 'dramatiq'}"
+      },
+      "MAX_QUEUES": {
+        "kind": "constant",
+        "value": "64"
+      },
+      "MAX_QUEUE_NAME_BYTES": {
+        "kind": "constant",
+        "value": "128"
+      },
+      "STRATEGIES": {
+        "kind": "constant",
+        "value": "{'jql': 'job_queue_latency', 'jqs': 'job_queue_size'}"
+      },
+      "SampleNotReadyError": {
+        "from": "hirefire_resource.errors",
+        "kind": "import"
+      },
+      "any_allowlisted_job_queue_library_loaded": {
+        "kind": "function",
+        "signature": "() -> bool"
+      },
+      "around_job_queue_sample": {
+        "kind": "function",
+        "signature": "() -> collections.abc.Iterator[None]"
+      },
+      "coerce_sample": {
+        "from": "hirefire_resource.sample",
+        "kind": "import"
+      },
+      "contextmanager": {
+        "from": "contextlib",
+        "kind": "import"
+      },
+      "executable": {
+        "kind": "function",
+        "signature": "(adapter: object) -> bool"
+      },
+      "execute": {
+        "kind": "function",
+        "signature": "(entry: dict[str, typing.Any], live: collections.abc.Callable[[], bool] | None = None) -> None"
+      },
+      "format_error": {
+        "from": "hirefire_resource.log",
+        "kind": "import"
+      },
+      "format_sample_value": {
+        "from": "hirefire_resource.sample",
+        "kind": "import"
+      },
+      "known_adapter": {
+        "kind": "function",
+        "signature": "(adapter: object) -> bool"
+      },
+      "known_strategy": {
+        "kind": "function",
+        "signature": "(strategy: object) -> bool"
+      },
+      "library_loaded": {
+        "kind": "function",
+        "signature": "(adapter: object) -> bool"
+      },
+      "named_plan_queues": {
+        "kind": "function",
+        "signature": "(queues: object) -> bool"
+      },
+      "normalize_queues": {
+        "kind": "function",
+        "signature": "(queues: object, name: str) -> list[str] | None"
+      },
+      "queues_required": {
+        "kind": "function",
+        "signature": "(adapter: object) -> bool"
+      },
+      "reinit_macros_after_fork": {
+        "kind": "function",
+        "signature": "() -> None"
+      },
+      "safe_log": {
+        "from": "hirefire_resource.log",
+        "kind": "import"
+      },
+      "sampleable_entry": {
+        "kind": "function",
+        "signature": "(entry: dict[str, typing.Any]) -> bool"
+      },
+      "supports_strategy": {
+        "kind": "function",
+        "signature": "(adapter: object, strategy: object) -> bool"
+      },
+      "valid_sample": {
+        "from": "hirefire_resource.sample",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.plan.hooks": {
+    "names": {
+      "Any": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "after_sample_job_queues": {
+        "kind": "function",
+        "signature": "(token: object = None) -> None"
+      },
+      "before_sample_job_queues": {
+        "kind": "function",
+        "signature": "() -> object | None"
+      },
+      "coerce_plan_value": {
+        "kind": "function",
+        "signature": "(type_name: str, value: object) -> object | None"
+      },
+      "extract_plan_options": {
+        "kind": "function",
+        "signature": "(strategy: object, options: object, schema: dict[str, dict[str, str]]) -> dict[str, typing.Any]"
+      },
+      "plan_connection_options": {
+        "kind": "function",
+        "signature": "() -> dict[str, typing.Any]"
+      },
+      "plan_options": {
+        "kind": "function",
+        "signature": "(strategy: object, options: object) -> dict[str, typing.Any]"
+      },
+      "queues_required": {
+        "kind": "function",
+        "signature": "() -> bool"
+      },
+      "reinit_after_fork": {
+        "kind": "function",
+        "signature": "() -> None"
+      },
+      "supports_plan_strategy": {
+        "kind": "function",
+        "signature": "(strategy: object) -> bool"
+      }
+    }
+  },
+  "hirefire_resource.plan.size_only": {
+    "names": {
+      "supports_plan_strategy": {
+        "kind": "function",
+        "signature": "(strategy: object) -> bool"
+      }
+    }
+  },
+  "hirefire_resource.probe": {
+    "names": {
+      "Any": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "Callable": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "Probe": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "__init__": {
+            "kind": "method",
+            "signature": "(self) -> 'None'"
+          },
+          "finish": {
+            "kind": "method",
+            "signature": "(self) -> 'dict[str, Any]'"
+          },
+          "log_to": {
+            "kind": "method",
+            "signature": "(self, logger: 'Any') -> 'None'"
+          },
+          "measure": {
+            "kind": "method",
+            "signature": "(self, entry: 'Any', fn: 'Callable[[], T]') -> 'T'"
+          },
+          "record": {
+            "kind": "method",
+            "signature": "(self, entry: 'Any', ms: 'float') -> 'Probe'"
+          },
+          "start": {
+            "kind": "classmethod",
+            "signature": "(cls) -> 'Probe'"
+          }
+        }
+      },
+      "T": {
+        "kind": "constant",
+        "value": "~T"
+      },
+      "TypeVar": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "annotations": {
+        "from": "__future__",
+        "kind": "import"
+      },
+      "safe_log": {
+        "from": "hirefire_resource.log",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.sample": {
+    "names": {
+      "TypeGuard": {
+        "from": "typing",
+        "kind": "import"
+      },
+      "coerce_sample": {
+        "kind": "function",
+        "signature": "(value: int | float) -> int | float"
+      },
+      "format_sample_value": {
+        "kind": "function",
+        "signature": "(value: object) -> str"
+      },
+      "valid_sample": {
+        "kind": "function",
+        "signature": "(value: object) -> TypeGuard[int | float]"
+      }
+    }
+  },
+  "hirefire_resource.source": {
+    "names": {}
+  },
+  "hirefire_resource.source.cpu": {
+    "names": {
+      "CPU": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "__init__": {
+            "kind": "method",
+            "signature": "(self, name: str) -> None"
+          },
+          "sample": {
+            "kind": "method",
+            "signature": "(self) -> None"
+          }
+        }
+      },
+      "Usage": {
+        "from": "hirefire_resource.source.cpu.usage",
+        "kind": "import"
+      },
+      "round_half_up": {
+        "from": "hirefire_resource.utility",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.source.cpu.usage": {
+    "names": {
+      "Usage": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "CEDAR_MEMORY_LIMIT": {
+            "kind": "attribute",
+            "value": "'/sys/fs/cgroup/memory/memory.limit_in_bytes'"
+          },
+          "CEDAR_SHARED_ENTITLEMENTS": {
+            "kind": "attribute",
+            "value": "{536870912: 1.0, 1073741824: 2.0}"
+          },
+          "CGROUP_V1_PERIOD": {
+            "kind": "attribute",
+            "value": "'/sys/fs/cgroup/cpu/cpu.cfs_period_us'"
+          },
+          "CGROUP_V1_QUOTA": {
+            "kind": "attribute",
+            "value": "'/sys/fs/cgroup/cpu/cpu.cfs_quota_us'"
+          },
+          "CGROUP_V1_USAGE": {
+            "kind": "attribute",
+            "value": "'/sys/fs/cgroup/cpuacct/cpuacct.usage'"
+          },
+          "CGROUP_V2_QUOTA": {
+            "kind": "attribute",
+            "value": "'/sys/fs/cgroup/cpu.max'"
+          },
+          "CGROUP_V2_USAGE": {
+            "kind": "attribute",
+            "value": "'/sys/fs/cgroup/cpu.stat'"
+          },
+          "PROC_STAT_GLOB": {
+            "kind": "attribute",
+            "value": "'/proc/[0-9]*/stat'"
+          },
+          "available_cpus": {
+            "kind": "classmethod",
+            "signature": "(cls) -> float | None"
+          },
+          "cgroup_v1_quota": {
+            "kind": "classmethod",
+            "signature": "(cls) -> float | None"
+          },
+          "cgroup_v1_seconds": {
+            "kind": "classmethod",
+            "signature": "(cls) -> float | None"
+          },
+          "cgroup_v2_quota": {
+            "kind": "classmethod",
+            "signature": "(cls) -> float | None"
+          },
+          "cgroup_v2_seconds": {
+            "kind": "classmethod",
+            "signature": "(cls) -> float | None"
+          },
+          "clock_ticks": {
+            "kind": "classmethod",
+            "signature": "(cls) -> int"
+          },
+          "heroku_entitlement": {
+            "kind": "classmethod",
+            "signature": "(cls) -> float | None"
+          },
+          "positive_clock_ticks": {
+            "kind": "classmethod",
+            "signature": "(cls) -> int"
+          },
+          "proc_namespace_seconds": {
+            "kind": "classmethod",
+            "signature": "(cls) -> float | None"
+          },
+          "process_seconds": {
+            "kind": "classmethod",
+            "signature": "(cls) -> float"
+          },
+          "processor_count": {
+            "kind": "classmethod",
+            "signature": "(cls) -> int | None"
+          },
+          "read": {
+            "kind": "classmethod",
+            "signature": "(cls, path: str) -> str | None"
+          },
+          "reading": {
+            "kind": "classmethod",
+            "signature": "(cls) -> tuple[float | None, str | None]"
+          },
+          "render_entitlement": {
+            "kind": "classmethod",
+            "signature": "(cls) -> float | None"
+          },
+          "stat_ticks": {
+            "kind": "classmethod",
+            "signature": "(cls, content: str) -> int | None"
+          }
+        }
+      }
+    }
+  },
+  "hirefire_resource.source.http": {
+    "names": {
+      "HTTP": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "__init__": {
+            "kind": "method",
+            "signature": "(self, name: str) -> None"
+          },
+          "sample": {
+            "kind": "method",
+            "signature": "(self, request_queue_time: int) -> None"
+          }
+        }
+      },
+      "RQT": {
+        "kind": "constant",
+        "value": "'rqt'"
+      }
+    }
+  },
+  "hirefire_resource.source.job_queue": {
+    "names": {
+      "Coroutine": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "JobQueue": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "__init__": {
+            "kind": "method",
+            "signature": "(self, name: str, sampler: collections.abc.Callable[[], float | collections.abc.Coroutine[typing.Any, typing.Any, float]]) -> None"
+          },
+          "sample": {
+            "kind": "method",
+            "signature": "(self) -> float"
+          }
+        }
+      },
+      "Sampler": {
+        "from": "collections.abc",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.source.job_queues": {
+    "names": {
+      "Callable": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "Iterator": {
+        "from": "collections.abc",
+        "kind": "import"
+      },
+      "JobQueue": {
+        "from": "hirefire_resource.source.job_queue",
+        "kind": "import"
+      },
+      "JobQueues": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "__init__": {
+            "kind": "method",
+            "signature": "(self, configuration: 'Configuration | None' = None) -> None"
+          },
+          "any": {
+            "kind": "method",
+            "signature": "(self) -> bool"
+          },
+          "append": {
+            "kind": "method",
+            "signature": "(self, job_queue: hirefire_resource.source.job_queue.JobQueue) -> None"
+          },
+          "find_by_name": {
+            "kind": "method",
+            "signature": "(self, name: str) -> hirefire_resource.source.job_queue.JobQueue | None"
+          },
+          "sample_job_queue": {
+            "kind": "method",
+            "signature": "(self, job_queue: hirefire_resource.source.job_queue.JobQueue | None, strategy: str, live: collections.abc.Callable[[], bool] | None = None, name: str | None = None) -> None"
+          }
+        }
+      },
+      "SampleNotReadyError": {
+        "from": "hirefire_resource.errors",
+        "kind": "import"
+      },
+      "TYPE_CHECKING": {
+        "kind": "constant",
+        "value": "False"
+      },
+      "coerce_sample": {
+        "from": "hirefire_resource.sample",
+        "kind": "import"
+      },
+      "format_error": {
+        "from": "hirefire_resource.log",
+        "kind": "import"
+      },
+      "format_sample_value": {
+        "from": "hirefire_resource.sample",
+        "kind": "import"
+      },
+      "safe_log": {
+        "from": "hirefire_resource.log",
+        "kind": "import"
+      },
+      "valid_sample": {
+        "from": "hirefire_resource.sample",
+        "kind": "import"
+      }
+    }
+  },
+  "hirefire_resource.strategy": {
+    "names": {
+      "RQT": {
+        "kind": "constant",
+        "value": "'rqt'"
+      },
+      "rqt": {
+        "kind": "function",
+        "signature": "(strategy: object) -> bool"
+      }
+    }
+  },
+  "hirefire_resource.utility": {
+    "names": {
+      "MissingQueueError": {
+        "from": "hirefire_resource.errors",
+        "kind": "import"
+      },
+      "normalize_queues": {
+        "kind": "function",
+        "signature": "(*queues: object, allow_empty: bool) -> set[str]"
+      },
+      "round_half_up": {
+        "kind": "function",
+        "signature": "(value: float, ndigits: int = 0) -> float"
+      }
+    }
+  },
+  "hirefire_resource.version": {
+    "names": {
+      "PackageNotFoundError": {
+        "from": "importlib.metadata",
+        "kind": "import"
+      },
+      "VERSION": {
+        "kind": "constant",
+        "value": "'2.0.0'"
+      },
+      "version": {
+        "from": "importlib.metadata",
+        "kind": "import"
+      }
+    }
+  }
+}
