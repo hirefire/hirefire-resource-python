@@ -1,0 +1,70 @@
+{
+  "scenario": "lease_plan_trace",
+  "epoch": 1767225600,
+  "requests": [
+    {
+      "verb": "POST",
+      "path": "/metrics/lease",
+      "headers": [
+        [
+          "Host",
+          "<host>"
+        ],
+        [
+          "Accept-Encoding",
+          "identity"
+        ],
+        [
+          "Content-Length",
+          "0"
+        ],
+        [
+          "HireFire-Token",
+          "golden-token"
+        ],
+        [
+          "HireFire-Agent",
+          "Python-2.0.0"
+        ],
+        [
+          "HireFire-Process-ID",
+          "<uuid>"
+        ]
+      ],
+      "body": "",
+      "body_normalized": false
+    },
+    {
+      "verb": "POST",
+      "path": "/metrics/ingest",
+      "headers": [
+        [
+          "Host",
+          "<host>"
+        ],
+        [
+          "Accept-Encoding",
+          "identity"
+        ],
+        [
+          "Content-Length",
+          "<length>"
+        ],
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "HireFire-Token",
+          "golden-token"
+        ],
+        [
+          "HireFire-Agent",
+          "Python-2.0.0"
+        ]
+      ],
+      "body": "[{\"name\":\"worker\",\"metrics\":{\"jqs\":{\"1767225600\":3},\"wrk\":{\"1767225600\":0}},\"sample_trace\":{\"wave_ms\":\"<Float>\",\"ops\":[{\"adapter\":\"rq\",\"strategy\":\"jqs\",\"queues\":[\"default\"],\"options\":{\"skip_working\":true},\"ms\":\"<Float>\"},{\"adapter\":\"rq\",\"strategy\":\"jql\",\"queues\":[\"empty\"],\"options\":{},\"ms\":\"<Float>\"}]}},{\"name\":\"latency\",\"metrics\":{\"jql\":{\"1767225600\":0.0},\"wrk\":{\"1767225600\":0}}}]",
+      "body_normalized": true
+    }
+  ]
+}

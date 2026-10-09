@@ -1,0 +1,70 @@
+{
+  "scenario": "lease_local_sampler",
+  "epoch": 1767225600,
+  "requests": [
+    {
+      "verb": "POST",
+      "path": "/metrics/lease",
+      "headers": [
+        [
+          "Host",
+          "<host>"
+        ],
+        [
+          "Accept-Encoding",
+          "identity"
+        ],
+        [
+          "Content-Length",
+          "0"
+        ],
+        [
+          "HireFire-Token",
+          "golden-token"
+        ],
+        [
+          "HireFire-Agent",
+          "Python-2.0.0"
+        ],
+        [
+          "HireFire-Process-ID",
+          "<uuid>"
+        ]
+      ],
+      "body": "",
+      "body_normalized": false
+    },
+    {
+      "verb": "POST",
+      "path": "/metrics/ingest",
+      "headers": [
+        [
+          "Host",
+          "<host>"
+        ],
+        [
+          "Accept-Encoding",
+          "identity"
+        ],
+        [
+          "Content-Length",
+          "55"
+        ],
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "HireFire-Token",
+          "golden-token"
+        ],
+        [
+          "HireFire-Agent",
+          "Python-2.0.0"
+        ]
+      ],
+      "body": "[{\"name\":\"worker\",\"metrics\":{\"jqs\":{\"1767225600\":42}}}]",
+      "body_normalized": false
+    }
+  ]
+}

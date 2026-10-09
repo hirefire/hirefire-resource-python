@@ -1,0 +1,38 @@
+{
+  "scenario": "ingest_rqt",
+  "epoch": 1767225600,
+  "requests": [
+    {
+      "verb": "POST",
+      "path": "/metrics/ingest",
+      "headers": [
+        [
+          "Host",
+          "<host>"
+        ],
+        [
+          "Accept-Encoding",
+          "identity"
+        ],
+        [
+          "Content-Length",
+          "59"
+        ],
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "HireFire-Token",
+          "golden-token"
+        ],
+        [
+          "HireFire-Agent",
+          "Python-2.0.0"
+        ]
+      ],
+      "body": "[{\"name\":\"web\",\"metrics\":{\"rqt\":{\"1767225600\":[100.0,3]}}}]",
+      "body_normalized": false
+    }
+  ]
+}

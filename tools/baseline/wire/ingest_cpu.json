@@ -1,0 +1,38 @@
+{
+  "scenario": "ingest_cpu",
+  "epoch": 1767225600,
+  "requests": [
+    {
+      "verb": "POST",
+      "path": "/metrics/ingest",
+      "headers": [
+        [
+          "Host",
+          "<host>"
+        ],
+        [
+          "Accept-Encoding",
+          "identity"
+        ],
+        [
+          "Content-Length",
+          "<length>"
+        ],
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "HireFire-Token",
+          "golden-token"
+        ],
+        [
+          "HireFire-Agent",
+          "Python-2.0.0"
+        ]
+      ],
+      "body": "[{\"name\":\"worker\",\"metrics\":{\"cpu\":{\"1767225600\":\"<Float>\"}}}]",
+      "body_normalized": true
+    }
+  ]
+}

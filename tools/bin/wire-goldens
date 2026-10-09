@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+source "$(dirname "$0")/env"
+cd "$TOOLS_ROOT"
+if [ -z "${TOOLS_REDIS_URL:-}" ] && [ -f .env ]; then
+  export TOOLS_REDIS_URL="redis://127.0.0.1:$(awk -F= '$1 == "REDIS_PORT" { print $2 }' .env)/15"
+fi
+exec python3.14 tools/lib/wire_goldens.py "$@"
