@@ -101,7 +101,7 @@ hirefire_resource.hirefire.HireFire  class
 hirefire_resource.hirefire.HireFire.after_fork_in_child(cls) -> None  classmethod
 hirefire_resource.hirefire.HireFire.after_fork_in_parent(cls) -> None  classmethod
 hirefire_resource.hirefire.HireFire.boot(cls) -> hirefire_resource.configuration.Configuration  classmethod
-hirefire_resource.hirefire.HireFire.configuration  attribute = <hirefire_resource.configuration.Configuration object at 0x10a960980>
+hirefire_resource.hirefire.HireFire.configuration  attribute = <hirefire_resource.configuration.Configuration object>
 hirefire_resource.hirefire.HireFire.configure(cls) -> collections.abc.Iterator[hirefire_resource.configuration.Configuration]  classmethod
 hirefire_resource.hirefire.HireFire.install_fork_hooks(cls) -> None  classmethod
 hirefire_resource.hirefire.HireFire.reset(cls) -> None  classmethod

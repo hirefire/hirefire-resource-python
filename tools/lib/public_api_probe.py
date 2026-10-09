@@ -1,7 +1,12 @@
 import importlib
 import inspect
 import json
+import re
 import sys
+
+
+def text(value):
+    return re.sub(r" at 0x[0-9a-f]+", "", repr(value))[:120]
 
 
 def signature(value):
@@ -34,7 +39,7 @@ def describe_class(cls):
         elif inspect.isclass(raw):
             members[name] = {"kind": "class", "signature": signature(raw)}
         else:
-            members[name] = {"kind": kind, "value": repr(raw)[:120]}
+            members[name] = {"kind": kind, "value": text(raw)}
     bases = [base.__name__ for base in cls.__bases__ if base is not object]
     return {"kind": "class", "bases": bases, "members": members}
 
@@ -70,7 +75,7 @@ def describe_module(module_name):
         ):
             names[name] = {"kind": "import", "from": origin}
         else:
-            names[name] = {"kind": "constant", "value": repr(value)[:120]}
+            names[name] = {"kind": "constant", "value": text(value)}
     result = {"names": names}
     if hasattr(module, "__all__"):
         result["all"] = list(module.__all__)

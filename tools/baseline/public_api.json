@@ -473,7 +473,7 @@
           },
           "configuration": {
             "kind": "attribute",
-            "value": "<hirefire_resource.configuration.Configuration object at 0x10a960980>"
+            "value": "<hirefire_resource.configuration.Configuration object>"
           },
           "configure": {
             "kind": "classmethod",
