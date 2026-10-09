@@ -21,7 +21,7 @@ def text(value):
     if value is None:
         return "n/a"
     if isinstance(value, float):
-        return f"{value:.2f}"
+        return f"{value:.2f}".rstrip("0").rstrip(".")
     return str(value)
 
 
@@ -31,27 +31,29 @@ def main():
         row["scenario"]: row
         for row in json.loads((common.results("faults") / "results.json").read_text())
     }
-    header = f"{'fault':<19}" + "".join(f"{name:>24}" for name, _ in COLUMNS)
+    header = f"{'fault':<19}" + "".join(f"{name:>22}" for name, _ in COLUMNS[1:])
     print("each cell: Python / Ruby as audited / Ruby after its fix pass")
     print(header)
     same = 0
+    escaped = [0, 0, 0]
     for scenario in SCENARIOS:
         rows = [
             python[scenario],
             json.loads((ruby / "faults" / f"{scenario}.json").read_text()),
             json.loads((ruby / "fixes" / "faults" / f"{scenario}.json").read_text()),
         ]
-        cells = [" / ".join(text(read(row)) for row in rows) for _, read in COLUMNS]
+        cells = [" / ".join(text(read(row)) for row in rows) for _, read in COLUMNS[1:]]
         same += all(read(rows[0]) == read(rows[1]) for _, read in COLUMNS[:4])
-        print(f"{scenario:<19}" + "".join(f"{cell:>24}" for cell in cells))
+        escaped = [count + len(row["escaped"]) for count, row in zip(escaped, rows)]
+        print(f"{scenario:<19}" + "".join(f"{cell:>22}" for cell in cells))
     print(f"faults: {len(SCENARIOS)}")
     print(
         "Python equals Ruby as audited in escaped errors, ingest requests, lease "
         f"requests, and log lines per minute: {same} of {len(SCENARIOS)}"
     )
     print(
-        "errors that escaped into the host, Python: "
-        f"{sum(len(row['escaped']) for row in python.values())}"
+        "errors that escaped into the host: "
+        + " / ".join(str(count) for count in escaped)
     )
     print(
         "slowest middleware call, Python: "
