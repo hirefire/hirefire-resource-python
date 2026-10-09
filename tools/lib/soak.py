@@ -28,8 +28,11 @@ PHASES = [
     "healthy",
     "lease_denied",
 ]
+if os.environ.get("SOAK_PHASES"):
+    PHASES = os.environ["SOAK_PHASES"].split(",")
 PHASE_SECONDS = 20
-FORK_EVERY = 15
+FORK_EVERY = int(os.environ.get("SOAK_FORK_EVERY", 15))
+CLIENT = os.environ.get("SOAK_CLIENT", "1") == "1"
 SAMPLE_EVERY = 10
 HOSTS = 4
 
@@ -96,7 +99,8 @@ class Soak:
         )
         self.url = f"http://127.0.0.1:{server.stdout.readline().strip()}"
         self.seed()
-        os.environ["HIREFIRE_TOKEN"] = "soak-token"
+        if CLIENT:
+            os.environ["HIREFIRE_TOKEN"] = "soak-token"
         os.environ["HIREFIRE_DATA_URL"] = self.url
         os.environ["HIREFIRE_RQ_URL"] = os.environ["TOOLS_REDIS_URL"]
         os.environ["DYNO"] = "web.1"
@@ -121,7 +125,7 @@ class Soak:
         rows = []
         started = time.monotonic()
         next_sample = started
-        next_fork = started + FORK_EVERY
+        next_fork = started + FORK_EVERY if FORK_EVERY else float("inf")
         next_phase = started
         phase_index = -1
         pids = []
@@ -178,6 +182,8 @@ class Soak:
                     time.sleep(0.05)
             finally:
                 os._exit(0)
+        if not CLIENT:
+            return pid
         deadline = forked + 5
         while time.monotonic() < deadline:
             if hirefire.configuration.dispatcher.running():
@@ -219,6 +225,7 @@ class Soak:
             "threads": threading.active_count(),
             "fds": len(os.listdir("/dev/fd")),
             "objects": len(gc.get_objects()),
+            "allocated_blocks": sys.getallocatedblocks(),
             "server_open_sockets": stats["open_sockets"],
             "server_accepted": stats["accepted"],
             "children": children,
@@ -240,6 +247,7 @@ class Soak:
             "seconds": rows[-1]["second"],
             "samples": len(rows),
             "phases": PHASES,
+            "client": CLIENT,
             "forks": forks,
             "parent_restarted_after_fork": len(delays),
             "parent_not_restarted_within_5s": len(self.restart_delays) - len(delays),
@@ -262,6 +270,15 @@ class Soak:
             },
             "objects_per_minute_second_half": round(
                 (half[-1]["objects"] - half[0]["objects"]) / minutes, 1
+            ),
+            "allocated_blocks": {
+                "first": rows[0]["allocated_blocks"],
+                "max": max(r["allocated_blocks"] for r in rows),
+                "last": rows[-1]["allocated_blocks"],
+            },
+            "allocated_blocks_per_minute_second_half": round(
+                (half[-1]["allocated_blocks"] - half[0]["allocated_blocks"]) / minutes,
+                1,
             ),
             "threads": {
                 "min": min(r["threads"] for r in rows),

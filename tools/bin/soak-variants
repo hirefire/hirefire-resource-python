@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/env"
+cd "$TOOLS_ROOT"
+seconds="${1:-600}"
+shift || true
+variants=(
+  "full"
+  "no-client SOAK_CLIENT=0"
+  "no-forks SOAK_FORK_EVERY=0"
+  "at-rest SOAK_FORK_EVERY=0 SOAK_PHASES=healthy"
+  "no-client-no-forks SOAK_CLIENT=0 SOAK_FORK_EVERY=0"
+)
+for variant in "${variants[@]}"; do
+  read -r name settings <<< "$variant"
+  if [ "$#" -gt 0 ] && [[ " $* " != *" $name "* ]]; then
+    continue
+  fi
+  # shellcheck disable=SC2086
+  env $settings TOOLS_RUN="soak-variants/$name" tools/bin/soak "$seconds" > /dev/null
+done
+exec python3.14 tools/lib/soak_variants.py
