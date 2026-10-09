@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/env"
+name="${1:?usage: tools/bin/sandbox NAME [--services]}"
+target="$TOOLS_RESULTS/sandboxes/$name"
+mkdir -p "$target"
+rsync -a --delete \
+  --exclude .git --exclude .tox --exclude .env --exclude dist --exclude '__pycache__' \
+  --exclude .pytest_cache --exclude .mypy_cache --exclude .ruff_cache \
+  --exclude 'tools/results' --exclude 'tools/.venv' \
+  "$TOOLS_ROOT/" "$target/"
+if [ "${2:-}" = "--services" ]; then
+  (cd "$target" && bin/services up >/dev/null)
+fi
+echo "$target"

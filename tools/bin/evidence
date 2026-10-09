@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/env"
+script="${1:?usage: tools/bin/evidence SCRIPT [TOX_ENV]}"
+env_name="${2:-py314-core}"
+services="${TOOLS_SERVICES:-$TOOLS_ROOT}"
+if [ -f "$services/.env" ]; then
+  redis_port="$(awk -F= '$1 == "REDIS_PORT" { print $2 }' "$services/.env")"
+  rabbitmq_port="$(awk -F= '$1 == "RABBITMQ_PORT" { print $2 }' "$services/.env")"
+  export TOOLS_REDIS_URL="${TOOLS_REDIS_URL:-redis://127.0.0.1:$redis_port/14}"
+  export TOOLS_AMQP_URL="${TOOLS_AMQP_URL:-amqp://guest:guest@127.0.0.1:$rabbitmq_port}"
+fi
+export PYTHONPATH="$TOOLS_ROOT:$TOOLS_ROOT/tools/lib"
+export TOOLS_PYTHON="$TOOLS_ROOT/.tox/$env_name/bin/python"
+cd "$TOOLS_ROOT"
+exec "$TOOLS_PYTHON" "tools/evidence/$script" "${@:3}"
