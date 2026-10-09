@@ -138,6 +138,9 @@ def evaluate(mutant, plan, sandbox, original):
     try:
         for env, tests in plan:
             code = run_tests(env, tests, sandbox)
+            if code in HARNESS_EXIT:
+                files = sorted({test.split("::")[0] for test in tests})
+                code = run_tests(env, files, sandbox)
             outcome["envs_run"] += 1
             if code == "timeout":
                 outcome.update(status="timeout", env=env)
