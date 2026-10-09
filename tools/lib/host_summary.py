@@ -103,12 +103,18 @@ def main():
     for name in sys.argv[1:] or ["hosts"]:
         directory = common.results(name)
         versions = (directory / "versions.txt").read_text().split("\n")
-        wanted = ("python", "gunicorn", "gevent", "uvicorn", "uWSGI", "celery")
+        rows = json.loads((directory / "hosts.json").read_text())
+        commands = " ".join(row["host"] for row in rows).lower()
+        wanted = ("python",) + tuple(
+            package
+            for package in ("gunicorn", "gevent", "uvicorn", "uWSGI", "celery")
+            if package.lower() in commands
+        )
         print(
             f"== {name}: "
             + ", ".join(line for line in versions if line.startswith(wanted))
         )
-        for row in json.loads((directory / "hosts.json").read_text()):
+        for row in rows:
             host(row)
         path = directory / "preload-race.json"
         if path.exists():
