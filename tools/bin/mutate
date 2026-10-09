@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/env"
+cd "$TOOLS_ROOT"
+command="${1:-count}"
+shift || true
+workers="${TOOLS_WORKERS:-6}"
+sandboxes=""
+if [ "$command" != "count" ]; then
+  for index in $(seq 1 "$workers"); do
+    path="$(tools/bin/sandbox "mutation-$index" --services)"
+    sandboxes="$sandboxes${sandboxes:+,}$path"
+  done
+fi
+exec "$TOOLS_VENV/bin/python" tools/lib/mutation_run.py "$command" --sandboxes "$sandboxes" "$@"
