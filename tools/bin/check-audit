@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+source "$(dirname "$0")/env"
+exec python3.14 "$TOOLS_ROOT/tools/lib/check_audit.py" "${1:?usage: tools/bin/check-audit CANON_AUDIT_DIRECTORY}"
