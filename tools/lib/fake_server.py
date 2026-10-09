@@ -343,10 +343,82 @@ def control_handler(server, modes):
     return handle
 
 
+SOAK_PLAN = json.dumps(
+    {
+        "job_queues": [
+            {
+                "name": "worker",
+                "strategy": "jqs",
+                "adapter": "rq",
+                "queues": ["default", "mailers"],
+                "options": {"skip_working": True},
+            },
+            {
+                "name": "worker-latency",
+                "strategy": "jql",
+                "adapter": "rq",
+                "queues": ["default"],
+            },
+            {"name": "local", "strategy": "jqs"},
+        ]
+    }
+)
+SOAK_GRANT = {
+    "status": 200,
+    "headers": {**GRANT_HEADERS, "HireFire-Sample-Frequency": "2"},
+    "body": SOAK_PLAN,
+}
+SOAK_MODES = {
+    "healthy": lambda request: (
+        SOAK_GRANT if request.path == "/metrics/lease" else {"status": 200}
+    ),
+    "status_500": lambda request: {"status": 500},
+    "stall": lambda request: {"then": "stall"},
+    "reset": lambda request: {"then": "reset"},
+    "status_401": lambda request: {"status": 401},
+    "garbage": lambda request: {"raw": b"\x00\xffnot http\r\n\r\n", "after": "close"},
+    "lease_denied": lambda request: (
+        {
+            "status": 200,
+            "headers": {"HireFire-Lease-Granted": "false", "HireFire-Lease-TTL": "5"},
+        }
+        if request.path == "/metrics/lease"
+        else {"status": 200}
+    ),
+}
+
+
+CELERY_PLAN = json.dumps(
+    {
+        "job_queues": [
+            {
+                "name": "worker",
+                "strategy": "jqs",
+                "adapter": "celery",
+                "queues": ["celery"],
+            },
+            {
+                "name": "worker_latency",
+                "strategy": "jql",
+                "adapter": "celery",
+                "queues": ["celery"],
+            },
+        ]
+    }
+)
+HOST_MODES = {
+    **SERVER_FAULTS,
+    "celery_plan": lease_only(
+        {"status": 200, "headers": GRANT_HEADERS, "body": CELERY_PLAN}
+    ),
+}
+
+
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 0
+    modes = SOAK_MODES if sys.argv[2:3] == ["soak"] else HOST_MODES
     server = FakeServer(record=False, port=port)
-    server.set_handler(control_handler(server, SERVER_FAULTS))
+    server.set_handler(control_handler(server, modes))
     print(server.port, flush=True)
     try:
         while True:

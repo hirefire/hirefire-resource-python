@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/env"
+cd "$TOOLS_ROOT"
+seconds="${1:-1920}"
+name="${TOOLS_RUN:-soak}"
+services="${TOOLS_SERVICES:-$TOOLS_ROOT}"
+if [ -z "${TOOLS_REDIS_URL:-}" ]; then
+  export TOOLS_REDIS_URL="redis://127.0.0.1:$(awk -F= '$1 == "REDIS_PORT" { print $2 }' "$services/.env")/13"
+fi
+exec .tox/py314-rq2/bin/python -B tools/lib/soak.py "$seconds" "$TOOLS_RESULTS/$name"
