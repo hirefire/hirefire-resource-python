@@ -74,15 +74,15 @@ def main():
             )
 
     print(
-        f"{'file':<48} {'changes':>7} {'caught':>6} {'equiv':>5} {'surv':>5} {'unrun':>5} {'score':>6}"
+        f"{'file under hirefire_resource/':<32} {'changes':>7} {'caught':>6} {'equiv':>5} {'surv':>5} {'unrun':>5} {'score':>6}"
     )
     for name, entry in sorted(files.items()):
         print(
-            f"{name:<48} {entry['changes']:>7} {entry['caught']:>6} {entry['equivalent']:>5} "
+            f"{name.removeprefix('hirefire_resource/'):<32} {entry['changes']:>7} {entry['caught']:>6} {entry['equivalent']:>5} "
             f"{entry['survived']:>5} {entry['unrun']:>5} {entry['score']:>5}%"
         )
     print(
-        f"{'TOTAL':<48} {total['changes']:>7} {total['caught']:>6} {total['equivalent']:>5} "
+        f"{'TOTAL':<32} {total['changes']:>7} {total['caught']:>6} {total['equivalent']:>5} "
         f"{total['survived']:>5} {total['unrun']:>5} {total['score']:>5}%"
     )
     for group, bucket in sorted(groups.items()):
