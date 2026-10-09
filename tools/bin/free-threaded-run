@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -uo pipefail
+source "$(dirname "$0")/env"
+cd "$TOOLS_ROOT"
+venv="$TOOLS_RESULTS/free-threaded-venv"
+out="$TOOLS_RESULTS/free-threaded"
+mkdir -p "$out"
+if [ ! -x "$venv/bin/python" ]; then
+  uv venv --python "${TOOLS_FREE_THREADED:-3.14t}" "$venv" >"$out/setup.log" 2>&1
+  uv pip install --python "$venv/bin/python" 'pytest~=9.0' 'pytest-mock~=3.0' 'pytest-asyncio~=1.0' 'freezegun~=1.0' 'mocket~=3.14' 'httpx<1' >>"$out/setup.log" 2>&1
+fi
+"$venv/bin/python" -c 'import sys, sysconfig; print(sys.version); print("gil_disabled_build", sysconfig.get_config_var("Py_GIL_DISABLED")); print("gil_enabled_now", sys._is_gil_enabled())' >"$out/version.txt" 2>&1
+status=0
+for index in 1 2 3 4 5; do
+  PYTHON_GIL=0 PYTHONPATH="$TOOLS_ROOT/tools/lib" TOOLS_SEED="ft$index" TOOLS_RECORD="$out/run-$index.jsonl" \
+    "$venv/bin/python" -X gil=0 -m pytest -p tools_pytest -p no:cacheprovider -q \
+    --ignore=tests/hirefire_resource/middleware --ignore=tests/hirefire_resource/macro tests/hirefire_resource \
+    >"$out/run-$index.log" 2>&1
+  code=$?
+  [ "$code" -ne 0 ] && status=1
+  echo "run $index exit=$code $(tail -1 "$out/run-$index.log")"
+done
+exit "$status"
