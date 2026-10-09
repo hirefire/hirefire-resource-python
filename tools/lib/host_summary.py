@@ -46,28 +46,28 @@ def host(row):
         - {"warnings.warn(SecurityWarning"}
     )
     first = (
-        f"{row['host']} | warnings at boot: {', '.join(warnings) or 'none'}"
-        f" | the client boots in: {', '.join(row['processes_that_booted']) or 'nobody'}"
+        f"{row['host']} | warnings: {', '.join(warnings) or 'none'}"
+        f" | boots in: {', '.join(row['processes_that_booted']) or 'nobody'}"
     )
     for line in threads:
-        first += f" | uWSGI: {line.strip('* ')}"
+        first += f" | threads: {'off' if 'disabled' in line else 'on'}"
     print(first)
-    second = f"  sends before a request: {senders(row['sent_before_first_request'])}"
+    second = f"  before a request: {senders(row['sent_before_first_request'])}"
     restart = row.get("worker_restart") or {}
     starts = yes(restart.get("new_worker_started_dispatcher"))
     sends = yes(restart.get("new_worker_sends"))
     if "requests_answered" in row:
         print(
             f"{second} | answered {row['requests_answered']} of 20"
-            f" | sends after: {senders(row['senders_after_requests'])}"
+            f" | after: {senders(row['senders_after_requests'])}"
         )
         third = (
             f"  replaced worker: answered {restart.get('requests_answered')} of 20, "
-            f"starts a dispatcher {starts}, sends {sends}"
+            f"starts {starts}, sends {sends}"
         )
     else:
         print(second)
-        third = f"  replaced pool child: starts a dispatcher {starts}, sends {sends}"
+        third = f"  replaced pool child: starts {starts}, sends {sends}"
     third += f" | stop: {row['shutdown_seconds']} s"
     if row.get("killed_after_20s"):
         third += " (killed after 20 s)"
@@ -82,7 +82,7 @@ def host(row):
 
 
 def race(rows):
-    print("boots with all 10 requests answered, with a token (without)")
+    print("boots with all 10 requests answered, with a token (without):")
     for name in dict.fromkeys(row["host"] for row in rows):
         pair = {row["hirefire_token"]: row for row in rows if row["host"] == name}
         if True not in pair or False not in pair:
