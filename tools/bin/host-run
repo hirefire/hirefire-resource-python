@@ -2,15 +2,18 @@
 set -euo pipefail
 source "$(dirname "$0")/env"
 cd "$TOOLS_ROOT"
-out="$TOOLS_RESULTS/hosts"
+python="${TOOLS_HOST_PYTHON:-3.13}"
+out="$TOOLS_RESULTS/${TOOLS_HOSTS_OUT:-hosts}"
+uwsgi="${TOOLS_HOST_UWSGI:-uwsgi}"
+image="hirefire-python-hosts:$python-${uwsgi//[^a-z0-9.]/}"
 mkdir -p "$out"
 ls dist/*.whl >/dev/null 2>&1 || poetry build -q
-docker build -q -t hirefire-python-hosts -f tools/hosts/Dockerfile . >"$out/build.log" 2>&1
-docker run --rm -e HOSTS_ONLY="${HOSTS_ONLY:-}" -v "$out":/results hirefire-python-hosts
+docker build -q --build-arg "PYTHON=$python" --build-arg "UWSGI=$uwsgi" -t "$image" -f tools/hosts/Dockerfile . >"$out/build.log" 2>&1
+docker run --rm -e HOSTS_ONLY="${HOSTS_ONLY:-}" -v "$out":/results "$image"
 {
-  docker run --rm hirefire-python-hosts python probe.py 0
-  docker run --rm hirefire-python-hosts python probe.py 200
-  docker run --rm --cpuset-cpus=0-1 hirefire-python-hosts python probe.py 0
-  docker run --rm --cpus=1.5 hirefire-python-hosts python probe.py 0
+  docker run --rm "$image" python probe.py 0
+  docker run --rm "$image" python probe.py 200
+  docker run --rm --cpuset-cpus=0-1 "$image" python probe.py 0
+  docker run --rm --cpus=1.5 "$image" python probe.py 0
 } >"$out/probe.txt" 2>&1
 cat "$out/probe.txt"

@@ -2,8 +2,11 @@
 set -euo pipefail
 source "$(dirname "$0")/env"
 cd "$TOOLS_ROOT"
-out="$TOOLS_RESULTS/hosts"
+python="${TOOLS_HOST_PYTHON:-3.13}"
+out="$TOOLS_RESULTS/${TOOLS_HOSTS_OUT:-hosts}"
+uwsgi="${TOOLS_HOST_UWSGI:-uwsgi}"
+image="hirefire-python-hosts:$python-${uwsgi//[^a-z0-9.]/}"
 mkdir -p "$out"
 ls dist/*.whl >/dev/null 2>&1 || poetry build -q
-docker build -q -t hirefire-python-hosts -f tools/hosts/Dockerfile . >"$out/build.log" 2>&1
-docker run --rm -e RACE_RUNS="${RACE_RUNS:-10}" -v "$out":/results hirefire-python-hosts python preload_race.py
+docker build -q --build-arg "PYTHON=$python" --build-arg "UWSGI=$uwsgi" -t "$image" -f tools/hosts/Dockerfile . >"$out/build.log" 2>&1
+docker run --rm -e RACE_RUNS="${RACE_RUNS:-10}" -e RACE_ONLY="${RACE_ONLY:-}" -v "$out":/results "$image" python preload_race.py
