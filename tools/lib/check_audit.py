@@ -28,12 +28,13 @@ LENSES = [
 ]
 SEVERITIES = ["defect", "risk", "test gap", "design", "cleanup", "docs"]
 VERDICTS = ["applies", "already correct", "not applicable"]
+FINDINGS = ["findings.md", "findings-risks.md", "findings-design.md"]
 HEADING = re.compile(r"^### (P-[A-Za-z0-9-]+): (.+)$", re.M)
 
 
 def findings(directory):
     result = []
-    for name in ("findings.md", "findings-design.md"):
+    for name in FINDINGS:
         text = (directory / name).read_text()
         matches = list(HEADING.finditer(text))
         for index, match in enumerate(matches):
@@ -161,9 +162,15 @@ def main():
         match = re.search(r"\*\*Severity:\*\* (.+)", body)
         if match:
             severities[match.group(1)] = severities.get(match.group(1), 0) + 1
+    alone = [
+        identifier
+        for identifier, _title, body, _name in items
+        if re.search(r"\*\*Ruby counterpart:\*\* none", body)
+    ]
     print(
         f"findings: {len(items)} with all {len(FIELDS)} fields in order ({severities})"
     )
+    print(f"without a Ruby counterpart: {len(alone)} ({', '.join(alone)})")
     print(f"map: {mapped} files, find counts {count}")
     print(f"comparison: {rows} rows ({counts})")
     print(f"lenses: {lenses} sections")

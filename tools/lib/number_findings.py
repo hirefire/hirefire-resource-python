@@ -8,7 +8,7 @@ HEADING = re.compile(r"^### (P-[a-z][a-z0-9-]+):", re.M)
 def main():
     directory = Path(sys.argv[1]).resolve()
     slugs = []
-    for name in ("findings.md", "findings-design.md"):
+    for name in ("findings.md", "findings-risks.md", "findings-design.md"):
         slugs += HEADING.findall((directory / name).read_text())
     if not slugs:
         sys.exit("no finding with a working name left")
