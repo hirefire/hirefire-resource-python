@@ -51,6 +51,7 @@ HOSTS = [
     ),
     ("uwsgi", UWSGI, "web"),
     ("uwsgi --enable-threads", UWSGI + ["--enable-threads"], "web"),
+    ("uwsgi --lazy-apps", UWSGI + ["--lazy-apps"], "web"),
     (
         "uwsgi --enable-threads --lazy-apps",
         UWSGI + ["--enable-threads", "--lazy-apps"],
@@ -80,6 +81,7 @@ DISPATCH = re.compile(r"HF pid=(\d+) \[HireFire\] Dispatching metrics: (.*)")
 STARTED = re.compile(r"HF pid=(\d+) \[HireFire\] Starting dispatcher")
 STOPPED = re.compile(r"HF pid=(\d+) \[HireFire\] Dispatcher stopped")
 BOOT = re.compile(r"BOOT pid=(\d+) ppid=(\d+)")
+THREADS = re.compile(r"threads support", re.I)
 
 
 def post(path, body=b""):
@@ -239,7 +241,11 @@ def run(name, command, role):
         process.wait()
         result["killed_after_20s"] = True
     result["shutdown_seconds"] = round(time.monotonic() - stop_started, 1)
+    subprocess.run(["pkill", "-9", "-f", command[0]])
     final_log = read(log_path)
+    result["thread_support_lines"] = sorted(
+        {line.strip() for line in final_log.splitlines() if THREADS.search(line)}
+    )
     result["dispatcher_starts"] = len(STARTED.findall(final_log))
     result["dispatcher_stops"] = len(STOPPED.findall(final_log))
     result["error_lines"] = sorted(

@@ -35,6 +35,8 @@ HOSTS = {
     "uwsgi": UWSGI,
     "uwsgi --py-call-uwsgi-fork-hooks": UWSGI + ["--py-call-uwsgi-fork-hooks"],
     "uwsgi --lazy-apps": UWSGI + ["--lazy-apps"],
+    "uwsgi --enable-threads": UWSGI + ["--enable-threads"],
+    "uwsgi --enable-threads --lazy-apps": UWSGI + ["--enable-threads", "--lazy-apps"],
 }
 RUNS = int(os.environ.get("RACE_RUNS", "10"))
 
@@ -70,16 +72,26 @@ def once(command, token, index):
     answered = hit(10)
     time.sleep(2)
     process.send_signal(signal.SIGTERM)
+    stopped = True
     try:
         process.wait(timeout=10)
     except subprocess.TimeoutExpired:
-        subprocess.run(["pkill", "-9", "-f", command[0]])
-        process.wait()
+        stopped = False
+    subprocess.run(["pkill", "-9", "-f", command[0]])
+    process.wait()
     with open(path, errors="replace") as file:
         log_text = file.read()
     time.sleep(0.5)
     return {
         "answered": answered,
+        "stopped": stopped,
+        "threads": sorted(
+            {
+                line.strip()
+                for line in log_text.splitlines()
+                if "threads support" in line.lower()
+            }
+        ),
         "idna": log_text.count("unknown encoding: idna"),
         "request_errors": log_text.count("Error handling request"),
         "master_sent": "Starting dispatcher" in log_text,
@@ -92,7 +104,10 @@ def main():
     )
     time.sleep(1)
     results = []
+    only = os.environ.get("RACE_ONLY")
     for name, command in HOSTS.items():
+        if only and only not in name:
+            continue
         for token in (True, False):
             runs = [once(command, token, index) for index in range(RUNS)]
             entry = {
@@ -108,6 +123,10 @@ def main():
                 "requests_answered_per_run": [run["answered"] for run in runs],
                 "runs_with_idna_error": sum(run["idna"] > 0 for run in runs),
                 "host_request_errors": sum(run["request_errors"] for run in runs),
+                "runs_stopped_within_10s": sum(run["stopped"] for run in runs),
+                "thread_support_lines": sorted(
+                    {line for run in runs for line in run["threads"]}
+                ),
             }
             results.append(entry)
             print(json.dumps(entry), flush=True)
