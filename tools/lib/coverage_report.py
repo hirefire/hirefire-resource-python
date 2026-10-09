@@ -8,6 +8,13 @@ import coverage
 import tools_common as common
 
 
+def recorded_commit(run):
+    summary = common.results(run) / "summary.json"
+    if summary.exists():
+        return json.loads(summary.read_text())["commit"]
+    return common.commit()
+
+
 def main():
     run = sys.argv[1] if len(sys.argv) > 1 else "baseline"
     directory = common.results(run)
@@ -70,7 +77,7 @@ def main():
     totals = raw["totals"]
     result = {
         "run": run,
-        "commit": common.commit(),
+        "commit": recorded_commit(run),
         "envs": len(data_files),
         "totals": {
             "statements": totals["num_statements"],
