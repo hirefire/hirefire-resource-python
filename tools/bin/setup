@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/env"
+cd "$TOOLS_ROOT"
+
+bin/services up
+
+mkdir -p "$TOOLS_RESULTS"
+tox run-parallel --notest --parallel "${TOOLS_JOBS:-6}" --parallel-no-spinner
+
+if [ ! -x "$TOOLS_VENV/bin/python" ]; then
+  python3.14 -m venv "$TOOLS_VENV"
+fi
+"$TOOLS_VENV/bin/pip" install --quiet --upgrade pip
+"$TOOLS_VENV/bin/pip" install --quiet -r tools/requirements.txt

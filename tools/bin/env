@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+TOOLS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+_tools_path=""
+for _tools_version in $(awk '$1 == "python" { for (i = 2; i <= NF; i++) print $i }' "$TOOLS_ROOT/.tool-versions"); do
+  _tools_path="$_tools_path$(mise where "python@$_tools_version")/bin:"
+done
+export PATH="$_tools_path$PATH"
+export TOOLS_ROOT
+export TOOLS_RESULTS="${TOOLS_RESULTS:-$TOOLS_ROOT/tools/results}"
+export TOOLS_VENV="${TOOLS_VENV:-$TOOLS_ROOT/tools/.venv}"
+unset FORCE_COLOR _tools_path _tools_version
