@@ -35,6 +35,14 @@ Run every script from the repository root, after `tools/bin/setup`. They are not
 
 No result is committed to this repository. Every script writes under `tools/results/`, which git ignores. Results worth keeping are stored in the canon, under `hirefire-resource/python-audit/results/`, without paths or ports of the machine that produced them.
 
+## Mutation run
+
+`bin/mutate run` runs a changed line with the tests whose coverage names it, not with the whole env. Three steps keep a verdict tied to the change:
+
+- A TLS context is made before the tests (`lib/mutation_warmup.py`), as an earlier test does in a full run. Without it the test that forks a web process fails by chance on the unchanged tree.
+- Every distinct set of tests first runs on the unchanged tree. The run stops when one fails.
+- A failing run counts as a kill when it fails a second time. The record of a kill names the test.
+
 ## Host runs
 
 `bin/host-run` and `bin/host-race` read four variables: `TOOLS_HOST_PYTHON` (the Python of the image, default 3.13), `TOOLS_HOST_UWSGI` (a requirement for pip such as `uwsgi==2.0.21`, default the newest release), `TOOLS_HOSTS_OUT` (the directory under `results/`, default `hosts`), and `HOSTS_ONLY` or `RACE_ONLY` (a part of a host name). uWSGI 2.0.31 enables Python threads by itself, so the case without thread support needs an older release.

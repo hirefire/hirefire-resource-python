@@ -92,6 +92,17 @@ def main():
         print(
             f"group {group:<22} {bucket['kind']:<10} {bucket['changes']:>4}  {reason}"
         )
+    controls = directory / "controls.jsonl"
+    if controls.exists():
+        entries = [json.loads(line) for line in controls.read_text().splitlines()]
+        failed = sum(1 for entry in entries if entry["code"] != 0)
+        print(
+            f"test sets run on the unchanged tree before the changes: {len(entries)}, failed: {failed}"
+        )
+    unrepeated = sum(1 for row in rows if row.get("kills_not_repeated"))
+    print(
+        f"changes with a kill that did not repeat, counted as not caught: {unrepeated}"
+    )
     for row in unassigned:
         print(
             f"NO VERDICT {row['status']} {row['file']}:{row['line']} {row['operator']} {row['description']}"

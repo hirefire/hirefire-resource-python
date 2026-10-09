@@ -6,6 +6,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -35,6 +36,7 @@ ORDER = [
 TIMEOUTS = {"celery": 240}
 DEFAULT_TIMEOUT = 90
 HARNESS_EXIT = {4, 5}
+FAILED = re.compile(r"^FAILED (\S+)", re.M)
 
 
 def cells():
@@ -100,34 +102,97 @@ def run_tests(env, tests, sandbox):
         if not key.startswith("HIREFIRE_") and key not in ("FORCE_COLOR", "DYNO")
     }
     child_env["PYTHONDONTWRITEBYTECODE"] = "1"
+    child_env["PYTHONPATH"] = str(Path(__file__).resolve().parent)
     timeout = TIMEOUTS.get(env.split("-", 1)[1], DEFAULT_TIMEOUT)
-    process = subprocess.Popen(
-        [
-            str(python),
-            "-B",
-            "-m",
-            "pytest",
-            "-x",
-            "-q",
-            "-p",
-            "no:cacheprovider",
-            *tests,
-        ],
-        cwd=sandbox,
-        env=child_env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    try:
-        return process.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
+    with tempfile.TemporaryFile("w+") as output:
+        process = subprocess.Popen(
+            [
+                str(python),
+                "-B",
+                "-m",
+                "pytest",
+                "-x",
+                "-q",
+                "-rf",
+                "-p",
+                "no:cacheprovider",
+                "-p",
+                "mutation_warmup",
+                *tests,
+            ],
+            cwd=sandbox,
+            env=child_env,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
         try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        process.wait()
-        return "timeout"
+            code = process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+            return "timeout", None
+        output.seek(0)
+        failed = FAILED.search(output.read())
+    return code, failed.group(1) if failed else None
+
+
+def run_plan(env, tests, sandbox):
+    code, failed = run_tests(env, tests, sandbox)
+    if code in HARNESS_EXIT:
+        tests = sorted({test.split("::")[0] for test in tests})
+        code, failed = run_tests(env, tests, sandbox)
+    return code, failed, tests
+
+
+def run_controls(plans, sandboxes, directory):
+    work = queue.Queue()
+    for plan in plans:
+        work.put(plan)
+    total = work.qsize()
+    record = directory / "controls.jsonl"
+    record.write_text("")
+    lock = threading.Lock()
+    failures = []
+    counter = {"n": 0}
+
+    def worker(sandbox):
+        while True:
+            try:
+                env, tests = work.get_nowait()
+            except queue.Empty:
+                return
+            started = time.monotonic()
+            code, failed, _ = run_plan(env, list(tests), sandbox)
+            entry = {
+                "env": env,
+                "tests": len(tests),
+                "first_test": tests[0],
+                "code": code,
+                "failed": failed,
+                "seconds": round(time.monotonic() - started, 1),
+            }
+            with lock:
+                with open(record, "a") as file:
+                    file.write(json.dumps(entry) + "\n")
+                if code != 0:
+                    failures.append(entry)
+                counter["n"] += 1
+                if counter["n"] % 100 == 0:
+                    print(f"controls {counter['n']}/{total}", flush=True)
+
+    threads = [
+        threading.Thread(target=worker, args=(sandbox,)) for sandbox in sandboxes
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    print(f"controls: {total} test sets on the unchanged tree, {len(failures)} failed")
+    return failures
 
 
 def evaluate(mutant, plan, sandbox, original):
@@ -137,10 +202,7 @@ def evaluate(mutant, plan, sandbox, original):
     outcome = {"status": "survived", "env": None, "envs_run": 0}
     try:
         for env, tests in plan:
-            code = run_tests(env, tests, sandbox)
-            if code in HARNESS_EXIT:
-                files = sorted({test.split("::")[0] for test in tests})
-                code = run_tests(env, files, sandbox)
+            code, failed, tests = run_plan(env, tests, sandbox)
             outcome["envs_run"] += 1
             if code == "timeout":
                 outcome.update(status="timeout", env=env)
@@ -149,7 +211,13 @@ def evaluate(mutant, plan, sandbox, original):
                 outcome.update(status="error", env=env, code=code)
                 break
             if code != 0:
-                outcome.update(status="killed", env=env)
+                again, _ = run_tests(env, tests, sandbox)
+                if again == 0:
+                    outcome["kills_not_repeated"] = (
+                        outcome.get("kills_not_repeated", 0) + 1
+                    )
+                    continue
+                outcome.update(status="killed", env=env, test=failed)
                 break
     finally:
         target.write_text(original)
@@ -191,7 +259,7 @@ def main():
     if options.command == "check":
         failed = False
         for env in envs:
-            code = run_tests(env, data.files_by_env[env], sandboxes[0])
+            code, _ = run_tests(env, data.files_by_env[env], sandboxes[0])
             print(f"{env:<18} unchanged tree exit={code}", flush=True)
             failed = failed or code != 0
         sys.exit(1 if failed else 0)
@@ -203,9 +271,17 @@ def main():
         for line in record.read_text().splitlines():
             done.add(json.loads(line)["key"])
     work = queue.Queue()
+    plans = {}
     for mutant in mutants:
         if mutant.key not in done:
             work.put(mutant)
+            for env, tests in data.plan(mutant):
+                plans[(env, tuple(tests))] = True
+    failures = run_controls(plans, sandboxes, directory)
+    if failures:
+        for entry in failures:
+            print(f"CONTROL FAILED {entry['env']} {entry['failed']}")
+        sys.exit(1)
     total = work.qsize()
     lock = threading.Lock()
     counter = {"n": 0}
