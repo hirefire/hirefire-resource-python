@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/env"
+cd "$TOOLS_ROOT"
+out="$TOOLS_RESULTS/hosts"
+mkdir -p "$out"
+ls dist/*.whl >/dev/null 2>&1 || poetry build -q
+docker build -q -t hirefire-python-hosts -f tools/hosts/Dockerfile . >"$out/build.log" 2>&1
+docker run --rm -e HOSTS_ONLY="${HOSTS_ONLY:-}" -v "$out":/results hirefire-python-hosts
+{
+  docker run --rm hirefire-python-hosts python probe.py 0
+  docker run --rm hirefire-python-hosts python probe.py 200
+  docker run --rm --cpuset-cpus=0-1 hirefire-python-hosts python probe.py 0
+  docker run --rm --cpus=1.5 hirefire-python-hosts python probe.py 0
+} >"$out/probe.txt" 2>&1
+cat "$out/probe.txt"
