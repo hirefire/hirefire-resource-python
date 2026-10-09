@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+source "$(dirname "$0")/env"
+cd "$TOOLS_ROOT"
+exec "$TOOLS_VENV/bin/python" tools/lib/coverage_report.py "$@"
