@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -u
+source "$(dirname "$0")/env"
+count="${1:-10}"
+prefix="${2:-stress-}"
+for index in $(seq -w 1 "$count"); do
+  "$TOOLS_ROOT/tools/bin/matrix-run" "${prefix}${index}" --seed random | tail -1
+done
+"$TOOLS_ROOT/tools/bin/matrix-summary" "$prefix"
