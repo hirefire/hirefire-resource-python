@@ -134,7 +134,7 @@ class Configuration:
         self._always_on_http = None
 
     def prefork_web_handoff(self) -> bool:
-        return self.rqt_enabled()
+        return not self._http_active and identity.platform_http_role()
 
     def soft_identity(self) -> str | None:
         self._warn_heroku_conflict_once()

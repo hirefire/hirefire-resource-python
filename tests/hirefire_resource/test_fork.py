@@ -5,6 +5,7 @@ import socket
 import ssl
 import sys
 import threading
+import time
 from unittest.mock import patch
 
 import pytest
@@ -13,6 +14,7 @@ from hirefire_resource import HireFire
 from hirefire_resource.client import Client
 from hirefire_resource.dispatcher import Dispatcher
 from hirefire_resource.dispatcher.session import Session
+from hirefire_resource.middleware import process_request_queue_time
 from tests.helpers import fork_and_report, set_HIREFIRE_TOKEN  # noqa: F401
 
 pytestmark = pytest.mark.filterwarnings(
@@ -31,6 +33,60 @@ LOCKS = {
         lambda configuration, dispatcher: dispatcher._session._lease._client._mutex
     ),
 }
+
+
+needs_waitid = pytest.mark.skipif(
+    not hasattr(os, "waitid"), reason="os.waitid is missing on this platform"
+)
+
+
+def handoff_threads():
+    return [
+        thread for thread in threading.enumerate() if thread.name == "hirefire-handoff"
+    ]
+
+
+def wait_until(condition, seconds=3):
+    for _ in range(int(seconds / 0.005)):
+        if condition():
+            return
+        time.sleep(0.005)
+    pytest.fail(f"the condition was not met within {seconds} seconds")
+
+
+@pytest.fixture
+def web_process(monkeypatch, set_HIREFIRE_TOKEN):
+    monkeypatch.setenv("DYNO", "web.1")
+    monkeypatch.setattr(Session, "TICK", 0.01)
+    ssl.create_default_context()
+    HireFire.boot()
+    assert HireFire.configuration.dispatcher.running()
+    return HireFire.configuration.dispatcher
+
+
+@pytest.fixture
+def children():
+    read_fd, write_fd = os.pipe()
+    pids = []
+
+    def fork():
+        pid = os.fork()
+        if pid == 0:
+            os.close(write_fd)
+            os.read(read_fd, 1)
+            os._exit(0)
+        pids.append(pid)
+
+    def release():
+        os.close(write_fd)
+        for pid in pids:
+            os.waitpid(pid, 0)
+        pids.clear()
+
+    yield fork, release
+    os.close(read_fd)
+    if pids:
+        release()
 
 
 def connected_client():
@@ -120,10 +176,13 @@ def test_after_fork_in_child_does_not_import_celery_macro(monkeypatch):
 
 def test_after_fork_in_parent_stops_without_flush(monkeypatch, set_HIREFIRE_TOKEN):
     monkeypatch.setenv("DYNO", "web.1")
+    monkeypatch.delattr(os, "waitid", raising=False)
     config = HireFire.configuration
     with patch.object(config, "stop_dispatcher") as mock_stop:
         HireFire.after_fork_in_parent()
         mock_stop.assert_called_once_with(flush=False)
+
+    assert handoff_threads() == []
 
 
 def test_after_fork_in_parent_is_noop_for_job_only_process(monkeypatch):
@@ -152,6 +211,19 @@ def test_after_fork_in_child_logs_start_failure(
         HireFire.after_fork_in_child()
     assert "After-fork restart failed" in caplog.text
     assert "spawn failed" in caplog.text
+
+
+def test_after_fork_in_parent_is_noop_for_a_web_process_that_has_served_a_request(
+    monkeypatch,
+):
+    monkeypatch.setenv("DYNO", "web.1")
+    config = HireFire.configuration
+    config.mark_http_active()
+    with patch.object(config, "stop_dispatcher") as mock_stop:
+        HireFire.after_fork_in_parent()
+        mock_stop.assert_not_called()
+
+    assert handoff_threads() == []
 
 
 def test_after_fork_in_parent_logs_stop_failure(monkeypatch, caplog):
@@ -261,3 +333,132 @@ def test_a_child_forked_while_its_parent_stops_starts_its_dispatcher(
         stopper.join(5)
 
     assert report == "True"
+
+
+@needs_waitid
+def test_a_web_process_that_forks_a_helper_reports_again_once_the_helper_is_gone(
+    web_process,
+):
+    pid = os.fork()
+    if pid == 0:
+        os._exit(0)
+    os.waitpid(pid, 0)
+
+    wait_until(web_process.running)
+    wait_until(lambda: not handoff_threads())
+
+
+@needs_waitid
+def test_a_web_process_that_handed_over_stays_stopped_while_its_child_lives(
+    web_process, children
+):
+    fork, release = children
+    fork()
+    fork()
+    time.sleep(0.1)
+    assert not web_process.running()
+    assert len(handoff_threads()) == 1
+
+    release()
+
+    wait_until(web_process.running)
+
+
+@needs_waitid
+def test_a_child_that_has_exited_and_was_not_waited_for_keeps_its_parent_stopped(
+    web_process,
+):
+    pid = os.fork()
+    if pid == 0:
+        os._exit(0)
+    time.sleep(0.1)
+    assert not web_process.running()
+
+    os.waitpid(pid, 0)
+
+    wait_until(web_process.running)
+
+
+def test_a_web_process_that_has_served_a_request_keeps_reporting_when_it_forks_and_its_child_reports_nothing(
+    web_process,
+):
+    process_request_queue_time(str(int(time.time() * 1000) - 5))
+
+    report = fork_and_report(HireFire.configuration.dispatcher.running)
+
+    assert report == "False"
+    assert web_process.running()
+    assert handoff_threads() == []
+
+
+@needs_waitid
+def test_a_reset_after_a_handover_is_not_undone_when_the_child_is_gone(
+    web_process, caplog
+):
+    pid = os.fork()
+    if pid == 0:
+        os._exit(0)
+    HireFire.reset()
+    os.waitpid(pid, 0)
+
+    wait_until(lambda: not handoff_threads())
+    assert not HireFire.configuration.dispatcher.running()
+    assert not web_process.running()
+    assert "After-fork resume failed" not in caplog.text
+
+
+@needs_waitid
+def test_a_parent_that_started_again_on_its_own_is_left_alone(web_process, children):
+    fork, release = children
+    fork()
+    assert not web_process.running()
+
+    assert web_process.start()
+
+    wait_until(lambda: not handoff_threads())
+    assert web_process.running()
+
+
+@needs_waitid
+def test_a_forked_child_does_not_keep_waiting_for_the_children_its_parent_waited_for(
+    web_process, children
+):
+    fork, release = children
+    fork()
+    assert len(handoff_threads()) == 1
+
+    def child():
+        waiting = HireFire._handed_over
+        HireFire.after_fork_in_parent()
+        return [waiting, len(handoff_threads())]
+
+    assert fork_and_report(child) == "[False, 1]"
+
+
+def test_a_failure_while_a_parent_waits_for_its_children_is_logged_and_a_later_fork_is_watched_again(
+    monkeypatch, set_HIREFIRE_TOKEN, caplog
+):
+    monkeypatch.setenv("DYNO", "web.1")
+    monkeypatch.setattr(Session, "TICK", 0.01)
+
+    def boom(*_arguments):
+        raise RuntimeError("waitid boom")
+
+    def no_children(*_arguments):
+        raise ChildProcessError()
+
+    monkeypatch.setattr(os, "waitid", boom, raising=False)
+    monkeypatch.setattr(os, "P_ALL", 0, raising=False)
+    monkeypatch.setattr(os, "WEXITED", 4, raising=False)
+    monkeypatch.setattr(os, "WNOWAIT", 32, raising=False)
+    HireFire.after_fork_in_parent()
+    wait_until(
+        lambda: "[HireFire] After-fork resume failed: waitid boom" in caplog.text
+    )
+    wait_until(lambda: not handoff_threads())
+
+    monkeypatch.setattr(os, "waitid", no_children, raising=False)
+    with patch.object(Dispatcher, "start") as start:
+        HireFire.after_fork_in_parent()
+        wait_until(lambda: not handoff_threads())
+        start.assert_called_once()

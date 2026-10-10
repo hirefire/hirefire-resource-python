@@ -342,3 +342,19 @@ def test_heroku_config_var_conflict_warned_only_once(config, monkeypatch, caplog
     config.active_cpu_sources()
     config.http_name()
     assert caplog.text.count("app-wide") == 1
+
+
+def test_a_handover_applies_only_to_a_platform_web_process_that_has_not_served_a_request(
+    config, monkeypatch
+):
+    monkeypatch.setenv("DYNO", "worker.1")
+    assert not config.prefork_web_handoff()
+
+    monkeypatch.setenv("DYNO", "web.1")
+    assert config.prefork_web_handoff()
+
+    config.mark_http_active()
+    assert not config.prefork_web_handoff()
+
+    monkeypatch.delenv("DYNO")
+    assert not config.prefork_web_handoff()
