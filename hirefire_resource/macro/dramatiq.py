@@ -301,44 +301,37 @@ def _resolve_connection(
         )
 
     if broker is not None:
-        if _is_redis_broker(broker):
-            client = getattr(broker, "client", None)
-            if client is None:
-                raise ValueError("Dramatiq RedisBroker has no client")
-            return {
-                "kind": "redis",
-                "client": client,
-                "owned": False,
-                "namespace": _resolve_namespace(namespace, broker, redis_path=True),
-                "connection": None,
-                "identity": id(client),
-            }
-        if _is_rabbitmq_broker(broker):
-            parameters = getattr(broker, "parameters", None)
-            if parameters is None or pika is None:
-                raise ValueError(
-                    "Dramatiq RabbitmqBroker requires pika and connection parameters"
-                )
-            connection = pika.BlockingConnection(
-                parameters=_sample_pika_parameters(source=parameters)
-            )
-            return {
-                "kind": "rabbitmq",
-                "connection": connection,
-                "owned": True,
-                "client": None,
-                "namespace": _DEFAULT_NAMESPACE,
-            }
-        raise ValueError(
-            "Unsupported Dramatiq broker type "
-            f"{type(broker).__module__}.{type(broker).__name__}. "
-            "Expected RedisBroker or RabbitmqBroker."
+        return _connection_of_broker(broker, namespace)
+    return _connection_of_url(_resolve_broker_url(broker_url), namespace)
+
+
+def _connection_of_broker(broker: object, namespace: str | None) -> dict[str, Any]:
+    if _is_redis_broker(broker):
+        client = getattr(broker, "client", None)
+        if client is None:
+            raise ValueError("Dramatiq RedisBroker has no client")
+        return _redis_connection(
+            client,
+            owned=False,
+            namespace=_resolve_namespace(namespace, broker, redis_path=True),
+            identity=id(client),
         )
+    if _is_rabbitmq_broker(broker):
+        parameters = getattr(broker, "parameters", None)
+        if parameters is None or pika is None:
+            raise ValueError(
+                "Dramatiq RabbitmqBroker requires pika and connection parameters"
+            )
+        return _rabbitmq_connection(_sample_pika_parameters(source=parameters))
+    raise ValueError(
+        "Unsupported Dramatiq broker type "
+        f"{type(broker).__module__}.{type(broker).__name__}. "
+        "Expected RedisBroker or RabbitmqBroker."
+    )
 
-    url = _resolve_broker_url(broker_url)
-    kind = _url_kind(url)
 
-    if kind == "redis":
+def _connection_of_url(url: str, namespace: str | None) -> dict[str, Any]:
+    if _url_kind(url) == "redis":
         if redis is None:
             raise RuntimeError("redis package is required for Dramatiq Redis sampling")
         client = redis.Redis.from_url(
@@ -347,21 +340,35 @@ def _resolve_connection(
             socket_connect_timeout=_SAMPLE_REDIS_TIMEOUT,
             **redis_tls_options(url),
         )
-        return {
-            "kind": "redis",
-            "client": client,
-            "owned": True,
-            "namespace": _resolve_namespace(namespace, None, redis_path=True),
-            "connection": None,
-            "identity": url,
-        }
+        return _redis_connection(
+            client,
+            owned=True,
+            namespace=_resolve_namespace(namespace, None, redis_path=True),
+            identity=url,
+        )
 
     if pika is None:
         raise RuntimeError("pika package is required for Dramatiq RabbitMQ sampling")
-    connection = pika.BlockingConnection(parameters=_sample_pika_parameters(url=url))
+    return _rabbitmq_connection(_sample_pika_parameters(url=url))
+
+
+def _redis_connection(
+    client: Any, *, owned: bool, namespace: str, identity: object
+) -> dict[str, Any]:
+    return {
+        "kind": "redis",
+        "client": client,
+        "owned": owned,
+        "namespace": namespace,
+        "connection": None,
+        "identity": identity,
+    }
+
+
+def _rabbitmq_connection(parameters: Any) -> dict[str, Any]:
     return {
         "kind": "rabbitmq",
-        "connection": connection,
+        "connection": pika.BlockingConnection(parameters=parameters),
         "owned": True,
         "client": None,
         "namespace": _DEFAULT_NAMESPACE,
