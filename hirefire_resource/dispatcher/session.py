@@ -32,6 +32,7 @@ class Session:
     SAMPLE_ROUND_LIMIT = 60
     TICK = 1
     PREFORK_WAIT = 1
+    STALL_LIMIT = 10
 
     def __init__(
         self, configuration: "Configuration", after: threading.Thread | None = None
@@ -54,6 +55,7 @@ class Session:
         self._last_rqt_second: int | None = None
         self._pending_sample_trace: Trace | None = None
         self._round_started_at: float | None = None
+        self._passed_at = time.monotonic()
         self._dispatch_failures = FailureLog("Dispatch", configuration)
         self._lease_failures = FailureLog("Lease request", configuration)
         self._payload_drops = FailureLog("Metrics payload", configuration)
@@ -93,6 +95,9 @@ class Session:
             ended = self._ended
         if ended:
             self.close()
+
+    def stalled(self) -> bool:
+        return time.monotonic() - self._passed_at > self.STALL_LIMIT
 
     def discard_inherited(self) -> None:
         self._live = False
@@ -137,6 +142,7 @@ class Session:
                 self._guard(self._client.close)
 
     def _dispatch_pass(self) -> None:
+        self._passed_at = time.monotonic()
         self._ensure_lease_loop()
         self.report()
 

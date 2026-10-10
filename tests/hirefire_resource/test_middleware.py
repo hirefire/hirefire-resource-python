@@ -282,3 +282,54 @@ def test_the_first_request_of_a_uwsgi_worker_starts_the_dispatcher_its_parent_di
     process_request_queue_time(recent_request_start())
 
     assert HireFire.configuration.dispatcher.running()
+
+
+def test_a_dispatcher_that_has_not_run_for_ten_seconds_under_uwsgi_is_reported_once(
+    set_HIREFIRE_TOKEN, monkeypatch, caplog
+):
+    monkeypatch.setenv("DYNO", "web.1")
+    monkeypatch.setattr(host, "uwsgi", SimpleNamespace(worker_id=lambda: 1))
+
+    with (
+        patch.object(Dispatcher, "start"),
+        patch.object(Dispatcher, "stalled", return_value=True),
+    ):
+        process_request_queue_time(recent_request_start())
+        process_request_queue_time(recent_request_start())
+
+    line = (
+        "[HireFire] The dispatcher has not run for 10 seconds. "
+        "uWSGI runs the threads of an app only with --enable-threads."
+    )
+    assert caplog.text.count(line) == 1
+    assert caplog.records[0].levelname == "WARNING"
+
+
+def test_a_dispatcher_that_runs_is_not_reported_under_uwsgi(
+    set_HIREFIRE_TOKEN, monkeypatch, caplog
+):
+    monkeypatch.setenv("DYNO", "web.1")
+    monkeypatch.setattr(host, "uwsgi", SimpleNamespace(worker_id=lambda: 1))
+
+    with (
+        patch.object(Dispatcher, "start"),
+        patch.object(Dispatcher, "stalled", return_value=False),
+    ):
+        process_request_queue_time(recent_request_start())
+
+    assert "--enable-threads" not in caplog.text
+
+
+def test_outside_uwsgi_a_request_does_not_ask_whether_the_dispatcher_runs(
+    set_HIREFIRE_TOKEN, monkeypatch, caplog
+):
+    monkeypatch.setenv("DYNO", "web.1")
+
+    with (
+        patch.object(Dispatcher, "start"),
+        patch.object(Dispatcher, "stalled", return_value=True) as stalled,
+    ):
+        process_request_queue_time(recent_request_start())
+        stalled.assert_not_called()
+
+    assert "--enable-threads" not in caplog.text

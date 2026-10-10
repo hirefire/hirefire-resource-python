@@ -90,6 +90,10 @@ class Dispatcher:
         with self._mutex:
             return self._healthy()
 
+    def stalled(self) -> bool:
+        session = self._session
+        return session is not None and session.stalled()
+
     def abandon_inherited_state(self) -> None:
         try:
             self._mutex = threading.Lock()

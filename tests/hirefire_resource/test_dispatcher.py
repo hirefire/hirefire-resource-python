@@ -2853,3 +2853,38 @@ def test_a_process_that_is_not_a_web_process_does_not_wait_before_its_first_pass
 
     wait_until(lambda: lease_requests() > 0)
     dispatcher.stop()
+
+
+def test_a_dispatcher_is_stalled_when_its_dispatch_loop_has_not_run_for_ten_seconds(
+    monkeypatch,
+):
+    assert Session.STALL_LIMIT == 10
+    clock = [time.monotonic()]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    dispatcher = HireFire.configuration.dispatcher
+    assert not dispatcher.stalled()
+
+    with patch.object(Session, "_dispatch_loop", lambda session: None):
+        assert dispatcher.start()
+
+    clock[0] += Session.STALL_LIMIT
+    assert not dispatcher.stalled()
+    clock[0] += 0.1
+    assert dispatcher.stalled()
+
+
+@mocketize
+def test_a_dispatcher_whose_dispatch_loop_runs_is_not_stalled(monkeypatch):
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    monkeypatch.setattr(Session, "TICK", 0.01)
+    monotonic = time.monotonic
+    ahead = [0]
+    monkeypatch.setattr(time, "monotonic", lambda: monotonic() + ahead[0])
+    dispatcher = configure_workers_only()
+
+    assert dispatcher.start()
+    ahead[0] = Session.STALL_LIMIT + 1
+
+    wait_until(lambda: not dispatcher.stalled())
+    dispatcher.stop()
