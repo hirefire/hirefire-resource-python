@@ -48,6 +48,10 @@ celery_app_cost() {
   $evidence celery_app_cost.py py314-celery 2>/dev/null
 }
 
+celery_host_app() {
+  $evidence celery_host_app.py py314-celery
+}
+
 celery_protocol_one() {
   $evidence celery_protocol_one.py py314-celery
 }
@@ -211,7 +215,7 @@ version_metadata() {
 
 case "$only" in "" | rabbitmq_*) rabbitmq_4 ;; esac
 case "$only" in "" | tls_self_signed | transport_security) redis_tls ;; esac
-for name in celery_app_cost celery_protocol_one celery_run_at_header dramatiq_broker_subclass \
+for name in celery_app_cost celery_host_app celery_protocol_one celery_run_at_header dramatiq_broker_subclass \
   dramatiq_delayed_latency exit_and_fork_warning fork_behavior fork_first_request fork_test_alone format_error \
   import_effects lease_cases lease_nested_body lease_steal loop_death performance proc_fork_cpu \
   rabbitmq_nack_quorum rabbitmq_peek_quorum request_path_cost sampler_values stale_generation_test_race \
