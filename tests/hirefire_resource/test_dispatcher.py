@@ -12,8 +12,8 @@ from mocket import Mocket, mocketize
 from mocket.mockhttp import Entry, Request, Response
 
 from hirefire_resource import HireFire, plan
-from hirefire_resource.client import RequestError
 from hirefire_resource.dispatcher import Dispatcher
+from hirefire_resource.errors import RequestError
 from hirefire_resource.lease import Lease
 from hirefire_resource.source.cpu.usage import Usage
 from tests.helpers import at, set_HIREFIRE_TOKEN  # noqa: F401
@@ -1071,6 +1071,30 @@ def test_honors_a_server_supplied_dispatch_frequency():
     with freeze_time(at(1004)):
         dispatcher._tick()
     with freeze_time(at(1005)):
+        dispatcher._tick()
+
+    assert len(bodies) == 2
+
+
+@pytest.mark.parametrize("status", [401, 413])
+@mocketize
+def test_honors_the_dispatch_frequency_of_a_rejected_request(status):
+    stub_lease()
+    Entry.single_register(
+        Entry.POST,
+        INGEST_URL,
+        status=status,
+        headers={"HireFire-Dispatch-Frequency": "30"},
+    )
+    bodies = IngestBodies()
+
+    dispatcher = configure_web_only()
+    with freeze_time(at(1000)):
+        dispatcher._tick()
+    with freeze_time(at(1029)):
+        dispatcher._tick()
+    assert len(bodies) == 1
+    with freeze_time(at(1030)):
         dispatcher._tick()
 
     assert len(bodies) == 2

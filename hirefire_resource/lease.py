@@ -7,7 +7,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from hirefire_resource.client import Client, RequestError
+from hirefire_resource.client import Client
+from hirefire_resource.errors import RequestError
 from hirefire_resource.log import safe_log
 
 
@@ -79,16 +80,12 @@ class Lease:
                 self._clear_grant()
             raise
 
-        if response.status == 401:
+        if not response.ok():
             with self._mutex:
                 if self._epoch == epoch:
                     self._clear_grant()
-            return
-
-        if not (200 <= response.status < 300):
-            with self._mutex:
-                if self._epoch == epoch:
-                    self._clear_grant()
+            if response.unauthorized():
+                return
             raise RequestError(f"Lease request failed with {response.status} status.")
 
         next_sample_frequency = self.sample_frequency

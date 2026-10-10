@@ -11,6 +11,10 @@ class DuplicateDynoError(Exception):
     pass
 
 
+class RequestError(Exception):
+    pass
+
+
 class SampleIncompleteError(Exception):
     pass
 

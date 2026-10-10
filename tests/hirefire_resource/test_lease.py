@@ -1,3 +1,4 @@
+import email.message
 import json
 import logging
 import os
@@ -10,7 +11,8 @@ from freezegun import freeze_time
 from mocket import Mocket, mocketize
 from mocket.mockhttp import Entry, Response
 
-from hirefire_resource.client import RequestError
+from hirefire_resource.client import Response as ClientResponse
+from hirefire_resource.errors import RequestError
 from hirefire_resource.lease import Lease
 from tests.helpers import at, set_HIREFIRE_TOKEN  # noqa: F401
 
@@ -26,6 +28,15 @@ def stub_lease(granted="false", **headers):
     adding_headers = {"HireFire-Lease-Granted": granted}
     adding_headers.update(headers)
     Entry.single_register(Entry.POST, LEASE_URL, status=200, headers=adding_headers)
+
+
+def worker_grant():
+    headers = email.message.Message()
+    headers["HireFire-Lease-Granted"] = "true"
+    headers["HireFire-Sample-Frequency"] = "30"
+    headers["HireFire-Lease-TTL"] = "120"
+    plan = {"version": 1, "job_queues": [{"name": "worker", "strategy": "jql"}]}
+    return ClientResponse(200, headers, json.dumps(plan))
 
 
 def test_process_id_is_stable_uuid():
@@ -323,23 +334,9 @@ def test_demote_during_inflight_request_discards_late_grant():
     lease = Lease()
     client = lease._client
 
-    class FakeResponse:
-        status = 200
-        headers = {
-            "HireFire-Lease-Granted": "true",
-            "HireFire-Sample-Frequency": "30",
-            "HireFire-Lease-TTL": "120",
-        }
-        body = json.dumps(
-            {
-                "version": 1,
-                "job_queues": [{"name": "worker", "strategy": "jql"}],
-            }
-        )
-
     def late_grant(_process_id):
         lease.demote()
-        return FakeResponse()
+        return worker_grant()
 
     with patch.object(client, "request_lease", side_effect=late_grant):
         lease.request_if_due(hold=lambda _plan: True)
@@ -353,20 +350,6 @@ def test_demote_during_inflight_request_discards_late_grant():
 def test_demote_between_epoch_check_and_commit_cannot_resurrect_grant():
     lease = Lease()
     client = lease._client
-
-    class FakeResponse:
-        status = 200
-        headers = {
-            "HireFire-Lease-Granted": "true",
-            "HireFire-Sample-Frequency": "30",
-            "HireFire-Lease-TTL": "120",
-        }
-        body = json.dumps(
-            {
-                "version": 1,
-                "job_queues": [{"name": "worker", "strategy": "jql"}],
-            }
-        )
 
     inner = threading.Lock()
     acquires = {"n": 0}
@@ -397,7 +380,7 @@ def test_demote_between_epoch_check_and_commit_cannot_resurrect_grant():
 
     thread = threading.Thread(target=demote_when_commit_holds)
     thread.start()
-    with patch.object(client, "request_lease", return_value=FakeResponse()):
+    with patch.object(client, "request_lease", return_value=worker_grant()):
         lease.request_if_due(hold=lambda _plan: True)
     thread.join(timeout=2)
 

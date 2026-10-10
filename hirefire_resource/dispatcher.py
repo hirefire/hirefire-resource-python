@@ -6,7 +6,7 @@ import time
 from typing import TYPE_CHECKING, Any, Callable
 
 from hirefire_resource.buffer import Buffer
-from hirefire_resource.client import PAYLOAD_TOO_LARGE, Client, Response
+from hirefire_resource.client import Client, Response
 from hirefire_resource.lease import Lease
 from hirefire_resource.log import format_error, safe_log
 from hirefire_resource.probe import Probe
@@ -593,12 +593,10 @@ class Dispatcher:
             if generation is not None and not self._loop_active(generation):
                 return
 
-            if response == PAYLOAD_TOO_LARGE:
+            self._apply_dispatch_frequency(response)
+            if response.too_large():
                 return self._drop_oversized_payload(body, watermark, server=True)
 
-            self._apply_dispatch_frequency(
-                response if isinstance(response, Response) else None
-            )
             if watermark is not None:
                 self._last_rqt_second = watermark
             self._pending_sample_trace = None
@@ -625,10 +623,7 @@ class Dispatcher:
             if series:
                 self._buffer().repopulate(name, RQT, series)
 
-    def _apply_dispatch_frequency(self, response: Response | None) -> None:
-        if response is None:
-            return
-
+    def _apply_dispatch_frequency(self, response: Response) -> None:
         raw = response.headers.get("HireFire-Dispatch-Frequency")
         if raw is None:
             return

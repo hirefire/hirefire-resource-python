@@ -7,14 +7,9 @@ from email.message import Message
 from typing import cast
 from urllib.parse import ParseResult, urlparse
 
+from hirefire_resource.errors import RequestError
 from hirefire_resource.version import VERSION
 
-
-class RequestError(Exception):
-    pass
-
-
-PAYLOAD_TOO_LARGE = "payload_too_large"
 _DEFAULT_BASE_URL = "https://data.hirefire.io"
 
 
@@ -23,6 +18,15 @@ class Response:
     status: int
     headers: Message
     body: str = ""
+
+    def ok(self) -> bool:
+        return 200 <= self.status < 300
+
+    def unauthorized(self) -> bool:
+        return self.status == 401
+
+    def too_large(self) -> bool:
+        return self.status == 413
 
 
 STALE_CONNECTION_ERRORS = (
@@ -45,7 +49,7 @@ class Client:
         self._owner_pid: int | None = None
         self._last_used_at: float | None = None
 
-    def submit_samples(self, body: str) -> "Response | None | str":
+    def submit_samples(self, body: str) -> Response:
         token = self._require_token()
         response = self._execute(
             "/metrics/ingest",
@@ -58,16 +62,9 @@ class Client:
             retain_body=False,
         )
 
-        if 200 <= response.status < 300:
+        if response.ok() or response.unauthorized() or response.too_large():
             return response
-        elif response.status == 401:
-            return None
-        elif response.status == 413:
-            return PAYLOAD_TOO_LARGE
-        elif response.status >= 500:
-            raise RequestError(f"Server responded with {response.status} status.")
-        else:
-            raise RequestError(f"Unexpected response code {response.status}.")
+        raise RequestError(f"Ingest request failed with {response.status} status.")
 
     def request_lease(self, process_id: str) -> Response:
         token = self._require_token()

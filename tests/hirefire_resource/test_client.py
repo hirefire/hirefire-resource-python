@@ -9,7 +9,8 @@ import pytest
 from mocket import Mocket, mocketize
 from mocket.mockhttp import Entry
 
-from hirefire_resource.client import PAYLOAD_TOO_LARGE, Client, RequestError
+from hirefire_resource.client import Client, Response
+from hirefire_resource.errors import RequestError
 from hirefire_resource.version import VERSION
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa: F401
 
@@ -87,9 +88,22 @@ def test_submit_samples_sends_payload(client, set_HIREFIRE_TOKEN):
 
 
 @mocketize
-def test_submit_samples_returns_none_on_unauthorized(client, set_HIREFIRE_TOKEN):
-    Entry.single_register(Entry.POST, INGEST_URL, status=401)
-    assert client.submit_samples(PAYLOAD) is None
+def test_submit_samples_returns_the_response_of_a_rejected_token(
+    client, set_HIREFIRE_TOKEN
+):
+    Entry.single_register(
+        Entry.POST,
+        INGEST_URL,
+        status=401,
+        headers={"HireFire-Dispatch-Frequency": "30"},
+    )
+
+    response = client.submit_samples(PAYLOAD)
+
+    assert response.unauthorized()
+    assert not response.ok()
+    assert not response.too_large()
+    assert response.headers.get("HireFire-Dispatch-Frequency") == "30"
 
 
 @mocketize
@@ -99,23 +113,46 @@ def test_submit_samples_raises_on_server_error(client, set_HIREFIRE_TOKEN):
     with pytest.raises(RequestError) as exc_info:
         client.submit_samples(PAYLOAD)
 
-    assert "500" in str(exc_info.value)
+    assert str(exc_info.value) == "Ingest request failed with 500 status."
 
 
 @mocketize
 def test_submit_samples_raises_on_unexpected_status(client, set_HIREFIRE_TOKEN):
     Entry.single_register(Entry.POST, INGEST_URL, status=422)
 
-    with pytest.raises(RequestError):
+    with pytest.raises(RequestError) as exc_info:
         client.submit_samples(PAYLOAD)
+
+    assert str(exc_info.value) == "Ingest request failed with 422 status."
 
 
 @mocketize
-def test_submit_samples_returns_payload_too_large_on_413(client, set_HIREFIRE_TOKEN):
-    Entry.single_register(
-        Entry.POST, "https://data.hirefire.io/metrics/ingest", status=413
-    )
-    assert client.submit_samples(PAYLOAD) == PAYLOAD_TOO_LARGE
+def test_submit_samples_returns_the_response_of_a_payload_too_large(
+    client, set_HIREFIRE_TOKEN
+):
+    Entry.single_register(Entry.POST, INGEST_URL, status=413)
+
+    response = client.submit_samples(PAYLOAD)
+
+    assert response.too_large()
+    assert not response.ok()
+    assert not response.unauthorized()
+
+
+@mocketize
+def test_submit_samples_returns_the_response_of_a_success(client, set_HIREFIRE_TOKEN):
+    Entry.single_register(Entry.POST, INGEST_URL, status=204)
+
+    response = client.submit_samples(PAYLOAD)
+
+    assert response.ok()
+    assert not response.unauthorized()
+    assert not response.too_large()
+
+
+@pytest.mark.parametrize("status", [199, 300])
+def test_a_status_next_to_the_2xx_range_is_not_ok(status):
+    assert not Response(status, email.message.Message()).ok()
 
 
 def test_submit_samples_raises_on_timeout(client, set_HIREFIRE_TOKEN):
