@@ -6,6 +6,7 @@ import re
 import threading
 import time
 from contextlib import contextmanager
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -13,7 +14,7 @@ from freezegun import freeze_time
 from mocket import Mocket, mocketize
 from mocket.mockhttp import Entry, Request, Response
 
-from hirefire_resource import HireFire, identity, plan
+from hirefire_resource import HireFire, host, identity, plan
 from hirefire_resource.client import Client
 from hirefire_resource.client import Response as ClientResponse
 from hirefire_resource.dispatcher import Dispatcher, payload
@@ -2942,36 +2943,43 @@ def test_a_process_that_is_not_a_web_process_does_not_wait_before_its_first_pass
     dispatcher.stop()
 
 
-def test_a_dispatcher_is_stalled_when_its_dispatch_loop_has_not_run_for_ten_seconds(
-    monkeypatch,
+@mocketize
+def test_a_pass_more_than_ten_seconds_after_the_last_one_warns_once_under_uwsgi(
+    monkeypatch, caplog, session
 ):
     assert Session.STALL_LIMIT == 10
-    clock = [time.monotonic()]
-    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
-    dispatcher = HireFire.configuration.dispatcher
-    assert not dispatcher.stalled()
+    monkeypatch.setattr(host, "uwsgi", SimpleNamespace(worker_id=lambda: 1))
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    configure_web_only()
 
-    with patch.object(Session, "_dispatch_loop", lambda session: None):
-        assert dispatcher.start()
+    with freeze_time(at(1000)) as clock:
+        session.report()
+        clock.move_to(at(1010))
+        session.report()
+        assert "--enable-threads" not in caplog.text
 
-    clock[0] += Session.STALL_LIMIT
-    assert not dispatcher.stalled()
-    clock[0] += 0.1
-    assert dispatcher.stalled()
+        clock.move_to(at(1020.1))
+        session.report()
+        clock.move_to(at(1040))
+        session.report()
+
+    assert [r.getMessage() for r in caplog.records if r.levelname == "WARNING"] == [
+        "[HireFire] The dispatcher did not run for more than 10 seconds. "
+        "uWSGI runs the threads of an app only with --enable-threads. "
+        "Without it metrics are sent only while a request runs."
+    ]
 
 
 @mocketize
-def test_a_dispatcher_whose_dispatch_loop_runs_is_not_stalled(monkeypatch):
+def test_a_late_pass_outside_uwsgi_is_not_reported(caplog, session):
     stub_lease()
     Entry.single_register(Entry.POST, INGEST_URL, status=200)
-    monkeypatch.setattr(Session, "TICK", 0.01)
-    monotonic = time.monotonic
-    ahead = [0]
-    monkeypatch.setattr(time, "monotonic", lambda: monotonic() + ahead[0])
-    dispatcher = configure_workers_only()
+    configure_web_only()
 
-    assert dispatcher.start()
-    ahead[0] = Session.STALL_LIMIT + 1
+    with freeze_time(at(1000)) as clock:
+        session.report()
+        clock.move_to(at(1060))
+        session.report()
 
-    wait_until(lambda: not dispatcher.stalled())
-    dispatcher.stop()
+    assert "--enable-threads" not in caplog.text

@@ -3,8 +3,7 @@ import re
 import time
 from collections.abc import Callable
 
-from hirefire_resource import HireFire, host
-from hirefire_resource.dispatcher.session import Session
+from hirefire_resource import HireFire
 from hirefire_resource.log import safe_log
 from hirefire_resource.utility import round_half_up
 
@@ -44,17 +43,6 @@ def process_request_queue_time(
             if source is not None:
                 source.sample(request_queue_time)
             configuration.dispatcher.start()
-            if host.under_uwsgi() and configuration.dispatcher.stalled():
-                configuration.once.log(
-                    "warning",
-                    "uwsgi_threads",
-                    lambda: (
-                        "[HireFire] The dispatcher has not run for "
-                        f"{Session.STALL_LIMIT} seconds. uWSGI runs the threads of an "
-                        "app only with --enable-threads. Without it metrics are sent "
-                        "only while a request runs."
-                    ),
-                )
     except Exception as error:
         safe_log(
             HireFire.configuration.logger,

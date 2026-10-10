@@ -4,7 +4,7 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from hirefire_resource import plan
+from hirefire_resource import host, plan
 from hirefire_resource.client import Client, Response
 from hirefire_resource.dispatcher import payload
 from hirefire_resource.failure_log import FailureLog
@@ -96,15 +96,13 @@ class Session:
         if ended:
             self.close()
 
-    def stalled(self) -> bool:
-        return time.monotonic() - self._passed_at > self.STALL_LIMIT
-
     def discard_inherited(self) -> None:
         self._live = False
         self._client.discard_inherited()
         self._lease.discard_inherited()
 
     def report(self) -> None:
+        self._notice_stall()
         self._guard(self._sample_cpu)
         self._dispatch_if_due()
 
@@ -142,7 +140,6 @@ class Session:
                 self._guard(self._client.close)
 
     def _dispatch_pass(self) -> None:
-        self._passed_at = time.monotonic()
         plan.attach_macros(self._logger())
         self._ensure_lease_loop()
         self.report()
@@ -230,6 +227,22 @@ class Session:
             f"{self.SAMPLE_ROUND_LIMIT} seconds. The lease is released so that "
             "another process can sample.",
         )
+
+    def _notice_stall(self) -> None:
+        now = time.monotonic()
+        stalled = now - self._passed_at > self.STALL_LIMIT
+        self._passed_at = now
+        if stalled and host.under_uwsgi():
+            self._configuration.once.log(
+                "warning",
+                "uwsgi_threads",
+                lambda: (
+                    "[HireFire] The dispatcher did not run for more than "
+                    f"{self.STALL_LIMIT} seconds. uWSGI runs the threads of an app "
+                    "only with --enable-threads. Without it metrics are sent only "
+                    "while a request runs."
+                ),
+            )
 
     def _enter_race(self) -> bool:
         return self._configuration.job_queues.any() or plan.any_library_loaded()
