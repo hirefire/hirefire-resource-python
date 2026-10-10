@@ -94,7 +94,8 @@ def once(command, token, index):
         ),
         "idna": log_text.count("unknown encoding: idna"),
         "request_errors": log_text.count("Error handling request"),
-        "master_sent": "Starting dispatcher" in log_text,
+        "dispatcher_starts": log_text.count("Starting dispatcher"),
+        "lazy_apps_warning": "--lazy-apps" in log_text,
     }
 
 
@@ -124,6 +125,10 @@ def main():
                 "runs_with_idna_error": sum(run["idna"] > 0 for run in runs),
                 "host_request_errors": sum(run["request_errors"] for run in runs),
                 "runs_stopped_within_10s": sum(run["stopped"] for run in runs),
+                "dispatcher_starts_per_run": [run["dispatcher_starts"] for run in runs],
+                "runs_with_the_lazy_apps_warning": sum(
+                    run["lazy_apps_warning"] for run in runs
+                ),
                 "thread_support_lines": sorted(
                     {line for run in runs for line in run["threads"]}
                 ),

@@ -231,6 +231,9 @@ def run(name, command, role):
             }
         )
     result["worker_restart"] = restart
+    if "uwsgi" in name:
+        time.sleep(11)
+        result["requests_answered_after_11_idle_seconds"] = hit(2)
 
     stop_started = time.monotonic()
     process.send_signal(signal.SIGTERM)
@@ -245,6 +248,13 @@ def run(name, command, role):
     final_log = read(log_path)
     result["thread_support_lines"] = sorted(
         {line.strip() for line in final_log.splitlines() if THREADS.search(line)}
+    )
+    result["uwsgi_warnings"] = sorted(
+        {
+            re.sub(r"pid=\d+", "pid=N", line.strip())[:150]
+            for line in final_log.splitlines()
+            if "[HireFire]" in line and "uWSGI" in line
+        }
     )
     result["dispatcher_starts"] = len(STARTED.findall(final_log))
     result["dispatcher_stops"] = len(STOPPED.findall(final_log))
