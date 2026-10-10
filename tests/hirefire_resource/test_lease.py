@@ -319,6 +319,7 @@ def test_sample_frequency_decrease_pulls_next_sample_forward():
         assert lease.sample_frequency == 1
         sooner = lease._next_sample_at
         assert sooner < far_deadline
+        assert sooner == mono[0] + 1
 
 
 def test_demote_clears_grant_and_invalidates_inflight_epoch():
@@ -1387,3 +1388,128 @@ def test_a_server_error_that_arrives_after_a_newer_grant_leaves_that_grant_in_pl
 
     assert lease.granted()
     assert [entry["name"] for entry in lease.job_queues] == ["worker"]
+
+
+def lease_response(granted="true", status=200, body="", **headers):
+    message = email.message.Message()
+    message["HireFire-Lease-Granted"] = granted
+    for name, value in headers.items():
+        message[name.replace("_", "-")] = value
+    return ClientResponse(status, message, body)
+
+
+def answers(*responses):
+    return patch.object(Client, "request_lease", side_effect=list(responses))
+
+
+def due_again(lease):
+    lease._expires_at = 0
+
+
+def test_a_new_lease_is_not_granted_traces_nothing_and_has_no_plan():
+    lease = Lease(HireFire.configuration)
+
+    assert lease.granted() is False
+    assert lease.trace() is False
+    assert lease.job_queues == []
+
+
+def test_a_grant_that_arrives_after_a_newer_request_reports_that_nothing_was_applied():
+    lease = Lease(HireFire.configuration)
+
+    with newer_request_wins(lease, worker_grant):
+        assert lease.request_if_due(hold=lambda _plan: True) is False
+
+
+def test_a_demoted_lease_is_requested_again_at_once():
+    lease = Lease(HireFire.configuration)
+
+    with answers(
+        lease_response(HireFire_Lease_TTL="60"),
+        lease_response(HireFire_Lease_TTL="60"),
+    ) as request:
+        lease.request_if_due(hold=lambda _plan: True)
+        lease.request_if_due(hold=lambda _plan: True)
+        assert request.call_count == 1
+
+        lease.demote()
+        lease.request_if_due(hold=lambda _plan: True)
+        assert request.call_count == 2
+
+
+def test_a_renewed_grant_keeps_the_time_of_its_next_sample():
+    mono = [1000.0]
+    grant = {"HireFire_Sample_Frequency": "60", "HireFire_Lease_TTL": "15"}
+    with (
+        patch("time.monotonic", side_effect=lambda: mono[0]),
+        answers(lease_response(**grant), lease_response(**grant)),
+    ):
+        lease = Lease(HireFire.configuration)
+        lease.request_if_due(hold=lambda _plan: True)
+        lease.sample_if_due(lambda: None)
+        assert lease._next_sample_at == 1060.0
+
+        mono[0] = 1015.0
+        lease.request_if_due(hold=lambda _plan: True)
+
+        assert lease.granted()
+        assert lease._next_sample_at == 1060.0
+
+
+def test_a_grant_is_given_up_when_its_plan_changes_to_one_the_process_cannot_sample():
+    lease = Lease(HireFire.configuration)
+    plan = json.dumps({"job_queues": [{"name": "worker", "strategy": "jql"}]})
+
+    with answers(lease_response(body=plan), lease_response(body=plan)):
+        lease.request_if_due(hold=lambda _plan: True)
+        assert lease.granted()
+
+        due_again(lease)
+        lease.request_if_due(hold=lambda _plan: False)
+
+    assert not lease.granted()
+    assert lease.job_queues == []
+
+
+def test_a_lease_that_loses_its_grant_to_a_rejected_token_stops_tracing():
+    lease = Lease(HireFire.configuration)
+    plan = json.dumps({"trace": True, "job_queues": []})
+
+    with answers(lease_response(body=plan), lease_response(status=401)):
+        lease.request_if_due(hold=lambda _plan: True)
+        assert lease.trace() is True
+
+        due_again(lease)
+        lease.request_if_due(hold=lambda _plan: True)
+
+    assert lease.trace() is False
+
+
+def test_a_denied_lease_traces_nothing():
+    lease = Lease(HireFire.configuration)
+
+    with answers(lease_response(granted="false")):
+        lease.request_if_due(hold=lambda _plan: True)
+
+    assert lease.trace() is False
+
+
+def test_a_grant_whose_body_cannot_be_read_traces_nothing():
+    lease = Lease(HireFire.configuration)
+
+    with answers(lease_response(body="not json")):
+        lease.request_if_due(hold=lambda _plan: True)
+
+    assert lease.granted()
+    assert lease.trace() is False
+
+
+def test_a_plan_entry_with_a_name_of_exactly_the_byte_limit_is_kept():
+    lease = Lease(HireFire.configuration)
+    name = "w" * MAX_NAME_BYTES
+    plan = json.dumps({"job_queues": [{"name": name, "strategy": "jql"}]})
+
+    with answers(lease_response(body=plan)):
+        lease.request_if_due(hold=lambda _plan: True)
+
+    assert [entry["name"] for entry in lease.job_queues] == [name]

@@ -20,7 +20,7 @@ class Lease:
     @dataclass(frozen=True)
     class GrantBody:
         job_queues: list[dict[str, Any]]
-        trace: bool = False
+        trace: bool
 
     TTL_BOUNDS = (5, 3600)
     DROP_WAIT = 60
@@ -104,7 +104,6 @@ class Lease:
         self._epoch += 1
         self._clear_grant()
         self._expires_at = time.monotonic()
-        self._next_sample_at = time.monotonic()
 
     def _reserve(self) -> int | None:
         with self._mutex:
