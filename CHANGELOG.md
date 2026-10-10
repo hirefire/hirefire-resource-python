@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - CPU activity is sampled automatically on supported platforms when the process is identified.
 - `HireFire.boot()` starts metric collection when a token is set. `HireFire.reset()` stops the dispatcher and clears configuration.
 - `config.token` can set the HireFire token in code. 1.x read only `HIREFIRE_TOKEN`.
-- `HIREFIRE_SERVICE_NAME` sets the process name only on platforms that do not detect it automatically. On Heroku, `DYNO` is used.
+- `HIREFIRE_SERVICE_NAME` sets the process name. It is meant for platforms that do not detect the name automatically, and it overrides a detected name, also the `DYNO` of Heroku.
 - `HIREFIRE_CELERY_BROKER_URL`, `HIREFIRE_RQ_URL`, and `HIREFIRE_DRAMATIQ_URL` (optional `HIREFIRE_DRAMATIQ_NAMESPACE`) set the broker URL for job queue samples.
 - `job_queue_working` / `async_job_queue_working` report how many jobs are currently in progress for RQ and Celery.
 - Dramatiq adapter: job queue size and job queue latency (Redis queued plus delayed jobs that are due, RabbitMQ on the main queue only).
