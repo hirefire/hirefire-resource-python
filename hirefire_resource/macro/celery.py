@@ -447,9 +447,14 @@ def _inspect_held_tasks(app: Any, url: str | None) -> dict[str, int]:
         inspect = app.control.inspect(
             timeout=_HELD_TASKS_INSPECT_TIMEOUT, connection=budgeted
         )
-        collections = [
-            budgeted.within_budget(call) for call in (inspect.active, inspect.reserved)
-        ]
+        try:
+            collections = [
+                budgeted.within_budget(call)
+                for call in (inspect.active, inspect.reserved)
+            ]
+        finally:
+            if url is not None:
+                app.control.mailbox.unclaimed.clear()
 
     counts: dict[str, int] = {}
     for collection in collections:

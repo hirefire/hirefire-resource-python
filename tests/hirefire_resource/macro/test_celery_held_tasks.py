@@ -45,6 +45,13 @@ class FakeInspect:
         return ask
 
 
+class RaisingInspect:
+    def active(self):
+        raise OperationalError("broker down")
+
+    reserved = active
+
+
 class FakeControl:
     def __init__(self, inspect=None, error=None, gate=None):
         self.inspect_calls = []
@@ -52,7 +59,9 @@ class FakeControl:
         self.reply = inspect if inspect is not None else FakeInspect()
         self.error = error
         self.gate = gate
-        self.mailbox = SimpleNamespace(producer_pool=object())
+        self.mailbox = SimpleNamespace(
+            producer_pool=object(), unclaimed={"ticket": ["late reply"]}
+        )
 
     def inspect(self, **kwargs):
         self.inspect_calls.append(kwargs)
@@ -207,6 +216,31 @@ def test_inspects_an_owned_app_over_its_own_bounded_connection():
     ]
     assert connection.released == 1
     assert app.control.mailbox.producer_pool is None
+
+
+def test_an_owned_app_forgets_the_replies_that_came_after_their_call_ended():
+    app = FakeApp()
+
+    _inspect_held_tasks(app, "redis://broker/0")
+
+    assert app.control.mailbox.unclaimed == {}
+
+
+def test_an_owned_app_forgets_late_replies_when_a_call_raises():
+    app = FakeApp(FakeControl(inspect=RaisingInspect()))
+
+    with pytest.raises(OperationalError):
+        _inspect_held_tasks(app, "redis://broker/0")
+
+    assert app.control.mailbox.unclaimed == {}
+
+
+def test_a_caller_app_keeps_the_replies_its_mailbox_holds():
+    app = FakeApp()
+
+    _inspect_held_tasks(app, None)
+
+    assert app.control.mailbox.unclaimed == {"ticket": ["late reply"]}
 
 
 def test_a_caller_app_keeps_its_producer_pool():
