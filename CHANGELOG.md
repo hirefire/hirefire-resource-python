@@ -56,6 +56,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Celery `job_queue_size` with `celery_app` no longer raises `AttributeError` on every sample after an error closed a broker connection in the app's pool.
 - Celery job queue latency reads the age of a task published with `task_protocol = 1`. It read 0 for such a task.
 - A Celery macro call no longer replaces the current Celery app of the thread it runs on.
+- Celery `job_queue_size` no longer reads the scheduled tasks of every worker for each count, a reply of 52 MB for 100,000 scheduled tasks. A scheduled task counts from its time on, when its worker holds it as reserved.
 - Celery job queue latency on RabbitMQ no longer removes the oldest message of a quorum queue. Each sample returned that message with a reject, which RabbitMQ 4 counts toward the delivery limit of 20.
 - Celery Redis latency skips corrupt JSON instead of raising. Celery RabbitMQ latency always requeues the peeked message, even when the header parse fails.
 - On Heroku, RQ samples read a `rediss://` URL without verifying the certificate, which Heroku Key-Value Store signs itself. 1.x failed with a certificate error unless the URL carried `ssl_cert_reqs=none`. A URL that sets `ssl_cert_reqs` is followed.

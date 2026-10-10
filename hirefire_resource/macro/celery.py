@@ -448,11 +448,9 @@ def _inspect_held_tasks(app: Any, url: str | None) -> dict[str, int]:
             timeout=_HELD_TASKS_INSPECT_TIMEOUT, connection=budgeted
         )
         collections = [
-            budgeted.within_budget(call)
-            for call in (inspect.active, inspect.reserved, inspect.scheduled)
+            budgeted.within_budget(call) for call in (inspect.active, inspect.reserved)
         ]
 
-    now = time.time()
     counts: dict[str, int] = {}
     for collection in collections:
         if collection is None:
@@ -461,7 +459,7 @@ def _inspect_held_tasks(app: Any, url: str | None) -> dict[str, int]:
             if not isinstance(tasks, list):
                 continue
             for task in tasks:
-                queue = _held_task_queue(task, now)
+                queue = _held_task_queue(task)
                 if queue is not None:
                     counts[queue] = counts.get(queue, 0) + 1
     return counts
@@ -485,13 +483,8 @@ class _BudgetedConnection:
         return self._connection.drain_events(**kwargs)
 
 
-def _held_task_queue(task: Any, now: float) -> str | None:
+def _held_task_queue(task: Any) -> str | None:
     try:
-        eta = task.get("eta")
-        if eta:
-            if now < parse(eta).timestamp():
-                return None
-            task = task["request"]
         queue = task["delivery_info"]["routing_key"]
     except Exception:
         return None

@@ -3,11 +3,9 @@ import socket
 import threading
 import time
 from contextlib import nullcontext
-from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
-from freezegun import freeze_time
 from kombu.exceptions import OperationalError
 
 from hirefire_resource import HireFire, plan
@@ -34,26 +32,17 @@ def _task(queue, **extra):
     return {"id": "task", "delivery_info": {"routing_key": queue}, **extra}
 
 
-def _scheduled(queue, eta):
-    return {"eta": eta, "priority": 6, "request": _task(queue)}
-
-
 class FakeInspect:
-    def __init__(self, active=None, reserved=None, scheduled=None):
-        self._replies = {
-            "active": active,
-            "reserved": reserved,
-            "scheduled": scheduled,
-        }
+    def __init__(self, active=None, reserved=None):
+        self._replies = {"active": active, "reserved": reserved}
+        self.asked = []
 
-    def active(self):
-        return self._replies["active"]
+    def __getattr__(self, name):
+        def ask():
+            self.asked.append(name)
+            return self._replies[name]
 
-    def reserved(self):
-        return self._replies["reserved"]
-
-    def scheduled(self):
-        return self._replies["scheduled"]
+        return ask
 
 
 class FakeControl:
@@ -142,44 +131,27 @@ def fast_refresh(monkeypatch):
     assert _held_threads() == []
 
 
-def test_counts_active_reserved_and_due_scheduled_tasks_by_queue():
-    due = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat()
+def test_counts_active_and_reserved_tasks_by_queue():
     inspect = FakeInspect(
         active={"worker-1": [_task("celery")], "worker-2": [_task("mailer")]},
         reserved={"worker-1": [_task("celery"), _task("celery")], "worker-2": []},
-        scheduled={"worker-2": [_scheduled("mailer", due)]},
     )
 
     counts = _inspect_held_tasks(FakeApp(FakeControl(inspect)), None)
 
-    assert counts == {"celery": 3, "mailer": 2}
+    assert counts == {"celery": 3, "mailer": 1}
 
 
-def test_skips_a_scheduled_task_that_is_not_due():
-    frozen = datetime(2026, 8, 2, 12, 0, 0, tzinfo=timezone.utc)
-    inspect = FakeInspect(
-        scheduled={
-            "worker-1": [
-                _scheduled("celery", (frozen - timedelta(seconds=1)).isoformat()),
-                _scheduled("celery", frozen.isoformat()),
-                _scheduled("celery", (frozen + timedelta(seconds=1)).isoformat()),
-                _scheduled("celery", (frozen + timedelta(hours=1)).isoformat()),
-            ]
-        }
-    )
+def test_does_not_ask_the_workers_for_their_scheduled_tasks():
+    inspect = FakeInspect()
 
-    with freeze_time(frozen):
-        counts = _inspect_held_tasks(FakeApp(FakeControl(inspect)), None)
+    _inspect_held_tasks(FakeApp(FakeControl(inspect)), None)
 
-    assert counts == {"celery": 2}
+    assert inspect.asked == ["active", "reserved"]
 
 
 def test_skips_a_collection_that_no_worker_answered():
-    inspect = FakeInspect(
-        active={"worker-1": [_task("celery")]},
-        reserved=None,
-        scheduled={"worker-1": []},
-    )
+    inspect = FakeInspect(active={"worker-1": [_task("celery")]}, reserved=None)
 
     assert _inspect_held_tasks(FakeApp(FakeControl(inspect)), None) == {"celery": 1}
 
@@ -200,13 +172,6 @@ def test_skips_a_task_it_cannot_read():
             ]
         },
         reserved={"worker-1": {"error": "unknown command"}, "worker-2": None},
-        scheduled={
-            "worker-1": [
-                _scheduled("celery", "not-a-time"),
-                {"eta": "2020-01-01T00:00:00+00:00", "priority": 6},
-                {"eta": None, "priority": 6, "request": _task("celery")},
-            ]
-        },
     )
 
     assert _inspect_held_tasks(FakeApp(FakeControl(inspect)), None) == {"celery": 1}
@@ -578,9 +543,6 @@ class CollectingInspect:
     def reserved(self):
         return self._collect()
 
-    def scheduled(self):
-        return {}
-
 
 class CollectingControl(FakeControl):
     def inspect(self, **kwargs):
@@ -657,16 +619,11 @@ def _working_when_ready(*queues, **options):
 
 
 def _holding_app():
-    due = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat()
-    later = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     return FakeApp(
         FakeControl(
             FakeInspect(
                 active={"worker-1": [_task("celery")], "worker-2": [_task("mailer")]},
                 reserved={"worker-1": [_task("celery"), _task("celery")]},
-                scheduled={
-                    "worker-2": [_scheduled("mailer", due), _scheduled("mailer", later)]
-                },
             )
         )
     )
@@ -681,8 +638,8 @@ def test_job_queue_working_returns_the_stored_held_task_count():
     working = _working_when_ready("celery", celery_app=app)
     assert type(working) is int
     assert working == 3
-    assert _working_when_ready("mailer", celery_app=app) == 2
-    assert _working_when_ready("celery", "mailer", celery_app=app) == 5
+    assert _working_when_ready("mailer", celery_app=app) == 1
+    assert _working_when_ready("celery", "mailer", celery_app=app) == 4
     assert _working_when_ready("other", celery_app=app) == 0
     assert job_queue_working("celery", celery_app=app) == _held_task_count(
         app, None, {"celery"}
@@ -710,4 +667,4 @@ async def test_async_job_queue_working_returns_the_stored_held_task_count():
     assert _working_when_ready("celery", celery_app=app) == 3
 
     assert await async_job_queue_working("celery", celery_app=app) == 3
-    assert await async_job_queue_working("celery", "mailer", celery_app=app) == 5
+    assert await async_job_queue_working("celery", "mailer", celery_app=app) == 4

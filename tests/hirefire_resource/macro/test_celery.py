@@ -904,8 +904,6 @@ def test_job_queue_latency_rabbitmq_channel_error_is_float_zero():
 
 
 def _held_tasks_control():
-    due_eta = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat()
-    future_eta = (datetime.now(timezone.utc) + timedelta(seconds=300)).isoformat()
     active_task = {
         "delivery_info": {"routing_key": "celery"},
         "id": "active-1",
@@ -918,22 +916,6 @@ def _held_tasks_control():
         "delivery_info": {"routing_key": "mailer"},
         "id": "reserved-2",
     }
-    due_task = {
-        "eta": due_eta,
-        "priority": 6,
-        "request": {
-            "delivery_info": {"routing_key": "celery"},
-            "id": "scheduled-1",
-        },
-    }
-    future_task = {
-        "eta": future_eta,
-        "priority": 6,
-        "request": {
-            "delivery_info": {"routing_key": "celery"},
-            "id": "scheduled-2",
-        },
-    }
 
     class HeldTasksInspect:
         def active(self):
@@ -941,9 +923,6 @@ def _held_tasks_control():
 
         def reserved(self):
             return {"worker@host": [reserved_task, mailer_task]}
-
-        def scheduled(self):
-            return {"worker@host": [due_task, future_task]}
 
     class TrackingControl:
         def __init__(self):
@@ -966,9 +945,9 @@ def test_job_queue_size_counts_the_tasks_workers_hold(celery_app, monkeypatch):
     control = _held_tasks_control()
     monkeypatch.setattr(celery_app, "control", control)
 
-    _assert_size(6, "celery", celery_app=celery_app)
+    _assert_size(5, "celery", celery_app=celery_app)
     _assert_size(2, "mailer", celery_app=celery_app)
-    _assert_size(8, "celery", "mailer", celery_app=celery_app)
+    _assert_size(7, "celery", "mailer", celery_app=celery_app)
     assert control.inspect_calls > 0
     assert len(_held_threads()) == 1
 
@@ -978,7 +957,7 @@ def test_job_queue_size_without_broker_jobs_counts_the_tasks_workers_hold(
 ):
     monkeypatch.setattr(celery_app, "control", _held_tasks_control())
 
-    _assert_size(4, "celery", celery_app=celery_app)
+    _assert_size(3, "celery", celery_app=celery_app)
     _assert_size(0, "other", celery_app=celery_app)
 
 
@@ -989,7 +968,7 @@ def test_job_queue_size_drops_the_first_sample_after_a_start(celery_app, monkeyp
     with pytest.raises(SampleNotReadyError):
         job_queue_size("celery", celery_app=celery_app)
 
-    _assert_size(5, "celery", celery_app=celery_app)
+    _assert_size(4, "celery", celery_app=celery_app)
 
 
 def test_job_queue_working_is_what_job_queue_size_adds(celery_app, monkeypatch):
@@ -997,8 +976,8 @@ def test_job_queue_working_is_what_job_queue_size_adds(celery_app, monkeypatch):
     celery_app.send_task("test_task", queue="celery")
     celery_app.send_task("test_task", queue="mailer")
     monkeypatch.setattr(celery_app, "control", _held_tasks_control())
-    _assert_size(6, "celery", celery_app=celery_app)
-    _assert_size(8, "celery", "mailer", celery_app=celery_app)
+    _assert_size(5, "celery", celery_app=celery_app)
+    _assert_size(7, "celery", "mailer", celery_app=celery_app)
 
     for queues in (("celery",), ("mailer",), ("celery", "mailer")):
         working = job_queue_working(*queues, celery_app=celery_app)
@@ -1007,7 +986,7 @@ def test_job_queue_working_is_what_job_queue_size_adds(celery_app, monkeypatch):
         waiting = job_queue_size(*queues, celery_app=celery_app, skip_working=True)
         assert working == size - waiting
 
-    assert job_queue_working("celery", celery_app=celery_app) == 4
+    assert job_queue_working("celery", celery_app=celery_app) == 3
     assert job_queue_working("mailer", celery_app=celery_app) == 1
     assert len(_held_threads()) == 1
 
@@ -1021,8 +1000,8 @@ def test_job_queue_working_starts_the_thread_and_drops_the_first_sample(
         job_queue_working("celery", celery_app=celery_app)
     assert len(_held_threads()) == 1
 
-    _assert_size(4, "celery", celery_app=celery_app)
-    assert job_queue_working("celery", celery_app=celery_app) == 4
+    _assert_size(3, "celery", celery_app=celery_app)
+    assert job_queue_working("celery", celery_app=celery_app) == 3
     assert len(_held_threads()) == 1
 
 
@@ -1049,10 +1028,10 @@ async def test_async_job_queue_working_counts_the_tasks_workers_hold(
     celery_app, monkeypatch
 ):
     monkeypatch.setattr(celery_app, "control", _held_tasks_control())
-    await _assert_async_size(4, "celery", celery_app=celery_app)
+    await _assert_async_size(3, "celery", celery_app=celery_app)
 
-    assert await async_job_queue_working("celery", celery_app=celery_app) == 4
-    assert await async_job_queue_working("celery", "mailer", celery_app=celery_app) == 5
+    assert await async_job_queue_working("celery", celery_app=celery_app) == 3
+    assert await async_job_queue_working("celery", "mailer", celery_app=celery_app) == 4
 
 
 def test_job_queue_size_skip_working_never_asks_the_workers(celery_app, monkeypatch):
@@ -1076,8 +1055,8 @@ def test_job_queue_size_skip_working_false_or_none_counts_held_tasks(
 ):
     monkeypatch.setattr(celery_app, "control", _held_tasks_control())
 
-    _assert_size(4, "celery", celery_app=celery_app, skip_working=False)
-    _assert_size(4, "celery", celery_app=celery_app, skip_working=None)
+    _assert_size(3, "celery", celery_app=celery_app, skip_working=False)
+    _assert_size(3, "celery", celery_app=celery_app, skip_working=None)
 
 
 @pytest.mark.asyncio
@@ -1090,7 +1069,7 @@ async def test_async_job_queue_size_counts_held_tasks_unless_skipped(
     await _assert_async_size(1, "celery", celery_app=celery_app, skip_working=True)
     assert celery_macro._held_tasks == {}
 
-    await _assert_async_size(5, "celery", celery_app=celery_app)
+    await _assert_async_size(4, "celery", celery_app=celery_app)
 
 
 def test_job_queue_size_by_broker_url_counts_no_held_tasks_when_no_worker_answers(
@@ -1143,7 +1122,7 @@ def test_job_queue_size_drops_the_sample_when_the_counts_are_stale(
 ):
     control = _held_tasks_control()
     monkeypatch.setattr(celery_app, "control", control)
-    _assert_size(4, "celery", celery_app=celery_app)
+    _assert_size(3, "celery", celery_app=celery_app)
 
     control.error = RuntimeError("workers unreachable")
     monkeypatch.setattr(celery_macro, "_HELD_TASKS_MAX_AGE", 0.1)
@@ -1353,6 +1332,14 @@ def test_job_queue_size_counts_the_tasks_a_real_worker_holds(celery_app, monkeyp
         assert job_queue_working("mailer", broker_url=broker_url) == 0
         assert len(_held_threads()) == 2
 
+        celery_app.send_task(
+            "hirefire.test.hold",
+            queue="celery",
+            eta=datetime.now(timezone.utc) + timedelta(seconds=2),
+        )
+        _assert_size(4, "celery", celery_app=celery_app)
+        _assert_size(4, "celery", broker_url=broker_url)
+
 
 def test_a_real_inspect_call_waits_only_while_its_budget_lasts(celery_app, monkeypatch):
     monkeypatch.setattr(celery_macro, "_HELD_TASKS_INSPECT_TIMEOUT", 1.0)
@@ -1371,7 +1358,7 @@ def test_a_real_inspect_call_waits_only_while_its_budget_lasts(celery_app, monke
         monkeypatch.setattr(celery_macro, "_HELD_TASKS_INSPECT_BUDGET", 2.0)
         started = time.monotonic()
         assert celery_macro._inspect_held_tasks(celery_app, None) == {"celery": 3}
-        assert time.monotonic() - started >= 2.5
+        assert time.monotonic() - started >= 1.5
 
 
 def _clear_broker_env(monkeypatch):
