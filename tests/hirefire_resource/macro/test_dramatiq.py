@@ -1206,6 +1206,54 @@ def test_unsupported_broker_type_raises():
         job_queue_size("default", broker=MagicMock())
 
 
+def test_a_class_that_only_has_the_name_of_a_broker_class_is_rejected():
+    class RedisBroker:
+        client = MagicMock()
+
+    with pytest.raises(ValueError, match="Unsupported Dramatiq broker"):
+        job_queue_size("default", broker=RedisBroker())
+
+
+def test_a_subclass_of_the_redis_broker_is_sampled():
+    class AppBroker(RedisBroker):
+        pass
+
+    class TenantBroker(AppBroker):
+        pass
+
+    broker = TenantBroker(url=redis_url, namespace=NAMESPACE)
+    try:
+        _seed_live(broker.client, "default", age_s=30)
+
+        assert job_queue_size("default", broker=broker) == 1
+        assert job_queue_latency("default", broker=broker) == pytest.approx(30, abs=5)
+    finally:
+        broker.close()
+
+
+def test_a_subclass_of_the_rabbitmq_broker_is_sampled():
+    from dramatiq.brokers.rabbitmq import RabbitmqBroker
+
+    class AppBroker(RabbitmqBroker):
+        pass
+
+    queue = f"hf_dramatiq_subclass_{uuid.uuid4().hex[:8]}"
+    _rmq_cleanup(queue)
+    broker = AppBroker(url=amqp_url, confirm_delivery=True)
+    try:
+        broker.declare_queue(queue)
+        broker.enqueue(
+            Message(
+                queue_name=queue, actor_name="do_work", args=(), kwargs={}, options={}
+            )
+        )
+
+        assert job_queue_size(queue, broker=broker) == 1
+    finally:
+        broker.close()
+        _rmq_cleanup(queue)
+
+
 def test_url_kind_detects_amqp_and_redis_schemes():
     assert dramatiq_macro._url_kind("amqp://guest:guest@localhost/") == "rabbitmq"
     assert dramatiq_macro._url_kind("amqps://guest:guest@localhost/") == "rabbitmq"

@@ -207,15 +207,18 @@ def _resolve_namespace(
 
 
 def _is_redis_broker(broker: object) -> bool:
-    return type(broker).__name__ == "RedisBroker" and type(
-        broker
-    ).__module__.startswith("dramatiq")
+    return _is_dramatiq_broker(broker, "RedisBroker")
 
 
 def _is_rabbitmq_broker(broker: object) -> bool:
-    return type(broker).__name__ == "RabbitmqBroker" and type(
-        broker
-    ).__module__.startswith("dramatiq")
+    return _is_dramatiq_broker(broker, "RabbitmqBroker")
+
+
+def _is_dramatiq_broker(broker: object, name: str) -> bool:
+    return any(
+        cls.__name__ == name and cls.__module__.startswith("dramatiq")
+        for cls in type(broker).__mro__
+    )
 
 
 def _url_kind(url: str) -> str:
