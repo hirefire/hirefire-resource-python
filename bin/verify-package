@@ -91,13 +91,17 @@ def main():
         "wheel missing hirefire_resource/py.typed",
         wheel_names,
     )
-    require(has_name(wheel_names, "README.md"), "wheel missing README.md", wheel_names)
-    require(has_name(wheel_names, "CHANGELOG.md"), "wheel missing CHANGELOG.md", wheel_names)
     require(
-        any("LICENSE" in name for name in wheel_names),
-        "wheel missing LICENSE",
+        has_suffix(wheel_names, ".dist-info/licenses/LICENSE"),
+        "wheel missing LICENSE in its dist-info",
         wheel_names,
     )
+    outside = [
+        name
+        for name in wheel_names
+        if not name.startswith(("hirefire_resource/", "hirefire_resource-"))
+    ]
+    require(not outside, "wheel installs file(s) outside the package", outside)
     wheel_forbidden = forbidden_paths(wheel_names)
     require(not wheel_forbidden, "wheel packed forbidden path(s)", wheel_forbidden)
     print("wheel ok:", wheel.name)

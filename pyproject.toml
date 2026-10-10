@@ -33,9 +33,9 @@ Changelog = "https://github.com/hirefire/hirefire-resource-python/blob/master/CH
 packages = [{ include = "hirefire_resource" }]
 exclude = ["tests", "tests/**"]
 include = [
-    { path = "README.md", format = ["sdist", "wheel"] },
-    { path = "CHANGELOG.md", format = ["sdist", "wheel"] },
-    { path = "LICENSE", format = ["sdist", "wheel"] },
+    { path = "README.md", format = ["sdist"] },
+    { path = "CHANGELOG.md", format = ["sdist"] },
+    { path = "LICENSE", format = ["sdist"] },
     { path = "hirefire_resource/py.typed", format = ["sdist", "wheel"] },
 ]
 classifiers = [
