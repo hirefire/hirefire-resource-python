@@ -31,6 +31,7 @@ class Configuration:
         self._mutex = threading.Lock()
         self._always_on_cpu: CPU | None = None
         self._always_on_http: HTTP | None = None
+        self._request_source: HTTP | None = None
         self._http_active = False
 
     @property
@@ -46,6 +47,7 @@ class Configuration:
     @token.setter
     def token(self, value: str | None) -> None:
         self._token = value
+        self._request_source = None
 
     @property
     def logger(self) -> logging.Logger:
@@ -107,6 +109,20 @@ class Configuration:
     def rqt_enabled(self) -> bool:
         return bool(self._http_active or identity.platform_http_role())
 
+    def samples_requests(self) -> bool:
+        return self._request_source is not None or self.token is not None
+
+    def sample_request_queue_time(self, value: int) -> None:
+        source = self._request_source
+        if source is None:
+            if not self.token:
+                return
+            self.mark_http_active()
+            source = self.http_source()
+        if source is not None:
+            source.sample(value)
+        self._request_source = None if self.dispatcher.start() else source
+
     def http_source(self) -> HTTP | None:
         name = self.http_name()
         if name is None:
@@ -137,6 +153,7 @@ class Configuration:
     def reset_after_fork(self) -> None:
         self._always_on_cpu = None
         self._always_on_http = None
+        self._request_source = None
 
     def prefork_web_handoff(self) -> bool:
         return not self._http_active and identity.platform_http_role()

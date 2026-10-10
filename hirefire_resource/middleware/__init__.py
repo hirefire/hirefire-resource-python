@@ -25,6 +25,10 @@ def process_request_queue_time(
     extract: Callable[[], object | None] | None = None,
 ) -> None:
     try:
+        configuration = HireFire.configuration
+        if not configuration.samples_requests():
+            return
+
         if extract is not None:
             request_start = extract()  # type: ignore[assignment]
         request_start = present_header(request_start)
@@ -32,17 +36,8 @@ def process_request_queue_time(
             return
 
         request_queue_time = calculate_request_queue_time(request_start)
-        if request_queue_time is None:
-            return
-
-        configuration = HireFire.configuration
-
-        if configuration.token:
-            configuration.mark_http_active()
-            source = configuration.http_source()
-            if source is not None:
-                source.sample(request_queue_time)
-            configuration.dispatcher.start()
+        if request_queue_time is not None:
+            configuration.sample_request_queue_time(request_queue_time)
     except Exception as error:
         _log_once(error)
 

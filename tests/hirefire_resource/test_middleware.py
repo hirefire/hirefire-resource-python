@@ -3,7 +3,7 @@ import time
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from hirefire_resource import HireFire, host
+from hirefire_resource import HireFire, host, identity
 from hirefire_resource.dispatcher import Dispatcher
 from hirefire_resource.middleware import (
     calculate_request_queue_time,
@@ -260,6 +260,65 @@ def test_does_not_mark_http_active_without_token(monkeypatch):
     process_request_queue_time(str(int(time.time() * 1000) - 5))
     assert not HireFire.configuration.rqt_enabled()
     assert HireFire.configuration.buffer.flush() == {}
+
+
+def count_identity_resolutions(monkeypatch):
+    resolved = []
+    resolve = identity.resolve
+    monkeypatch.setattr(identity, "resolve", lambda: resolved.append(1) or resolve())
+    return resolved
+
+
+def test_requests_resolve_the_identity_once_while_the_dispatcher_runs(
+    set_HIREFIRE_TOKEN, monkeypatch
+):
+    monkeypatch.setenv("DYNO", "web.1")
+    resolved = count_identity_resolutions(monkeypatch)
+
+    with patch.object(Dispatcher, "start", return_value=False):
+        for _ in range(3):
+            process_request_queue_time(recent_request_start())
+
+    assert len(resolved) == 1
+    (bucket,) = HireFire.configuration.buffer.flush()["web"]["rqt"].values()
+    assert bucket["count"] == 3
+
+
+def test_the_request_after_a_dispatcher_start_resolves_the_identity_again(
+    set_HIREFIRE_TOKEN, monkeypatch
+):
+    monkeypatch.setenv("DYNO", "web.1")
+    resolved = count_identity_resolutions(monkeypatch)
+
+    with patch.object(Dispatcher, "start", return_value=True):
+        process_request_queue_time(recent_request_start())
+        process_request_queue_time(recent_request_start())
+
+    assert len(resolved) == 2
+
+
+def test_the_request_after_a_new_token_or_a_fork_resolves_the_identity_again(
+    set_HIREFIRE_TOKEN, monkeypatch
+):
+    monkeypatch.setenv("DYNO", "web.1")
+    resolved = count_identity_resolutions(monkeypatch)
+
+    with patch.object(Dispatcher, "start", return_value=False):
+        process_request_queue_time(recent_request_start())
+        HireFire.configuration.token = "another-token"
+        process_request_queue_time(recent_request_start())
+        HireFire.configuration.reset_after_fork()
+        process_request_queue_time(recent_request_start())
+
+    assert len(resolved) == 3
+
+
+def test_a_request_without_a_token_reads_no_header():
+    read = []
+
+    process_request_queue_time(extract=lambda: read.append(1))
+
+    assert read == []
 
 
 def test_ignores_non_finite_request_start_headers():
