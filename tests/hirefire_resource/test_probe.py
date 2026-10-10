@@ -196,3 +196,25 @@ def test_log_writes_wave_and_per_op_lines(caplog):
     assert "sample adapter='celery' strategy=jql" in text
     assert "queues=default" in text
     assert "ms=4.5" in text
+
+
+def test_record_returns_the_probe():
+    probe = Probe.start()
+
+    assert probe.record({"strategy": "jql"}, 1.0) is probe
+
+
+def test_times_are_milliseconds_with_three_decimal_places(monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    probe = Probe.start()
+
+    def work():
+        clock[0] += 0.0123456
+
+    probe.measure({"strategy": "jql"}, work)
+    clock[0] += 1.0
+
+    payload = probe.finish()
+    assert payload["ops"][0]["ms"] == 12.346
+    assert payload["wave_ms"] == 1012.346

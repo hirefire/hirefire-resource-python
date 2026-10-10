@@ -1,7 +1,11 @@
 import pytest
 
 from hirefire_resource.errors import MissingQueueError
-from hirefire_resource.utility import normalize_queues, redis_tls_options
+from hirefire_resource.utility import (
+    normalize_queues,
+    redis_tls_options,
+    round_half_up,
+)
 
 
 def test_normalizes_none_and_numbers_to_a_string_set():
@@ -62,3 +66,11 @@ def test_on_heroku_a_redis_url_without_tls_gets_no_tls_option(monkeypatch):
 
 def test_off_heroku_a_rediss_url_is_verified():
     assert redis_tls_options("rediss://host:6379/0") == {}
+
+
+def test_round_half_up_rounds_a_half_up_at_the_digits_asked_for():
+    assert round_half_up(2.5) == 3.0
+    assert round_half_up(2.4) == 2.0
+    assert round_half_up(2.25, 1) == 2.3
+    assert round_half_up(0.125, 2) == 0.13
+    assert isinstance(round_half_up(2.5), float)

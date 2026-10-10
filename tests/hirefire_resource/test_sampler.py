@@ -657,3 +657,17 @@ def test_a_round_logs_its_timing_only_when_verbose_is_set(
     assert lines[1].startswith(
         "[HireFire] sample adapter=None strategy=jql queues= ms="
     )
+
+
+def test_a_round_ends_at_the_first_entry_it_finds_the_session_halted_at(config):
+    sampled = []
+    for name in ("first", "second", "third"):
+        config.dyno(name, lambda name=name: sampled.append(name) or 1)
+    answers = iter([True, True, False, True, True, True])
+
+    Sampler(config).round(
+        [{"name": name, "strategy": "jql"} for name in ("first", "second", "third")],
+        lambda: next(answers),
+    )
+
+    assert sampled == ["first"]

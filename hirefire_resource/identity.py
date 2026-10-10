@@ -19,7 +19,7 @@ def heroku_dyno() -> str | None:
         return None
 
     if "." in dyno:
-        name = dyno.split(".", 1)[0]
+        name = dyno.partition(".")[0]
     else:
         name = re.sub(r"-[A-Za-z0-9]+-[A-Za-z0-9]+\Z", "", dyno)
     return presence(name)

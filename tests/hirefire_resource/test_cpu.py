@@ -1,6 +1,7 @@
 import os
 from unittest.mock import patch
 
+import pytest
 from freezegun import freeze_time
 
 from hirefire_resource import HireFire
@@ -365,9 +366,10 @@ def test_available_cpus_reads_cgroup_v2_quota():
         assert abs(Usage.available_cpus() - 0.5) < 0.0001
 
 
-def test_available_cpus_ignores_unlimited_v2_quota():
+@pytest.mark.parametrize("content", ["max 100000", "max"])
+def test_available_cpus_ignores_unlimited_v2_quota(content):
     with patch.object(
-        Usage, "read", side_effect=reading({Usage.CGROUP_V2_QUOTA: "max 100000"})
+        Usage, "read", side_effect=reading({Usage.CGROUP_V2_QUOTA: content})
     ):
         assert Usage.available_cpus() == os.cpu_count()
 
@@ -683,3 +685,123 @@ def test_available_cpus_is_none_when_every_source_fails():
         patch.object(Usage, "processor_count", return_value=None),
     ):
         assert Usage.available_cpus() is None
+
+
+def test_usage_is_divided_by_the_time_between_two_samples():
+    with (
+        patch.object(
+            Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (1.0, "cgroup_v2")]
+        ),
+        patch.object(Usage, "available_cpus", return_value=1.0),
+    ):
+        collector = CPU("clock", HireFire.configuration.buffer)
+        with freeze_time(at(1000)):
+            collector.sample()
+        with freeze_time(at(1002)):
+            collector.sample()
+
+    assert buffer().flush() == {"clock": {"cpu": {1002: 50.0}}}
+
+
+def test_cgroup_usage_is_read_in_seconds():
+    with patch.object(
+        Usage,
+        "read",
+        side_effect=reading(
+            {
+                Usage.CGROUP_V2_USAGE: "usage_usec 2500000\nuser_usec 1",
+                Usage.CGROUP_V1_USAGE: "3000000000",
+            }
+        ),
+    ):
+        assert Usage.cgroup_v2_seconds() == 2.5
+        assert Usage.cgroup_v1_seconds() == 3.0
+
+
+def test_a_cgroup_v2_usage_line_without_a_value_reads_as_missing():
+    with patch.object(
+        Usage, "read", side_effect=reading({Usage.CGROUP_V2_USAGE: "usage_usec"})
+    ):
+        assert Usage.cgroup_v2_seconds() is None
+
+
+def test_a_proc_stat_entry_that_cannot_be_read_or_parsed_is_skipped_wherever_it_is():
+    mapping = {
+        "/proc/1/stat": None,
+        "/proc/2/stat": "2 garbled stat line",
+        "/proc/3/stat": "3 (ruby) S 0 1 1 0 -1 0 0 0 0 0 500 250 0 0 20 0 1 0 9 0 0",
+    }
+    with (
+        patch.object(Usage, "read", side_effect=reading(mapping)),
+        patch(
+            "hirefire_resource.source.cpu.usage.glob.glob", return_value=list(mapping)
+        ),
+        patch.object(Usage, "clock_ticks", return_value=100),
+    ):
+        assert Usage.proc_namespace_seconds() == 7.5
+
+
+def test_stat_ticks_returns_none_for_a_long_line_without_a_comm_paren():
+    line = "7 ruby S 1 1 1 0 -1 0 0 0 0 0 500 250 4000 300 20 0 1 0 100 0 0"
+
+    assert Usage.stat_ticks(line) is None
+
+
+def test_a_clock_of_one_tick_per_second_is_used():
+    with patch.object(Usage, "clock_ticks", return_value=1):
+        assert Usage.positive_clock_ticks() == 1
+
+
+def test_an_empty_or_a_one_field_cgroup_v2_quota_reads_as_missing():
+    for content in ("", "100000"):
+        with patch.object(
+            Usage, "read", side_effect=reading({Usage.CGROUP_V2_QUOTA: content})
+        ):
+            assert Usage.cgroup_v2_quota() is None
+
+
+def test_the_smallest_cgroup_v2_quota_and_period_are_used():
+    with patch.object(
+        Usage, "read", side_effect=reading({Usage.CGROUP_V2_QUOTA: "1 100000"})
+    ):
+        assert Usage.cgroup_v2_quota() == 0.00001
+    with patch.object(
+        Usage, "read", side_effect=reading({Usage.CGROUP_V2_QUOTA: "100000 1"})
+    ):
+        assert Usage.cgroup_v2_quota() == 100000.0
+
+
+def test_a_cgroup_v2_quota_or_period_of_zero_reads_as_missing():
+    for content in ("0 100000", "100000 0"):
+        with patch.object(
+            Usage, "read", side_effect=reading({Usage.CGROUP_V2_QUOTA: content})
+        ):
+            assert Usage.cgroup_v2_quota() is None
+
+
+def v1_quota(quota, period):
+    mapping = {Usage.CGROUP_V1_QUOTA: quota, Usage.CGROUP_V1_PERIOD: period}
+    with patch.object(Usage, "read", side_effect=reading(mapping)):
+        return Usage.cgroup_v1_quota()
+
+
+def test_the_smallest_cgroup_v1_quota_and_period_are_used():
+    assert v1_quota("1", "100000") == 0.00001
+    assert v1_quota("100000", "1") == 100000.0
+
+
+def test_a_cgroup_v1_quota_or_period_that_is_zero_or_missing_reads_as_missing():
+    assert v1_quota("0", "100000") is None
+    assert v1_quota("100000", "0") is None
+    assert v1_quota(None, "100000") is None
+    assert v1_quota("100000", None) is None
+
+
+def test_the_processor_count_asks_for_the_affinity_of_this_process(monkeypatch):
+    asked = []
+    monkeypatch.setattr(
+        os, "sched_getaffinity", lambda pid: asked.append(pid) or {0}, raising=False
+    )
+
+    assert Usage.processor_count() == 1
+    assert asked == [0]

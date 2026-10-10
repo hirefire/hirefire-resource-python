@@ -81,3 +81,18 @@ def test_extract_drops_invalid_and_non_dict():
         schema,
     )
     assert out == {"server": True}
+
+
+def test_extract_reads_the_options_after_one_the_schema_does_not_know():
+    schema = {"jqs": {"skip_working": "boolean"}}
+
+    out = hooks.extract_plan_options(
+        "jqs", {"unknown": 1, "skip_working": True}, schema
+    )
+
+    assert out == {"skip_working": True}
+
+
+def test_zero_is_a_non_negative_integer():
+    assert hooks.coerce_plan_value("non_negative_integer", 0) == 0
+    assert hooks.coerce_plan_value("non_negative_integer", "0") == 0

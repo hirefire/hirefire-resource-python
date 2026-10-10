@@ -358,3 +358,32 @@ def test_the_first_request_of_a_uwsgi_worker_starts_the_dispatcher_its_parent_di
     process_request_queue_time(recent_request_start())
 
     assert HireFire.configuration.dispatcher.running()
+
+
+def test_a_request_start_with_spaces_around_it_is_read(set_HIREFIRE_TOKEN, monkeypatch):
+    monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "api")
+    start = f"  t={time.time() - 1:.3f}  "
+
+    with patch.object(Dispatcher, "start"):
+        process_request_queue_time(start)
+
+    assert "rqt" in HireFire.configuration.buffer.flush()["api"]
+
+
+def test_a_start_at_the_edge_of_a_unit_is_read_in_the_smaller_unit():
+    with patch("time.time", return_value=1_700_000_000):
+        assert calculate_request_queue_time("100000000000") is None
+        assert calculate_request_queue_time("100000000000000") is None
+        assert calculate_request_queue_time("100000000000000000") is None
+
+
+def test_request_start_from_scope_reads_no_other_header():
+    scope = {"headers": [(b"host", b"1700000000000")]}
+
+    assert request_start_from_scope(scope) is None
+
+
+def test_request_start_from_scope_takes_the_first_of_two_queue_start_headers():
+    scope = {"headers": [(b"x-queue-start", b"first"), (b"x-queue-start", b"second")]}
+
+    assert request_start_from_scope(scope) == "first"
