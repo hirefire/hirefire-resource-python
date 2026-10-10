@@ -68,6 +68,7 @@ def test_nothing_imports_a_library_that_the_host_has_not_loaded():
             assert plan.load_macro(name) is None
         with plan.around_job_queue_sample(logger()):
             pass
+        plan.attach_macros(logger())
         plan.reinit_macros_after_fork(logger())
         plan.release_macros(logger())
         for name in HOSTS:
@@ -98,6 +99,47 @@ def test_a_macro_that_fails_to_import_is_returned_as_its_error_and_not_imported_
     assert str(first) == "No module named 'dateutil'"
     assert second is first
     assert attempts == ["hirefire_resource.macro.celery"]
+
+
+def test_a_macro_that_raises_another_error_at_import_is_kept_as_its_error(monkeypatch):
+    monkeypatch.setattr(plan, "_import_errors", {})
+    attempts = []
+
+    def failing(name):
+        attempts.append(name)
+        raise AttributeError("module 'celery' has no attribute 'signals'")
+
+    with (
+        patch.dict(sys.modules, {"celery": object()}),
+        patch.object(importlib, "import_module", side_effect=failing),
+    ):
+        first = plan.load_macro("celery")
+        plan.attach_macros(logger())
+        second = plan.load_macro("celery")
+
+    assert isinstance(first, AttributeError)
+    assert second is first
+    assert attempts == ["hirefire_resource.macro.celery"]
+
+
+def test_attaching_calls_the_attach_hook_of_every_loaded_macro(load_macros, caplog):
+    attached = []
+
+    def boom():
+        raise RuntimeError("no broker")
+
+    load_macros(
+        celery=fake_macro(attach=lambda: attached.append("celery")),
+        rq=fake_macro(attach=boom),
+        dramatiq=fake_macro(attach=lambda: attached.append("dramatiq")),
+    )
+
+    plan.attach_macros(logger())
+
+    assert attached == ["celery", "dramatiq"]
+    assert messages(caplog) == [
+        "[HireFire] attach for 'rq' raised RuntimeError: no broker"
+    ]
 
 
 def test_a_sample_round_runs_between_the_begin_and_the_end_hook_of_every_macro(

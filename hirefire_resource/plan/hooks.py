@@ -30,6 +30,10 @@ def after_sample_job_queues(token: object = None) -> None:
     pass
 
 
+def attach() -> None:
+    pass
+
+
 def reinit_after_fork() -> None:
     pass
 

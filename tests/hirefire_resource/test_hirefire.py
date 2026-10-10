@@ -6,7 +6,7 @@ import pytest
 from hirefire_resource import HireFire, host
 from hirefire_resource.configuration import Configuration
 from hirefire_resource.dispatcher import Dispatcher
-from tests.helpers import set_HIREFIRE_TOKEN  # noqa: F401
+from tests.helpers import fake_macro, set_HIREFIRE_TOKEN  # noqa: F401
 
 
 def test_default_configuration():
@@ -94,6 +94,41 @@ def test_configure_does_not_start_the_dispatcher_in_a_one_off_dyno(
             config.dyno(dyno, lambda: 1)
         HireFire.boot()
         start.assert_not_called()
+
+
+def test_boot_attaches_the_macro_of_every_loaded_job_library(
+    set_HIREFIRE_TOKEN, load_macros
+):
+    attached = []
+    load_macros(celery=fake_macro(attach=lambda: attached.append("celery")))
+
+    with patch.object(Dispatcher, "start"):
+        HireFire.boot()
+
+    assert attached == ["celery"]
+
+
+def test_boot_in_a_one_off_dyno_attaches_the_macros_and_starts_nothing(
+    monkeypatch, set_HIREFIRE_TOKEN, load_macros
+):
+    monkeypatch.setenv("DYNO", "run.4821")
+    attached = []
+    load_macros(celery=fake_macro(attach=lambda: attached.append("celery")))
+
+    with patch.object(Dispatcher, "start") as start:
+        HireFire.boot()
+
+    assert attached == ["celery"]
+    start.assert_not_called()
+
+
+def test_boot_without_a_token_attaches_nothing(load_macros):
+    attached = []
+    load_macros(celery=fake_macro(attach=lambda: attached.append("celery")))
+
+    HireFire.boot()
+
+    assert attached == []
 
 
 def test_configure_does_not_start_in_a_one_off_dyno_that_carries_an_app_wide_service_name(

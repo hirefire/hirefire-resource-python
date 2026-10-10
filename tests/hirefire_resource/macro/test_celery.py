@@ -207,6 +207,114 @@ def test_job_queue_latency_with_jobs(celery_app):
     )
 
 
+BOOT_THEN_PUBLISH = """
+import sys
+from datetime import datetime, timedelta, timezone
+from celery import Celery
+from hirefire_resource import HireFire
+
+HireFire.boot()
+app = Celery(broker=sys.argv[1])
+eta = datetime.now(timezone.utc) - timedelta(seconds=30)
+app.send_task("test_task", queue="celery", eta=eta)
+HireFire.configuration.stop_dispatcher(flush=False)
+"""
+
+BOOT_BEFORE_CELERY_THEN_PUBLISH = """
+import sys
+import time
+from datetime import datetime, timedelta, timezone
+from hirefire_resource import HireFire
+
+HireFire.boot()
+from celery import Celery
+
+app = Celery(broker=sys.argv[1])
+for _ in range(200):
+    macro = sys.modules.get("hirefire_resource.macro.celery")
+    if getattr(macro, "plan_connection_options", None) is not None:
+        break
+    time.sleep(0.05)
+eta = datetime.now(timezone.utc) - timedelta(seconds=30)
+app.send_task("test_task", queue="celery", eta=eta)
+HireFire.configuration.stop_dispatcher(flush=False)
+"""
+
+
+def _publish_from_another_process(script, broker_url, dyno):
+    published_at = datetime.now(timezone.utc)
+    subprocess.run(
+        [sys.executable, "-c", script, broker_url],
+        env={
+            **os.environ,
+            "HIREFIRE_TOKEN": "test-token",
+            "HIREFIRE_DATA_URL": "http://127.0.0.1:9",
+            "DYNO": dyno,
+        },
+        check=True,
+        capture_output=True,
+        timeout=60,
+    )
+    return published_at
+
+
+def test_a_process_that_boots_with_celery_loaded_writes_the_time_a_task_is_due(
+    celery_app,
+):
+    broker_url = celery_app.conf.broker_url
+
+    published_at = _publish_from_another_process(BOOT_THEN_PUBLISH, broker_url, "web.1")
+
+    _assert_latency(
+        job_queue_latency("celery", broker_url=broker_url), 30, published_at
+    )
+
+
+def test_a_process_that_loads_celery_after_its_boot_writes_the_time_a_task_is_due(
+    celery_app,
+):
+    broker_url = celery_app.conf.broker_url
+
+    published_at = _publish_from_another_process(
+        BOOT_BEFORE_CELERY_THEN_PUBLISH, broker_url, "worker.1"
+    )
+
+    _assert_latency(
+        job_queue_latency("celery", broker_url=broker_url), 30, published_at
+    )
+
+
+def test_a_task_published_with_protocol_one_carries_the_time_it_is_due(celery_app):
+    broker_url = celery_app.conf.broker_url
+    app = _celery(broker_url)
+    app.conf.task_protocol = 1
+    published_at = datetime.now(timezone.utc)
+
+    app.send_task("test_task", queue="celery", eta=published_at - timedelta(seconds=30))
+
+    _assert_latency(
+        job_queue_latency("celery", broker_url=broker_url), 30, published_at
+    )
+
+
+def test_the_publish_handler_writes_into_an_empty_header_mapping():
+    headers = {}
+
+    celery_macro.run_at_header_signal(headers=headers, body={"eta": None})
+
+    assert datetime.fromisoformat(headers["run_at"]).tzinfo is not None
+
+
+def test_the_publish_handler_takes_the_time_from_the_body_of_a_protocol_one_task():
+    headers = {}
+
+    celery_macro.run_at_header_signal(
+        headers=headers, body={"eta": "2026-01-01T00:00:00+00:00"}
+    )
+
+    assert headers == {"run_at": "2026-01-01T00:00:00+00:00"}
+
+
 def test_job_queue_latency_with_jobs_multi(celery_app):
     enqueued_at = enqueue_for_job_queue_latency_with_job(celery_app)
 

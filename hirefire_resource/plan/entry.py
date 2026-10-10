@@ -103,7 +103,7 @@ class Entry:
         self._macro = plan.load_macro(self.adapter)
         if self._macro is None:
             return "unloaded_adapter"
-        if isinstance(self._macro, ImportError):
+        if isinstance(self._macro, Exception):
             return "broken_adapter"
         if not self._macro.supports_plan_strategy(self.strategy):
             return "unsupported_strategy"

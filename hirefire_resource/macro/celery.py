@@ -35,6 +35,7 @@ from hirefire_resource.utility import normalize_queues
 before_sample_job_queues = _plan_hooks.before_sample_job_queues
 after_sample_job_queues = _plan_hooks.after_sample_job_queues
 supports_plan_strategy = _plan_hooks.supports_plan_strategy
+attach = _plan_hooks.attach
 release = _plan_hooks.release
 
 _PLAN_OPTION_SCHEMA = {JQS: {"skip_working": "boolean"}}
@@ -254,13 +255,11 @@ def run_at_header_signal(
     properties: Any = None,
     **kwargs: Any,
 ) -> None:
-    headers = headers or {}
-    eta = headers.get("eta")
+    if headers is None:
+        return
 
-    if eta:
-        headers["run_at"] = eta
-    else:
-        headers["run_at"] = datetime.now(timezone.utc).isoformat()
+    eta = headers.get("eta") or (body.get("eta") if isinstance(body, dict) else None)
+    headers["run_at"] = eta or datetime.now(timezone.utc).isoformat()
 
 
 def _job_queue_latency_redis(channel: Any, queue: str) -> float:

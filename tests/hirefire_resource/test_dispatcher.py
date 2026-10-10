@@ -2516,6 +2516,26 @@ def test_the_lease_loop_starts_once_a_job_library_is_loaded_after_the_start(
 
 
 @mocketize
+def test_the_macro_of_a_job_library_loaded_after_the_start_is_attached_on_a_later_pass(
+    monkeypatch, load_macros
+):
+    attached = []
+    monkeypatch.setattr(Session, "TICK", 0.01)
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    load_macros()
+    dispatcher = configure_web_only()
+
+    assert dispatcher.start()
+    wait_until(lambda: ingest_requests() > 0)
+    assert attached == []
+    load_macros(celery=fake_macro(attach=lambda: attached.append("celery")))
+
+    wait_until(lambda: attached)
+    dispatcher.stop()
+
+
+@mocketize
 def test_a_lease_loop_that_could_not_start_is_started_on_a_later_pass(
     monkeypatch, caplog
 ):

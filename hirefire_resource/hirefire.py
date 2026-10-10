@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from hirefire_resource import host, identity
+from hirefire_resource import host, identity, plan
 from hirefire_resource.configuration import Configuration
 from hirefire_resource.dispatcher.session import Session
 from hirefire_resource.log import safe_log
@@ -89,6 +89,7 @@ class HireFire:
     def _start_if_token(cls) -> None:
         if not cls.configuration.token:
             return
+        plan.attach_macros(cls.configuration.logger)
         if identity.one_off():
             return
         if host.uwsgi_parent():

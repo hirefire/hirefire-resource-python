@@ -28,6 +28,7 @@ def fake_macro(**overrides):
         queues_required=hooks.queues_required,
         before_sample_job_queues=hooks.before_sample_job_queues,
         after_sample_job_queues=hooks.after_sample_job_queues,
+        attach=hooks.attach,
         reinit_after_fork=hooks.reinit_after_fork,
         release=hooks.release,
     )

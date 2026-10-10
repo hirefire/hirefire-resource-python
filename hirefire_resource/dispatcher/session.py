@@ -143,6 +143,7 @@ class Session:
 
     def _dispatch_pass(self) -> None:
         self._passed_at = time.monotonic()
+        plan.attach_macros(self._logger())
         self._ensure_lease_loop()
         self.report()
 
