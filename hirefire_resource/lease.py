@@ -18,6 +18,7 @@ class Lease:
         trace: bool = False
 
     TTL_BOUNDS = (5, 3600)
+    DROP_WAIT = 60
     SAMPLE_FREQUENCY_BOUNDS = (1, 3600)
     MAX_BODY_BYTES = 131_072
     MAX_JOB_QUEUES = 256
@@ -131,6 +132,7 @@ class Lease:
             if granted and not hold_ok:
                 self._clear_grant()
                 self.process_id = str(uuid.uuid4())
+                self._expires_at = time.monotonic() + max(self.DROP_WAIT, 3 * next_ttl)
                 self._log(
                     "info",
                     "[HireFire] Lease grant dropped: this process cannot sample the plan "

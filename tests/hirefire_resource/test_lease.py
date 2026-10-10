@@ -178,6 +178,63 @@ def test_sends_process_id_header():
     assert Mocket.last_request().headers.get("hirefire-process-id") == lease.process_id
 
 
+def lease_requests():
+    return len(Mocket.request_list())
+
+
+@mocketize
+def test_a_process_that_dropped_a_grant_asks_again_after_the_drop_wait():
+    stub_lease(granted="true", **{"HireFire-Lease-TTL": "5"})
+
+    with freeze_time(at(1000)) as frozen:
+        lease = Lease()
+        lease.request_if_due(hold=lambda _plan: False)
+        assert lease_requests() == 1
+
+        frozen.move_to(at(1059))
+        lease.request_if_due(hold=lambda _plan: False)
+        assert lease_requests() == 1
+
+        frozen.move_to(at(1060))
+        lease.request_if_due(hold=lambda _plan: True)
+        assert lease_requests() == 2
+        assert lease.granted()
+
+
+@mocketize
+def test_the_drop_wait_is_three_times_a_ttl_that_makes_it_longer():
+    stub_lease(granted="true", **{"HireFire-Lease-TTL": "30"})
+
+    with freeze_time(at(1000)) as frozen:
+        lease = Lease()
+        lease.request_if_due(hold=lambda _plan: False)
+
+        frozen.move_to(at(1089))
+        lease.request_if_due(hold=lambda _plan: False)
+        assert lease_requests() == 1
+
+        frozen.move_to(at(1090))
+        lease.request_if_due(hold=lambda _plan: False)
+        assert lease_requests() == 2
+
+
+@mocketize
+def test_a_process_that_is_denied_the_lease_asks_again_after_its_ttl():
+    stub_lease(granted="false", **{"HireFire-Lease-TTL": "5"})
+
+    with freeze_time(at(1000)) as frozen:
+        lease = Lease()
+        lease.request_if_due(hold=lambda _plan: False)
+
+        frozen.move_to(at(1005))
+        lease.request_if_due(hold=lambda _plan: False)
+        assert lease_requests() == 2
+
+
+def test_the_drop_wait_is_a_minute():
+    assert Lease.DROP_WAIT == 60
+
+
 @mocketize
 def test_hold_false_drops_grant_without_sampling():
     body = json.dumps(
