@@ -624,12 +624,8 @@ class Dispatcher:
                 self._buffer().repopulate(name, RQT, series)
 
     def _apply_dispatch_frequency(self, response: Response) -> None:
-        raw = response.headers.get("HireFire-Dispatch-Frequency")
-        if raw is None:
-            return
-
-        value = Lease._leading_int(raw)
-        if value is None or value <= 0:
+        value = response.integer("HireFire-Dispatch-Frequency")
+        if value is None:
             return
 
         self._dispatch_frequency = max(

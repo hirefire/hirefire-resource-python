@@ -28,6 +28,16 @@ class Response:
     def too_large(self) -> bool:
         return self.status == 413
 
+    def integer(self, name: str) -> int | None:
+        text = str(self.headers.get(name) or "").strip()
+        if not (text.isascii() and text.isdigit()):
+            return None
+        try:
+            value = int(text)
+        except ValueError:
+            return None
+        return value if value > 0 else None
+
 
 STALE_CONNECTION_ERRORS = (
     http.client.RemoteDisconnected,

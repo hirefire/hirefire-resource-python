@@ -90,22 +90,18 @@ class Lease:
 
         next_sample_frequency = self.sample_frequency
         next_sample_at = self._next_sample_at
-        raw_frequency = response.headers.get("HireFire-Sample-Frequency")
-        if raw_frequency is not None:
-            previous_frequency = self.sample_frequency
-            next_sample_frequency = self._bounded(
-                raw_frequency, self.SAMPLE_FREQUENCY_BOUNDS
+        frequency = response.integer("HireFire-Sample-Frequency")
+        if frequency is not None:
+            next_sample_frequency = self._clamp(frequency, self.SAMPLE_FREQUENCY_BOUNDS)
+            next_sample_at = min(
+                next_sample_at, time.monotonic() + next_sample_frequency
             )
-            if next_sample_frequency < previous_frequency:
-                sooner = time.monotonic() + next_sample_frequency
-                if next_sample_at > sooner:
-                    next_sample_at = sooner
 
         next_ttl = self._ttl
         next_expires_at = self._expires_at
-        raw_ttl = response.headers.get("HireFire-Lease-TTL")
-        if raw_ttl is not None:
-            next_ttl = self._bounded(raw_ttl, self.TTL_BOUNDS)
+        ttl = response.integer("HireFire-Lease-TTL")
+        if ttl is not None:
+            next_ttl = self._clamp(ttl, self.TTL_BOUNDS)
             next_expires_at = time.monotonic() + next_ttl
 
         granted = response.headers.get("HireFire-Lease-Granted") == "true"
@@ -265,27 +261,6 @@ class Lease:
         return str(value).strip()
 
     @staticmethod
-    def _leading_int(value: object) -> int | None:
-        text = str(value).lstrip()
-        if not text:
-            return None
-        index = 0
-        if text[0] in "+-":
-            index = 1
-        end = index
-        while end < len(text) and text[end].isdigit():
-            end += 1
-        if end == index:
-            return None
-        try:
-            return int(text[:end])
-        except ValueError:
-            return None
-
-    @classmethod
-    def _bounded(cls, value: str, bounds: tuple[int, int]) -> int:
+    def _clamp(value: int, bounds: tuple[int, int]) -> int:
         low, high = bounds
-        parsed = cls._leading_int(value)
-        if parsed is None:
-            parsed = low
-        return max(low, min(parsed, high))
+        return max(low, min(value, high))

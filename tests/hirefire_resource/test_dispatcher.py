@@ -1136,28 +1136,17 @@ def test_ignores_an_unparseable_dispatch_frequency():
     assert dispatcher._dispatch_frequency == Dispatcher.DEFAULT_DISPATCH_FREQUENCY
 
 
+@pytest.mark.parametrize("value", ["10.0", "10abc", "+10", " "])
 @mocketize
-def test_parses_a_leading_integer_dispatch_frequency_like_ruby_to_i():
+def test_ignores_a_dispatch_frequency_that_is_not_a_whole_number(value):
     stub_lease()
-    stub_ingest_with_dispatch_frequency("10.0")
+    stub_ingest_with_dispatch_frequency(value)
 
     dispatcher = configure_web_only()
     with freeze_time(at(1000)):
         dispatcher._tick()
 
-    assert dispatcher._dispatch_frequency == 10
-
-
-@mocketize
-def test_parses_a_leading_integer_dispatch_frequency_with_a_junk_suffix():
-    stub_lease()
-    stub_ingest_with_dispatch_frequency("10abc")
-
-    dispatcher = configure_web_only()
-    with freeze_time(at(1000)):
-        dispatcher._tick()
-
-    assert dispatcher._dispatch_frequency == 10
+    assert dispatcher._dispatch_frequency == Dispatcher.DEFAULT_DISPATCH_FREQUENCY
 
 
 @mocketize

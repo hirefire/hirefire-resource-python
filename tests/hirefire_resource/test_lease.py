@@ -774,15 +774,13 @@ def test_grants_only_on_a_literal_true():
     assert not lease.granted()
 
 
+@pytest.mark.parametrize("value", ["0", "-5", "abc", "10.5", "15abc", "", " "])
 @mocketize
-def test_clamps_a_garbled_sample_frequency_to_a_sane_floor():
-    stub_lease(
-        granted="true",
-        **{"HireFire-Sample-Frequency": "0"},
-    )
+def test_ignores_a_sample_frequency_that_is_not_a_positive_whole_number(value):
+    stub_lease(granted="true", **{"HireFire-Sample-Frequency": value})
     lease = Lease()
     lease.request_if_due(hold=lambda _plan: True)
-    assert lease.sample_frequency == Lease.SAMPLE_FREQUENCY_BOUNDS[0]
+    assert lease.sample_frequency == 15
 
 
 @mocketize
@@ -796,41 +794,24 @@ def test_clamps_an_over_large_sample_frequency_to_the_ceiling():
     assert lease.sample_frequency == Lease.SAMPLE_FREQUENCY_BOUNDS[1]
 
 
+@pytest.mark.parametrize("value", ["0", "-5", "abc", "10.5", "15abc", "", " "])
 @mocketize
-def test_clamps_a_garbled_ttl_to_a_sane_floor():
-    stub_lease(
-        granted="true",
-        **{"HireFire-Lease-TTL": "0"},
-    )
-    lease = Lease()
-    lease.request_if_due(hold=lambda _plan: True)
-    assert lease._ttl == Lease.TTL_BOUNDS[0]
+def test_ignores_a_ttl_that_is_not_a_positive_whole_number(value):
+    stub_lease(granted="true", **{"HireFire-Lease-TTL": value})
 
-
-@mocketize
-def test_parses_a_leading_integer_ttl_like_ruby_to_i():
-    stub_lease(
-        granted="true",
-        **{"HireFire-Lease-TTL": "10.5"},
-    )
-    lease = Lease()
-    lease.request_if_due(hold=lambda _plan: True)
-    assert lease._ttl == 10
+    with freeze_time(at(1000)) as frozen:
+        lease = Lease()
+        lease.request_if_due(hold=lambda _plan: True)
+        frozen.move_to(at(1014))
+        lease.request_if_due(hold=lambda _plan: True)
+        assert lease_requests() == 1
+        frozen.move_to(at(1015))
+        lease.request_if_due(hold=lambda _plan: True)
+        assert lease_requests() == 2
 
 
 @mocketize
-def test_clamps_a_non_numeric_ttl_to_the_floor():
-    stub_lease(
-        granted="true",
-        **{"HireFire-Lease-TTL": "abc"},
-    )
-    lease = Lease()
-    lease.request_if_due(hold=lambda _plan: True)
-    assert lease._ttl == Lease.TTL_BOUNDS[0]
-
-
-@mocketize
-def test_clamps_an_oversized_numeric_ttl_to_the_floor():
+def test_ignores_a_ttl_with_more_digits_than_an_integer_may_have():
     import sys
 
     limit = sys.get_int_max_str_digits()
@@ -840,6 +821,14 @@ def test_clamps_an_oversized_numeric_ttl_to_the_floor():
         granted="true",
         **{"HireFire-Lease-TTL": "1" * (limit + 10)},
     )
+    lease = Lease()
+    lease.request_if_due(hold=lambda _plan: True)
+    assert lease._ttl == 15
+
+
+@mocketize
+def test_clamps_a_small_ttl_to_the_floor():
+    stub_lease(granted="true", **{"HireFire-Lease-TTL": "1"})
     lease = Lease()
     lease.request_if_due(hold=lambda _plan: True)
     assert lease._ttl == Lease.TTL_BOUNDS[0]
@@ -1161,17 +1150,6 @@ def test_json_null_adapter_is_strategy_only():
     from hirefire_resource.dispatcher import Dispatcher
 
     assert not Dispatcher._adapter_present(entry)
-
-
-@mocketize
-def test_clamps_a_non_numeric_sample_frequency_to_the_floor():
-    stub_lease(
-        granted="true",
-        **{"HireFire-Sample-Frequency": "abc"},
-    )
-    lease = Lease()
-    lease.request_if_due(hold=lambda _plan: True)
-    assert lease.sample_frequency == Lease.SAMPLE_FREQUENCY_BOUNDS[0]
 
 
 def test_parse_grant_body_preserves_trace_for_non_array_job_queues():
