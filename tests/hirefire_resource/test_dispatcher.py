@@ -35,6 +35,11 @@ def with_token(set_HIREFIRE_TOKEN):
     pass
 
 
+@pytest.fixture(autouse=True)
+def without_prefork_wait(monkeypatch):
+    monkeypatch.setattr(Session, "PREFORK_WAIT", 0)
+
+
 class SessionOnFirstUse:
     def __getattr__(self, name):
         made = self.__dict__.get("made")
@@ -2785,3 +2790,66 @@ def test_a_failure_while_abandoning_inherited_state_is_logged_and_does_not_raise
 
     line = "[HireFire] Could not abandon inherited dispatcher state: reinit boom"
     assert line in caplog.text
+
+
+@mocketize
+def test_a_web_process_that_has_not_served_a_request_sends_nothing_before_its_prefork_wait_ends(
+    monkeypatch,
+):
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    monkeypatch.setattr(Session, "PREFORK_WAIT", 0.3)
+    dispatcher = configure_web_and_workers()
+
+    assert dispatcher.start()
+    time.sleep(0.1)
+    assert request_paths() == []
+
+    wait_until(lambda: ingest_requests() > 0)
+    dispatcher.stop()
+
+
+@mocketize
+def test_a_web_process_stopped_within_its_prefork_wait_has_sent_nothing(monkeypatch):
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    monkeypatch.setattr(Session, "PREFORK_WAIT", 5)
+    dispatcher = configure_web_and_workers()
+
+    assert dispatcher.start()
+    assert seconds_to(lambda: dispatcher.stop(flush=False)) < 1
+
+    wait_until(lambda: not loop_threads("hirefire-dispatch"))
+    assert request_paths() == []
+
+
+@mocketize
+def test_a_web_process_that_has_served_a_request_does_not_wait_before_its_first_pass(
+    monkeypatch,
+):
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    monkeypatch.setattr(Session, "PREFORK_WAIT", 5)
+    dispatcher = configure_web_only()
+    HireFire.configuration.mark_http_active()
+
+    assert dispatcher.start()
+
+    wait_until(lambda: ingest_requests() > 0)
+    dispatcher.stop()
+
+
+@mocketize
+def test_a_process_that_is_not_a_web_process_does_not_wait_before_its_first_pass(
+    monkeypatch,
+):
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    monkeypatch.setattr(Session, "PREFORK_WAIT", 5)
+    monkeypatch.setenv("DYNO", "worker.1")
+    dispatcher = configure_workers_only()
+
+    assert dispatcher.start()
+
+    wait_until(lambda: lease_requests() > 0)
+    dispatcher.stop()

@@ -31,6 +31,7 @@ class Session:
     BACKOFF_DOUBLINGS = 5
     SAMPLE_ROUND_LIMIT = 60
     TICK = 1
+    PREFORK_WAIT = 1
 
     def __init__(
         self, configuration: "Configuration", after: threading.Thread | None = None
@@ -125,6 +126,8 @@ class Session:
 
     def _dispatch_loop(self) -> None:
         try:
+            if self._configuration.prefork_web_handoff():
+                self._pause(self.PREFORK_WAIT)
             self._cycle(self._dispatch_pass)
         finally:
             with self._mutex:
@@ -161,10 +164,10 @@ class Session:
             self._guard(step)
             self._pause()
 
-    def _pause(self) -> None:
+    def _pause(self, seconds: float | None = None) -> None:
         with self._mutex:
             if self._live:
-                self._wake.wait(self.TICK)
+                self._wake.wait(self.TICK if seconds is None else seconds)
 
     def _guard(self, step: Callable[[], object]) -> None:
         try:

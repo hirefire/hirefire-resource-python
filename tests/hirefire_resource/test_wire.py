@@ -8,6 +8,7 @@ import time
 import pytest
 
 from hirefire_resource import HireFire
+from hirefire_resource.dispatcher.session import Session
 from hirefire_resource.middleware.wsgi.flask import HireFireMiddleware
 from hirefire_resource.version import VERSION
 
@@ -75,6 +76,7 @@ def wire(monkeypatch, fake_server):
     fake_server.handler = wire.handle
     monkeypatch.setenv("HIREFIRE_TOKEN", "wire-token")
     monkeypatch.setenv("HIREFIRE_DATA_URL", fake_server.url)
+    monkeypatch.setattr(Session, "PREFORK_WAIT", 0)
     yield wire
     HireFire.configuration.stop_dispatcher(flush=False)
 

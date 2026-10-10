@@ -2,7 +2,6 @@ import http.client
 import logging
 import os
 import socket
-import ssl
 import sys
 import threading
 import time
@@ -58,7 +57,6 @@ def wait_until(condition, seconds=3):
 def web_process(monkeypatch, set_HIREFIRE_TOKEN):
     monkeypatch.setenv("DYNO", "web.1")
     monkeypatch.setattr(Session, "TICK", 0.01)
-    ssl.create_default_context()
     HireFire.boot()
     assert HireFire.configuration.dispatcher.running()
     return HireFire.configuration.dispatcher
@@ -245,8 +243,8 @@ def test_install_fork_hooks_is_idempotent():
 
 
 def test_real_fork_restarts_child_and_stops_parent(monkeypatch, set_HIREFIRE_TOKEN):
+    assert Session.PREFORK_WAIT == 1
     monkeypatch.setenv("DYNO", "web.1")
-    ssl.create_default_context()
     HireFire.boot()
     assert HireFire.configuration.dispatcher.running()
 
@@ -312,7 +310,6 @@ def test_a_child_forked_while_its_parent_stops_starts_its_dispatcher(
     monkeypatch, set_HIREFIRE_TOKEN
 ):
     monkeypatch.setenv("DYNO", "web.1")
-    ssl.create_default_context()
     HireFire.boot()
     dispatcher = HireFire.configuration.dispatcher
     in_flush = threading.Event()
