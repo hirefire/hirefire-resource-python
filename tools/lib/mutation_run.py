@@ -1,4 +1,5 @@
 import argparse
+import ast
 import json
 import os
 import queue
@@ -9,6 +10,7 @@ import sys
 import tempfile
 import threading
 import time
+from functools import lru_cache
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -53,6 +55,30 @@ def base_id(context):
     return re.sub(r"\[.*\]\Z", "", node)
 
 
+FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
+
+
+@lru_cache(maxsize=None)
+def statements(file):
+    found = []
+
+    def visit(node, inside_function):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.stmt):
+                found.append((child.lineno, child.end_lineno, inside_function))
+            visit(child, inside_function or isinstance(child, FUNCTIONS))
+
+    visit(ast.parse((common.ROOT / file).read_text()), False)
+    return sorted(found, key=lambda span: span[1] - span[0])
+
+
+def statement(file, line):
+    for start, end, inside_function in statements(file):
+        if start <= line <= end:
+            return start, not inside_function
+    return line, False
+
+
 class Coverage:
     def __init__(self, run, envs):
         self.by_env = {}
@@ -79,12 +105,16 @@ class Coverage:
             self.files_by_env[env] = sorted(tests)
 
     def plan(self, mutant):
+        start, at_import = statement(mutant.file, mutant.line)
         plan = []
         for env, per_file in self.by_env.items():
             lines = per_file.get(mutant.file)
-            if lines is None or mutant.line not in lines:
+            if lines is None:
                 continue
-            tests = lines[mutant.line]
+            line = mutant.line if mutant.line in lines else start
+            if line not in lines:
+                continue
+            tests = self.files_by_env[env] if at_import else lines[line]
             if not tests:
                 touched = sorted({t for ts in lines.values() for t in ts})
                 tests = touched or self.files_by_env[env]

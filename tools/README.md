@@ -58,6 +58,8 @@ Two scripts reach outside the checkout. `lease_steal` also runs the Ruby client 
 - Every distinct set of tests first runs on the unchanged tree. The run stops when one fails.
 - A failing run counts as a kill when it fails a second time. The record of a kill names the test.
 
+A line that runs at import (a constant, a class attribute, the defaults of a function) is named by the coverage of whichever test imported the module first, or of a test that reloads it. A test that only reads such a value covers no line of the file at all. A change on such a line runs with every test of the env. A line that coverage does not record, such as the second line of a function signature, takes the tests of the first line of its statement.
+
 ## Soak
 
 `bin/soak` reads three optional variables: `SOAK_FORK_EVERY` (seconds between forks, 0 for none), `SOAK_PHASES` (the server modes in order, such as `healthy`), and `SOAK_CLIENT=0` (no token, so the client stays idle and the run measures the harness alone). `TOOLS_RUN` names the directory under `results/`.
