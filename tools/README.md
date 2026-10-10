@@ -27,6 +27,8 @@ Run every script from the repository root, after `tools/bin/setup`. They are not
 | `bin/evidence`            | Runs one script of `evidence/` in a tox env                                                                  |
 | `bin/evidence-all [NAME]` | Runs every script of `evidence/` with its arguments and writes one output per finding to `results/evidence/` |
 | `bin/check-audit`         | Checks the audit documents of the canon: findings, map, comparison table, and each point of each lens        |
+| `bin/check-fixes`         | Checks the status table of the fix plan of the canon against the commits that name a finding                 |
+| `bin/gate`                | Runs `paver check` and the tox envs of the changed files, or every env with `--all`, before a commit         |
 | `baseline/`               | The golden copies of the public API and the wire requests                                                    |
 | `evidence/`               | Scripts that reproduce one finding each                                                                      |
 | `hosts/`                  | The image, the apps, and the drivers of the host runs                                                        |
