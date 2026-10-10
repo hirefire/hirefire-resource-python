@@ -4,7 +4,6 @@ import json
 import os
 import sys
 import time
-import weakref
 from typing import Any
 
 from hirefire_resource.identity import presence
@@ -33,7 +32,6 @@ _DQ_WALK_LIMIT = 2000
 ENQUEUED_AT = "hirefire_enqueued_at"
 
 _dq_wave: dict[tuple[object, str, str], tuple[int, int | None]] | None = None
-_attached_broker: "weakref.ref[Any] | None" = None
 
 
 def before_sample_job_queues() -> object:
@@ -76,14 +74,9 @@ def _app_broker() -> Any:
 
 
 def attach() -> None:
-    global _attached_broker
     broker = _app_broker()
     if broker is None:
         return
-    if _attached_broker is not None and _attached_broker() is broker:
-        return
-
-    _attached_broker = weakref.ref(broker)
     if not any(isinstance(item, EnqueueTime) for item in broker.middleware):
         broker.add_middleware(EnqueueTime())
 
@@ -245,12 +238,10 @@ def _resolve_broker_url(broker_url: str | None) -> str:
     return "redis://localhost:6379/0"
 
 
-def _resolve_namespace(
-    namespace: str | None, broker: object | None, *, redis_path: bool
-) -> str:
+def _resolve_namespace(namespace: str | None, broker: object | None) -> str:
     if namespace is not None and str(namespace).strip():
         return str(namespace).strip()
-    if redis_path and broker is not None:
+    if broker is not None:
         broker_ns = getattr(broker, "namespace", None)
         if broker_ns is not None and str(broker_ns).strip():
             return str(broker_ns).strip()
@@ -282,7 +273,7 @@ def _url_kind(url: str) -> str:
         return "rabbitmq"
     if lower.startswith(_REDIS_SCHEMES):
         return "redis"
-    if "amqp" in lower.split(":", 1)[0]:
+    if "amqp" in lower.partition(":")[0]:
         return "rabbitmq"
     return "redis"
 
@@ -313,7 +304,7 @@ def _connection_of_broker(broker: object, namespace: str | None) -> dict[str, An
         return _redis_connection(
             client,
             owned=False,
-            namespace=_resolve_namespace(namespace, broker, redis_path=True),
+            namespace=_resolve_namespace(namespace, broker),
             identity=id(client),
         )
     if _is_rabbitmq_broker(broker):
@@ -343,7 +334,7 @@ def _connection_of_url(url: str, namespace: str | None) -> dict[str, Any]:
         return _redis_connection(
             client,
             owned=True,
-            namespace=_resolve_namespace(namespace, None, redis_path=True),
+            namespace=_resolve_namespace(namespace, None),
             identity=url,
         )
 
@@ -386,14 +377,6 @@ def _sample_pika_parameters(
 
 
 def _bound_pika_parameters(parameters: Any) -> Any:
-    if isinstance(parameters, dict):
-        bounded = dict(parameters)
-        bounded["socket_timeout"] = _SAMPLE_AMQP_TIMEOUT
-        bounded["stack_timeout"] = _SAMPLE_AMQP_TIMEOUT
-        bounded["blocked_connection_timeout"] = _SAMPLE_AMQP_TIMEOUT
-        bounded["connection_attempts"] = 1
-        bounded["retry_delay"] = 0
-        return bounded
     parameters.socket_timeout = _SAMPLE_AMQP_TIMEOUT
     parameters.stack_timeout = _SAMPLE_AMQP_TIMEOUT
     parameters.blocked_connection_timeout = _SAMPLE_AMQP_TIMEOUT
