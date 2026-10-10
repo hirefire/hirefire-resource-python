@@ -4,7 +4,7 @@ import time
 from collections.abc import Callable
 
 from hirefire_resource import HireFire
-from hirefire_resource.log import safe_log
+from hirefire_resource.log import format_error
 from hirefire_resource.utility import round_half_up
 
 REQUEST_QUEUE_TIME_LIMIT = 60_000
@@ -44,11 +44,16 @@ def process_request_queue_time(
                 source.sample(request_queue_time)
             configuration.dispatcher.start()
     except Exception as error:
-        safe_log(
-            HireFire.configuration.logger,
-            "error",
-            f"[HireFire] Middleware error: {error}",
-        )
+        _log_once(error)
+
+
+def _log_once(error: Exception) -> None:
+    HireFire.configuration.once.log(
+        "error",
+        "middleware_error",
+        lambda: f"[HireFire] Middleware error: {format_error(error)}",
+        key=type(error).__name__,
+    )
 
 
 def calculate_request_queue_time(request_start: str) -> int | None:

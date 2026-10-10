@@ -34,6 +34,23 @@ def test_an_internal_failure_does_not_break_the_request(
     assert "web" in data and "rqt" in data["web"]
 
 
+def test_requests_that_fail_the_same_way_log_one_line_with_the_error_class(
+    set_HIREFIRE_TOKEN, caplog, monkeypatch
+):
+    monkeypatch.setenv("DYNO", "web.1")
+    with patch.object(Dispatcher, "start", side_effect=RuntimeError("no threads")):
+        for _ in range(100):
+            process_request_queue_time(recent_request_start())
+    with patch.object(Dispatcher, "start", side_effect=OSError("no memory")):
+        for _ in range(100):
+            process_request_queue_time(recent_request_start())
+
+    assert [record.getMessage() for record in caplog.records] == [
+        "[HireFire] Middleware error: RuntimeError: no threads",
+        "[HireFire] Middleware error: OSError: no memory",
+    ]
+
+
 def test_a_raising_logger_does_not_break_the_request(set_HIREFIRE_TOKEN, monkeypatch):
     monkeypatch.setenv("DYNO", "web.1")
     with patch.object(Dispatcher, "start"):
