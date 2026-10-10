@@ -1510,17 +1510,23 @@ def test_dispatch_if_due_does_not_advance_pacing_on_dead_gen():
 @mocketize
 def test_stale_generation_cannot_dispatch_after_restart():
     stub_lease()
-    bodies = capture_ingest_bodies()
+    capture_ingest_bodies()
     dispatcher = configure_web_only()
     assert dispatcher.start()
     gen = dispatcher._generation
-    HireFire.configuration.buffer.sample("web", "rqt", 5)
     dispatcher.stop()
     assert dispatcher.start()
     assert dispatcher._generation != gen
-    posted = len(bodies)
-    dispatcher._dispatch(gen)
-    assert len(bodies) == posted
+    senders = []
+
+    def record_sender(body):
+        senders.append(threading.current_thread())
+
+    with patch.object(dispatcher._client, "submit_samples", side_effect=record_sender):
+        HireFire.configuration.buffer.sample("web", "rqt", 5)
+        dispatcher._dispatch(gen)
+
+    assert threading.current_thread() not in senders
     assert dispatcher.running()
     dispatcher.stop()
 
