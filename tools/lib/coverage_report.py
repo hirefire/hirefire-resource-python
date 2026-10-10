@@ -7,6 +7,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import coverage
 import tools_common as common
 
+LINE_FLOOR = 96.0
+BRANCH_FLOOR = 91.0
+
 
 def recorded_commit(run):
     summary = common.results(run) / "summary.json"
@@ -114,6 +117,11 @@ def main():
         f"branches {t['covered_branches']}/{t['branches']} ({t['branch_percent']}%), "
         f"{result['envs']} envs, commit {result['commit']}"
     )
+    if t["line_percent"] < LINE_FLOOR or t["branch_percent"] < BRANCH_FLOOR:
+        sys.exit(
+            f"coverage is below the floor of {LINE_FLOOR}% of lines "
+            f"and {BRANCH_FLOOR}% of branches"
+        )
 
 
 if __name__ == "__main__":

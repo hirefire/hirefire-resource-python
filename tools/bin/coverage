@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/env"
+run="${1:-coverage}"
+"$TOOLS_ROOT/tools/bin/matrix-run" "$run" --coverage --jobs 4
+exec "$TOOLS_ROOT/tools/bin/coverage-report" "$run"

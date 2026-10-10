@@ -11,7 +11,8 @@ Run every script from the repository root, after `tools/bin/setup`. They are not
 | `bin/matrix-run`          | Runs every tox env once, in random order and with coverage on request, and writes a summary. `--jobs 4` runs the Python versions side by side |
 | `bin/matrix-repeat`       | Runs the matrix several times in random order                                                                                                 |
 | `bin/matrix-summary`      | Combines the runs and names every test that failed in any of them                                                                             |
-| `bin/coverage-report`     | Merges line and branch coverage of all envs per file                                                                                          |
+| `bin/coverage-report`     | Merges line and branch coverage of all envs per file, and fails below the floor                                                               |
+| `bin/coverage [RUN]`      | Runs the matrix with coverage and prints the merged report. Fails below the floor in `lib/coverage_report.py`                                 |
 | `bin/public-api`          | Writes the public names and signatures by import                                                                                              |
 | `bin/wire-goldens`        | Captures the ingest and lease requests, or checks them against the golden copies with `--check`                                               |
 | `bin/mutate`              | Changes `hirefire_resource/` one small step at a time and runs the tests that cover the line                                                  |
