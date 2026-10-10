@@ -10,7 +10,6 @@ import pytest
 from hirefire_resource import HireFire
 from hirefire_resource.middleware.wsgi.flask import HireFireMiddleware
 from hirefire_resource.version import VERSION
-from tests.fake_server import FakeServer
 
 EPOCH = 1_767_225_600
 UUID = re.compile(r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
@@ -71,16 +70,13 @@ class Wire:
 
 
 @pytest.fixture
-def wire(monkeypatch, allow_network):
-    server = FakeServer()
-    wire = Wire(server)
-    server._handler = wire.handle
-    allow_network(server.address)
+def wire(monkeypatch, fake_server):
+    wire = Wire(fake_server)
+    fake_server.handler = wire.handle
     monkeypatch.setenv("HIREFIRE_TOKEN", "wire-token")
-    monkeypatch.setenv("HIREFIRE_DATA_URL", server.url)
+    monkeypatch.setenv("HIREFIRE_DATA_URL", fake_server.url)
     yield wire
     HireFire.configuration.stop_dispatcher(flush=False)
-    server.stop()
 
 
 @pytest.fixture

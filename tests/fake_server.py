@@ -32,7 +32,7 @@ class Request:
 
 class FakeServer:
     def __init__(self, handler=None):
-        self._handler = handler or (lambda request: {"status": 200})
+        self.handler = handler or (lambda request: {"status": 200})
         self._requests = []
         self._sockets = []
         self._accepted = 0
@@ -102,6 +102,11 @@ class FakeServer:
             self._stall(client)
             self._close(client)
             return
+        if isinstance(self.on_accept, bytes):
+            client.sendall(self.on_accept)
+            self._stall(client)
+            self._close(client)
+            return
 
         reader = client.makefile("rb")
         try:
@@ -111,7 +116,7 @@ class FakeServer:
                     break
                 with self._mutex:
                     self._requests.append(request)
-                    handler = self._handler
+                    handler = self.handler
                 if not self._respond(client, handler(request)):
                     break
         except (OSError, ValueError):

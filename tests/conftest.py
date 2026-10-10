@@ -83,23 +83,40 @@ def block_real_network(request, monkeypatch):
 
     allowed = set()
     connect = socket.socket.connect
+    resolve = socket.getaddrinfo
 
-    def blocked(self, address):
+    def blocked(*args, **kwargs):
         raise OSError("Real network access is disabled in tests.")
 
     def guarded(self, address):
         if address in allowed:
             return connect(self, address)
-        return blocked(self, address)
+        return blocked()
+
+    def guarded_resolve(host, *args, **kwargs):
+        if host in ("127.0.0.1", "localhost"):
+            return resolve(host, *args, **kwargs)
+        return blocked()
 
     monkeypatch.setattr(socket.socket, "connect", guarded)
     monkeypatch.setattr(socket.socket, "connect_ex", blocked)
+    monkeypatch.setattr(socket, "getaddrinfo", guarded_resolve)
     yield allowed
 
 
 @pytest.fixture
 def allow_network(block_real_network):
     return block_real_network.add
+
+
+@pytest.fixture
+def fake_server(allow_network):
+    from tests.fake_server import FakeServer
+
+    server = FakeServer()
+    allow_network(server.address)
+    yield server
+    server.stop()
 
 
 @pytest.fixture(autouse=True)

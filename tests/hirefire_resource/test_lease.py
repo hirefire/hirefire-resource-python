@@ -11,6 +11,7 @@ from freezegun import freeze_time
 from mocket import Mocket, mocketize
 from mocket.mockhttp import Entry, Response
 
+from hirefire_resource.client import Client
 from hirefire_resource.client import Response as ClientResponse
 from hirefire_resource.errors import RequestError
 from hirefire_resource.lease import Lease
@@ -128,16 +129,16 @@ def test_revokes_granted_lease_on_unauthorized():
 
 
 def test_transport_failure_demotes_and_waits_a_full_ttl():
-    with patch(
-        "http.client.HTTPSConnection.request", side_effect=ConnectionRefusedError
-    ) as mock_request:
+    with patch.object(
+        Client, "request_lease", side_effect=RequestError("Network error")
+    ) as request_lease:
         lease = Lease()
         with pytest.raises(RequestError):
             lease.request_if_due(hold=lambda _plan: True)
         assert not lease.granted()
 
         lease.request_if_due(hold=lambda _plan: True)
-        assert mock_request.call_count == 1
+        assert request_lease.call_count == 1
 
 
 @mocketize
@@ -149,8 +150,8 @@ def test_transport_failure_revokes_granted_lease():
         lease.request_if_due(hold=lambda _plan: True)
         assert lease.granted()
 
-        with patch(
-            "http.client.HTTPSConnection.request", side_effect=ConnectionRefusedError
+        with patch.object(
+            Client, "request_lease", side_effect=RequestError("Network error")
         ):
             frozen.move_to(at(1015))
             with pytest.raises(RequestError):

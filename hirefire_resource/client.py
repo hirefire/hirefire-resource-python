@@ -1,10 +1,14 @@
 import http.client
+import io
 import os
+import socket
+import ssl
 import threading
 import time
 from dataclasses import dataclass
 from email.message import Message
-from typing import cast
+from functools import partial
+from typing import Any, cast
 from urllib.parse import ParseResult, urlparse
 
 from hirefire_resource.errors import RequestError
@@ -39,6 +43,43 @@ class Response:
         return value if value > 0 else None
 
 
+class Deadline:
+    def __init__(self, seconds: float) -> None:
+        self._expires_at = time.monotonic() + seconds
+
+    def apply(self, sock: socket.socket) -> None:
+        remaining = self._expires_at - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("timed out")
+        sock.settimeout(remaining)
+
+
+class DeadlineReader(io.RawIOBase):
+    def __init__(self, file: Any, sock: socket.socket, deadline: Deadline) -> None:
+        self._file = file
+        self._sock = sock
+        self._deadline = deadline
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer: Any) -> int:
+        self._deadline.apply(self._sock)
+        data = self._file.read1(len(buffer))
+        buffer[: len(data)] = data
+        return len(data)
+
+    def close(self) -> None:
+        self._file.close()
+        super().close()
+
+
+class DeadlineResponse(http.client.HTTPResponse):
+    def __init__(self, sock: socket.socket, deadline: Deadline, **options: Any) -> None:
+        super().__init__(sock, **options)
+        self.fp = io.BufferedReader(DeadlineReader(self.fp, sock, deadline))
+
+
 STALE_CONNECTION_ERRORS = (
     http.client.RemoteDisconnected,
     http.client.BadStatusLine,
@@ -50,9 +91,11 @@ STALE_CONNECTION_ERRORS = (
 
 
 class Client:
+    TIMEOUT = 5
+    SEND_BYTES = 16_384
     KEEP_ALIVE_TIMEOUT = 60
 
-    def __init__(self, timeout: int = 5) -> None:
+    def __init__(self, timeout: float = TIMEOUT) -> None:
         self._timeout = timeout
         self._mutex = threading.Lock()
         self._connection: http.client.HTTPConnection | None = None
@@ -69,7 +112,6 @@ class Client:
                 "HireFire-Token": token,
                 "HireFire-Agent": f"Python-{VERSION}",
             },
-            retain_body=False,
         )
 
         if response.ok() or response.unauthorized() or response.too_large():
@@ -86,7 +128,6 @@ class Client:
                 "HireFire-Agent": f"Python-{VERSION}",
                 "HireFire-Process-ID": process_id,
             },
-            retain_body=True,
         )
 
     def close(self) -> None:
@@ -102,61 +143,114 @@ class Client:
         if connection is not None:
             self._abandon_inherited_connection(connection)
 
-    def _execute(
-        self,
-        endpoint: str,
-        body: str,
-        headers: dict[str, str],
-        retain_body: bool = False,
-    ) -> Response:
+    def _execute(self, endpoint: str, body: str, headers: dict[str, str]) -> Response:
         uri = urlparse(self._base_url())
         path = uri.path.rstrip("/") + endpoint
-        encoded_body = body.encode("utf-8")
+        payload = body.encode("utf-8")
 
         with self._mutex:
-            while True:
-                reused = self._reusable(uri)
-                try:
-                    connection = self._connection_for(uri)
-                    connection.request("POST", path, encoded_body, headers)
-                    response = connection.getresponse()
-                    try:
-                        raw = response.read()
-                        body_text = (
-                            raw.decode("utf-8", "replace") if retain_body else ""
-                        )
-                        self._last_used_at = time.monotonic()
-                        return Response(response.status, response.headers, body_text)
-                    finally:
-                        response.close()
-                except TimeoutError:
-                    self._reset_connection()
-                    raise RequestError("Request timed out.")
-                except (http.client.HTTPException, OSError) as error:
-                    self._reset_connection()
-                    if reused and isinstance(error, STALE_CONNECTION_ERRORS):
-                        continue
-                    raise RequestError(
-                        f"Network error ({type(error).__name__}: {error})."
-                    )
+            try:
+                return self._perform(uri, path, payload, headers)
+            except TimeoutError:
+                self._reset_connection()
+                raise RequestError("Request timed out.")
+            except RequestError:
+                self._reset_connection()
+                raise
 
-    def _connection_for(self, uri: ParseResult) -> http.client.HTTPConnection:
+    def _perform(
+        self, uri: ParseResult, path: str, payload: bytes, headers: dict[str, str]
+    ) -> Response:
+        deadline = Deadline(self._timeout)
+        while True:
+            reused = self._reusable(uri)
+            try:
+                connection = self._connection_for(uri, deadline)
+                self._send(connection, path, payload, headers, deadline)
+                response = connection.getresponse()
+                try:
+                    body = response.read()
+                finally:
+                    response.close()
+                self._last_used_at = time.monotonic()
+                return Response(
+                    response.status, response.headers, body.decode("utf-8", "replace")
+                )
+            except TimeoutError:
+                raise
+            except (http.client.HTTPException, OSError) as error:
+                self._reset_connection()
+                if reused and isinstance(error, STALE_CONNECTION_ERRORS):
+                    continue
+                raise RequestError(f"Network error ({type(error).__name__}: {error}).")
+
+    def _send(
+        self,
+        connection: http.client.HTTPConnection,
+        path: str,
+        payload: bytes,
+        headers: dict[str, str],
+        deadline: Deadline,
+    ) -> None:
+        connection.response_class = partial(DeadlineResponse, deadline=deadline)  # type: ignore[assignment]
+        connection.putrequest("POST", path)
+        connection.putheader("Content-Length", str(len(payload)))
+        for name, value in headers.items():
+            connection.putheader(name, value)
+        deadline.apply(connection.sock)
+        connection.endheaders()
+        for start in range(0, len(payload), self.SEND_BYTES):
+            deadline.apply(connection.sock)
+            connection.send(payload[start : start + self.SEND_BYTES])
+
+    def _connection_for(
+        self, uri: ParseResult, deadline: Deadline
+    ) -> http.client.HTTPConnection:
         if self._reusable(uri):
             return cast(http.client.HTTPConnection, self._connection)
 
         self._reset_connection()
-        host = cast(str, uri.hostname)
-        if uri.scheme == "https":
-            connection: http.client.HTTPConnection = http.client.HTTPSConnection(
-                host, uri.port, timeout=self._timeout
-            )
-        else:
-            connection = http.client.HTTPConnection(
-                host, uri.port, timeout=self._timeout
-            )
+        self._connection = self._open(uri, deadline)
         self._owner_pid = os.getpid()
-        self._connection = connection
+        return self._connection
+
+    def _open(self, uri: ParseResult, deadline: Deadline) -> http.client.HTTPConnection:
+        host = cast(str, uri.hostname)
+        context = None
+        connection = http.client.HTTPConnection(host, uri.port)
+        if uri.scheme == "https":
+            context = ssl.create_default_context()
+            context.set_alpn_protocols(["http/1.1"])
+            connection = http.client.HTTPSConnection(host, uri.port, context=context)
+        connection.auto_open = 0
+
+        sock = self._connect(connection.host, connection.port, deadline)
+        if context is not None:
+            try:
+                deadline.apply(sock)
+                sock = context.wrap_socket(sock, server_hostname=host)
+            except BaseException:
+                sock.close()
+                raise
+        connection.sock = sock
         return connection
+
+    @staticmethod
+    def _connect(host: str, port: int, deadline: Deadline) -> socket.socket:
+        failure = OSError(f"No address found for {host}.")
+        for family, kind, protocol, _name, address in socket.getaddrinfo(
+            host, port, type=socket.SOCK_STREAM
+        ):
+            sock = socket.socket(family, kind, protocol)
+            try:
+                deadline.apply(sock)
+                sock.connect(address)
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                return sock
+            except OSError as error:
+                sock.close()
+                failure = error
+        raise failure
 
     def _reusable(self, uri: ParseResult) -> bool:
         connection = self._connection

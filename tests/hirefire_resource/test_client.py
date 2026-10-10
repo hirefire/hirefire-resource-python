@@ -1,9 +1,7 @@
 import email.message
-import http.client
 import os
 import socket
-import ssl
-from unittest.mock import patch
+import time
 
 import pytest
 from mocket import Mocket, mocketize
@@ -24,53 +22,30 @@ def client():
     return Client()
 
 
-class FakeResponse:
-    def __init__(self, status=200, read_error=None):
-        self.status = status
-        self.headers = email.message.Message()
-        self._read_error = read_error
-
-    def read(self):
-        if self._read_error is not None:
-            raise self._read_error
-        return b""
-
-    def close(self):
-        pass
-
-
-class FakeConnection:
-    scripts: list = []
-    created: list = []
-
-    def __init__(self, host, port, timeout=None):
-        self.host = host
-        self.port = port if port is not None else 443
-        self.timeout = timeout
-        self.sock = None
-        self._outcomes = FakeConnection.scripts.pop(0) if FakeConnection.scripts else []
-        FakeConnection.created.append(self)
-
-    def request(self, method, path, body, headers):
-        self.sock = object()
-        outcome = self._outcomes.pop(0)
-        if isinstance(outcome, BaseException):
-            raise outcome
-        self._pending = outcome
-
-    def getresponse(self):
-        return self._pending
-
-    def close(self):
-        self.sock = None
-
-
 @pytest.fixture
-def fake_connections():
-    FakeConnection.scripts = []
-    FakeConnection.created = []
-    with patch("http.client.HTTPSConnection", FakeConnection):
-        yield FakeConnection
+def server(fake_server, monkeypatch):
+    monkeypatch.setenv("HIREFIRE_TOKEN", HIREFIRE_TOKEN)
+    monkeypatch.setenv("HIREFIRE_DATA_URL", fake_server.url)
+    return fake_server
+
+
+def replies(server, *actions):
+    queue = list(actions)
+    server.handler = lambda request: queue.pop(0) if queue else {"status": 200}
+
+
+def seconds_until_failure(call, message):
+    started = time.monotonic()
+    with pytest.raises(RequestError) as failure:
+        call()
+    assert message in str(failure.value)
+    return time.monotonic() - started
+
+
+def closed_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
 
 @mocketize
@@ -155,79 +130,265 @@ def test_a_status_next_to_the_2xx_range_is_not_ok(status):
     assert not Response(status, email.message.Message()).ok()
 
 
-def test_submit_samples_raises_on_timeout(client, set_HIREFIRE_TOKEN):
-    with patch("http.client.HTTPSConnection.request", side_effect=socket.timeout):
-        with pytest.raises(RequestError) as exc_info:
-            client.submit_samples(PAYLOAD)
+def test_a_request_ends_at_its_timeout_when_the_server_never_answers(server):
+    server.handler = lambda request: {"then": "stall"}
+    client = Client(timeout=0.3)
 
-    assert "timed out" in str(exc_info.value)
+    elapsed = seconds_until_failure(
+        lambda: client.submit_samples(PAYLOAD), "Request timed out."
+    )
 
-
-def test_submit_samples_raises_on_transport_errors(client, set_HIREFIRE_TOKEN):
-    transport_errors = [
-        socket.gaierror("name resolution failed"),
-        ConnectionRefusedError("connection refused"),
-        BrokenPipeError("broken pipe"),
-        ssl.SSLError("certificate verify failed"),
-        http.client.HTTPException("protocol error"),
-    ]
-
-    for transport_error in transport_errors:
-        with patch("http.client.HTTPSConnection.request", side_effect=transport_error):
-            with pytest.raises(RequestError) as exc_info:
-                client.submit_samples(PAYLOAD)
-
-        assert "Network error" in str(exc_info.value)
+    assert 0.3 <= elapsed < 2
+    assert client._connection is None
 
 
-def test_reuses_a_single_connection_across_requests(
-    client, set_HIREFIRE_TOKEN, fake_connections
+def test_a_lease_request_ends_at_its_timeout_when_the_server_never_answers(server):
+    server.handler = lambda request: {"then": "stall"}
+
+    elapsed = seconds_until_failure(
+        lambda: Client(timeout=0.3).request_lease("abc123"), "Request timed out."
+    )
+
+    assert 0.3 <= elapsed < 2
+
+
+def test_a_request_ends_at_its_timeout_when_the_response_arrives_byte_by_byte(server):
+    server.handler = lambda request: {"status": 200, "body": "x" * 200, "drip": 0.02}
+    client = Client(timeout=0.3)
+
+    elapsed = seconds_until_failure(
+        lambda: client.request_lease("abc123"), "Request timed out."
+    )
+
+    assert 0.3 <= elapsed < 2
+    assert client._connection is None
+
+
+def test_a_request_ends_at_its_timeout_when_the_tls_handshake_stalls(
+    server, monkeypatch
 ):
-    fake_connections.scripts = [[FakeResponse(200), FakeResponse(200)]]
+    monkeypatch.setenv("HIREFIRE_DATA_URL", f"https://127.0.0.1:{server.port}")
+    server.on_accept = "stall"
 
-    client.submit_samples("[]")
-    first = client._connection
-    client.submit_samples("[]")
+    elapsed = seconds_until_failure(
+        lambda: Client(timeout=0.3).submit_samples(PAYLOAD), "Request timed out."
+    )
 
-    assert client._connection is first
-    assert len(fake_connections.created) == 1
-    assert first.sock is not None
+    assert 0.3 <= elapsed < 2
 
 
-def test_reconnects_and_retries_once_on_a_stale_keep_alive_socket(
-    client, set_HIREFIRE_TOKEN, fake_connections
+def test_a_tls_handshake_answered_in_plain_text_is_a_network_error(server, monkeypatch):
+    monkeypatch.setenv("HIREFIRE_DATA_URL", f"https://127.0.0.1:{server.port}")
+    server.on_accept = b"HTTP/1.1 400 Bad Request\r\n\r\n"
+    client = Client()
+
+    elapsed = seconds_until_failure(
+        lambda: client.submit_samples(PAYLOAD), "Network error (SSLError"
+    )
+
+    assert elapsed < 2
+    assert client._connection is None
+
+
+def test_a_refused_connection_is_a_network_error(server, client):
+    server.stop()
+
+    with pytest.raises(RequestError) as failure:
+        client.submit_samples(PAYLOAD)
+
+    assert "Network error (ConnectionRefusedError" in str(failure.value)
+
+
+def test_a_host_that_does_not_resolve_is_a_network_error(
+    client, set_HIREFIRE_TOKEN, monkeypatch
 ):
-    fake_connections.scripts = [
-        [FakeResponse(200), ConnectionResetError("peer reset")],
-        [FakeResponse(200)],
-    ]
+    def unresolvable(*args, **kwargs):
+        raise socket.gaierror("name resolution failed")
 
-    client.submit_samples("[]")
-    established = client._connection
+    monkeypatch.setattr(socket, "getaddrinfo", unresolvable)
 
-    result = client.submit_samples("[]")
+    with pytest.raises(RequestError) as failure:
+        client.submit_samples(PAYLOAD)
 
-    assert result is not None
-    assert client._connection is not established
-    assert len(fake_connections.created) == 2
+    assert str(failure.value) == "Network error (gaierror: name resolution failed)."
 
 
-def test_does_not_retry_a_cold_connection_failure(
-    client, set_HIREFIRE_TOKEN, fake_connections
+def test_a_host_without_an_address_is_a_network_error(
+    client, set_HIREFIRE_TOKEN, monkeypatch
 ):
-    fake_connections.scripts = [[ConnectionResetError("peer reset")]]
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: [])
+
+    with pytest.raises(RequestError) as failure:
+        client.submit_samples(PAYLOAD)
+
+    assert str(failure.value) == (
+        "Network error (OSError: No address found for data.hirefire.io.)."
+    )
+
+
+def test_connects_to_the_next_address_when_the_first_refuses(
+    server, client, allow_network, monkeypatch
+):
+    refusing = ("127.0.0.1", closed_port())
+    allow_network(refusing)
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", address)
+            for address in (refusing, server.address)
+        ],
+    )
+
+    assert client.submit_samples(PAYLOAD).ok()
+    assert server.accepted == 1
+
+
+def test_the_time_spent_on_an_address_that_refuses_counts_against_the_timeout(
+    server, allow_network, monkeypatch
+):
+    refusing = ("127.0.0.1", closed_port())
+    allow_network(refusing)
+    connect = socket.socket.connect
+
+    def slow_to_refuse(self, address):
+        if address == refusing:
+            time.sleep(0.4)
+        return connect(self, address)
+
+    monkeypatch.setattr(socket.socket, "connect", slow_to_refuse)
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", address)
+            for address in (refusing, server.address)
+        ],
+    )
+
+    with pytest.raises(RequestError) as failure:
+        Client(timeout=0.3).submit_samples(PAYLOAD)
+
+    assert str(failure.value) == "Request timed out."
+    assert server.accepted == 0
+
+
+def test_a_response_that_is_not_http_is_a_network_error(server, client):
+    server.handler = lambda request: {"raw": b"garbage\r\n\r\n", "after": "close"}
+
+    with pytest.raises(RequestError) as failure:
+        client.submit_samples(PAYLOAD)
+
+    assert "Network error (BadStatusLine" in str(failure.value)
+    assert client._connection is None
+
+
+def test_a_chunked_body_is_returned(server, client):
+    head = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+    server.handler = lambda request: {"raw": head + b"3\r\nabc\r\n0\r\n\r\n"}
+
+    assert client.request_lease("abc123").body == "abc"
+    assert client.request_lease("abc123").body == "abc"
+    assert server.accepted == 1
+
+
+def test_a_body_cut_short_is_a_network_error(server, client):
+    cut = b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc"
+    server.handler = lambda request: {"raw": cut, "after": "close"}
+
+    with pytest.raises(RequestError) as failure:
+        client.request_lease("abc123")
+
+    assert "Network error (IncompleteRead" in str(failure.value)
+    assert client._connection is None
+
+
+def test_sends_a_payload_larger_than_one_write_in_full(server, client):
+    payload = "[" + "1," * 40_000 + "1]"
+
+    assert client.submit_samples(payload).ok()
+    assert server.requests[0].body == payload
+    assert server.requests[0].header("Content-Length") == str(len(payload))
+
+
+def test_reuses_a_single_connection_across_requests(server, client):
+    client.submit_samples("[]")
+    client.submit_samples("[]")
+
+    assert server.accepted == 1
+    assert len(server.requests) == 2
+
+
+@pytest.mark.parametrize("ending", ["close", "reset"])
+def test_reconnects_and_retries_once_when_the_server_ended_the_kept_connection(
+    server, client, ending
+):
+    replies(server, {"status": 200, "after": ending})
+    client.submit_samples("[]")
+
+    assert client.submit_samples("[]").ok()
+    assert server.accepted == 2
+    assert len(server.requests) == 2
+
+
+def test_reconnects_and_retries_once_on_a_garbled_response_from_a_kept_connection(
+    server, client
+):
+    garbled = {"raw": b"garbage\r\n\r\n", "after": "close"}
+    replies(server, {"status": 200}, garbled)
+    client.submit_samples("[]")
+
+    assert client.submit_samples("[]").ok()
+    assert server.accepted == 2
+    assert len(server.requests) == 3
+
+
+def test_reconnects_and_retries_once_on_a_body_cut_short_on_a_kept_connection(
+    server, client
+):
+    cut = b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc"
+    replies(server, {"status": 200}, {"raw": cut, "after": "close"})
+    client.submit_samples("[]")
+
+    assert client.submit_samples("[]").ok()
+    assert server.accepted == 2
+    assert len(server.requests) == 3
+
+
+def test_does_not_retry_a_failure_on_a_new_connection(server, client):
+    server.on_accept = "reset"
+
+    with pytest.raises(RequestError) as failure:
+        client.submit_samples("[]")
+
+    assert "Network error" in str(failure.value)
+    assert server.accepted == 1
+
+
+def test_retries_a_kept_connection_only_once(server, client):
+    replies(server, {"status": 200, "after": "close"})
+    client.submit_samples("[]")
+    server.on_accept = "reset"
 
     with pytest.raises(RequestError):
         client.submit_samples("[]")
 
-    assert len(fake_connections.created) == 1
+    assert server.accepted == 2
 
 
-def test_opens_a_fresh_connection_in_a_forked_child(
-    client, set_HIREFIRE_TOKEN, fake_connections
-):
-    fake_connections.scripts = [[FakeResponse(200)], [FakeResponse(200)]]
+def test_a_retry_shares_the_timeout_of_its_request(server):
+    replies(server, {"status": 200, "after": "close"}, {"then": "stall"})
+    client = Client(timeout=0.3)
+    client.submit_samples("[]")
 
+    elapsed = seconds_until_failure(
+        lambda: client.submit_samples("[]"), "Request timed out."
+    )
+
+    assert 0.3 <= elapsed < 2
+
+
+def test_opens_a_fresh_connection_in_a_forked_child(server, client):
     client.submit_samples("[]")
     inherited = client._connection
 
@@ -237,46 +398,7 @@ def test_opens_a_fresh_connection_in_a_forked_child(
 
     assert client._connection is not inherited
     assert client._owner_pid == os.getpid()
-    assert len(fake_connections.created) == 2
-
-
-def test_reconnects_and_retries_once_on_a_desynced_keep_alive_response(
-    client, set_HIREFIRE_TOKEN, fake_connections
-):
-    fake_connections.scripts = [
-        [FakeResponse(200), http.client.BadStatusLine("garbled")],
-        [FakeResponse(200)],
-    ]
-
-    client.submit_samples("[]")
-    established = client._connection
-
-    result = client.submit_samples("[]")
-
-    assert result is not None
-    assert client._connection is not established
-    assert len(fake_connections.created) == 2
-
-
-def test_reconnects_and_retries_once_on_an_incomplete_keep_alive_read(
-    client, set_HIREFIRE_TOKEN, fake_connections
-):
-    fake_connections.scripts = [
-        [
-            FakeResponse(200),
-            FakeResponse(200, read_error=http.client.IncompleteRead(b"")),
-        ],
-        [FakeResponse(200)],
-    ]
-
-    client.submit_samples("[]")
-    established = client._connection
-
-    result = client.submit_samples("[]")
-
-    assert result is not None
-    assert client._connection is not established
-    assert len(fake_connections.created) == 2
+    assert server.accepted == 2
 
 
 @mocketize
@@ -329,12 +451,6 @@ def test_request_lease_sends_process_id(client, set_HIREFIRE_TOKEN):
     assert request.headers.get("hirefire-token") == HIREFIRE_TOKEN
     assert request.headers.get("hirefire-agent") == f"Python-{VERSION}"
     assert request.headers.get("hirefire-process-id") == "abc123"
-
-
-def test_request_lease_raises_on_timeout(client, set_HIREFIRE_TOKEN):
-    with patch("http.client.HTTPSConnection.request", side_effect=socket.timeout):
-        with pytest.raises(RequestError):
-            client.request_lease("abc123")
 
 
 def test_raises_without_token(client):
@@ -426,52 +542,26 @@ def test_request_lease_sends_the_agent_header(client, set_HIREFIRE_TOKEN):
     assert Mocket.last_request().headers.get("hirefire-agent") == f"Python-{VERSION}"
 
 
-def test_does_not_retry_twice_on_persistent_stale_errors(
-    client, set_HIREFIRE_TOKEN, fake_connections
+def test_reconnects_when_the_kept_connection_sat_idle_past_the_keep_alive_timeout(
+    server, client
 ):
-    fake_connections.scripts = [
-        [FakeResponse(200), ConnectionResetError("peer reset")],
-        [ConnectionResetError("peer reset again")],
-    ]
-
     client.submit_samples("[]")
-
-    with pytest.raises(RequestError):
-        client.submit_samples("[]")
-
-    assert len(fake_connections.created) == 2
-
-
-def test_reconnects_when_the_keep_alive_socket_sat_idle_past_the_timeout(
-    client, set_HIREFIRE_TOKEN, fake_connections
-):
-    fake_connections.scripts = [[FakeResponse(200)], [FakeResponse(200)]]
-
-    client.submit_samples("[]")
-    established = client._connection
-
     client._last_used_at -= Client.KEEP_ALIVE_TIMEOUT + 1
 
     client.submit_samples("[]")
 
-    assert client._connection is not established
-    assert len(fake_connections.created) == 2
+    assert server.accepted == 2
 
 
-def test_reuses_a_keep_alive_socket_still_within_the_timeout(
-    client, set_HIREFIRE_TOKEN, fake_connections
+def test_reuses_a_kept_connection_that_is_still_within_the_keep_alive_timeout(
+    server, client
 ):
-    fake_connections.scripts = [[FakeResponse(200), FakeResponse(200)]]
-
     client.submit_samples("[]")
-    established = client._connection
-
     client._last_used_at -= Client.KEEP_ALIVE_TIMEOUT - 1
 
     client.submit_samples("[]")
 
-    assert client._connection is established
-    assert len(fake_connections.created) == 1
+    assert server.accepted == 1
 
 
 @mocketize
