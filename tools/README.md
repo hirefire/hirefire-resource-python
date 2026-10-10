@@ -26,12 +26,12 @@ Run every script from the repository root, after `tools/bin/setup`. They are not
 | `bin/host-summary`        | Prints the result per host of one or more host runs                                                                                           |
 | `bin/free-threaded-run`   | Runs the core tests on a Python build without the GIL                                                                                         |
 | `bin/evidence`            | Runs one script of `evidence/` in a tox env                                                                                                   |
-| `bin/evidence-all [NAME]` | Runs every script of `evidence/` with its arguments and writes one output per finding to `results/evidence/`                                  |
+| `bin/evidence-all [NAME]` | Runs every script of `evidence/` with its arguments and writes one output per script to `results/evidence/`                                   |
 | `bin/check-audit`         | Checks the audit documents of the canon: findings, map, comparison table, and each point of each lens                                         |
 | `bin/check-fixes`         | Checks the status table of the fix plan of the canon against the commits that name a finding                                                  |
 | `bin/gate`                | Runs `paver check` and the tox envs of the changed files, or every env with `--all`, before a commit                                          |
 | `baseline/`               | The golden copies of the public API and the wire requests                                                                                     |
-| `evidence/`               | Scripts that reproduce one finding each                                                                                                       |
+| `evidence/`               | Measurements and checks that the test suite cannot hold                                                                                       |
 | `hosts/`                  | The image, the apps, and the drivers of the host runs                                                                                         |
 | `lib/`                    | The code behind the scripts                                                                                                                   |
 | `results/`                | Where every script writes. Ignored by git                                                                                                     |
@@ -46,7 +46,7 @@ No result is committed to this repository. Every script writes under `tools/resu
 
 ## Evidence
 
-`bin/evidence-all` needs `bin/services up`, Docker, a built wheel in `dist/`, and the virtual environment that `bin/free-threaded-run` makes. It starts a RabbitMQ 4 and a Redis with TLS in containers of its own and removes them at its end. `TOOLS_EVIDENCE_OUT` names the directory under `results/`. A name as the argument runs that one output.
+`bin/evidence-all` needs `bin/services up`, Docker, a built wheel in `dist/`, and the virtual environment that `bin/free-threaded-run` makes. `TOOLS_EVIDENCE_OUT` names the directory under `results/`. A name as the argument runs that one output.
 
 Two scripts reach outside the checkout. `lease_steal` also runs the Ruby client when `TOOLS_RUBY_ROOT` names a checkout of it with its bundle installed. `evidence/cedar_proc_cpu.py` is not part of `bin/evidence-all`: it uses the standard library only and runs on a one-off dyno, with `heroku run --no-tty -a APP -- python - < tools/evidence/cedar_proc_cpu.py`.
 
