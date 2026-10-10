@@ -14,6 +14,7 @@ from mocket.mockhttp import Entry, Response
 from hirefire_resource.client import Client
 from hirefire_resource.client import Response as ClientResponse
 from hirefire_resource.errors import RequestError
+from hirefire_resource.identity import MAX_NAME_BYTES
 from hirefire_resource.lease import Lease
 from tests.helpers import at, set_HIREFIRE_TOKEN  # noqa: F401
 
@@ -674,7 +675,7 @@ def test_a_single_invalid_plan_entry_is_named_in_the_singular(caplog):
 @mocketize
 def test_skips_invalid_plan_entries(caplog):
     caplog.set_level(logging.ERROR)
-    long_name = "a" * (Lease.MAX_NAME_BYTES + 1)
+    long_name = "a" * (MAX_NAME_BYTES + 1)
     body = json.dumps(
         {
             "version": 1,

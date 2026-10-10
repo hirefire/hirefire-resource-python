@@ -20,8 +20,6 @@ __all__ = [
     "MissingSamplerError",
 ]
 
-MAX_NAME_BYTES = 128
-
 
 class Configuration:
     def __init__(self) -> None:
@@ -150,7 +148,7 @@ class Configuration:
         name = identity.resolve()
         if name is None:
             return None
-        if len(name.encode("utf-8")) <= MAX_NAME_BYTES:
+        if len(name.encode("utf-8")) <= identity.MAX_NAME_BYTES:
             return name
         self._warn_identity_name_too_long_once(name)
         return None
@@ -171,9 +169,9 @@ class Configuration:
             )
 
         byte_len = len(coerced.encode("utf-8"))
-        if byte_len > MAX_NAME_BYTES:
+        if byte_len > identity.MAX_NAME_BYTES:
             raise ValueError(
-                f"config.dyno name exceeds {MAX_NAME_BYTES} bytes (got {byte_len})."
+                f"config.dyno name exceeds {identity.MAX_NAME_BYTES} bytes (got {byte_len})."
             )
 
         return coerced
@@ -205,7 +203,7 @@ class Configuration:
         safe_log(
             self.logger,
             "error",
-            f"[HireFire] Process identity exceeds {MAX_NAME_BYTES} bytes "
+            f"[HireFire] Process identity exceeds {identity.MAX_NAME_BYTES} bytes "
             f"({byte_len}). Metrics under this identity are disabled until the "
             "name is shortened.",
         )

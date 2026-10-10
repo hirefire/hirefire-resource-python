@@ -9,6 +9,7 @@ from typing import Any
 
 from hirefire_resource.client import Client
 from hirefire_resource.errors import RequestError
+from hirefire_resource.identity import MAX_NAME_BYTES
 from hirefire_resource.log import safe_log
 
 
@@ -22,7 +23,6 @@ class Lease:
     DROP_WAIT = 60
     SAMPLE_FREQUENCY_BOUNDS = (1, 3600)
     MAX_JOB_QUEUES = 256
-    MAX_NAME_BYTES = 128
 
     def __init__(self) -> None:
         self.process_id = str(uuid.uuid4())
@@ -224,7 +224,7 @@ class Lease:
 
         name = self._wire_string(entry.get("name"))
         strategy = self._wire_string(entry.get("strategy"))
-        if not name or not strategy or len(name.encode("utf-8")) > self.MAX_NAME_BYTES:
+        if not name or not strategy or len(name.encode("utf-8")) > MAX_NAME_BYTES:
             return None
 
         normalized = {**entry, "name": name, "strategy": strategy}

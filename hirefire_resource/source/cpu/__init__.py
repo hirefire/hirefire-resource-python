@@ -1,5 +1,6 @@
 import time
 
+from hirefire_resource import strategy
 from hirefire_resource.source.cpu.usage import Usage
 from hirefire_resource.utility import round_half_up
 
@@ -46,5 +47,5 @@ class CPU:
         from hirefire_resource.hirefire import HireFire
 
         HireFire.configuration.buffer.sample(
-            self.name, "cpu", round_half_up(percentage, 2)
+            self.name, strategy.CPU, round_half_up(percentage, 2)
         )

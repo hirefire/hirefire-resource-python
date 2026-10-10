@@ -7,6 +7,7 @@ from typing import Any
 from hirefire_resource.errors import SampleNotReadyError
 from hirefire_resource.log import format_error, safe_log
 from hirefire_resource.sample import coerce_sample, format_sample_value, valid_sample
+from hirefire_resource.strategy import JQL, JQS, WRK
 
 ADAPTER_MODULES = {
     "celery": "hirefire_resource.macro.celery",
@@ -21,8 +22,8 @@ LIBRARY_CHECKS = {
 }
 
 STRATEGIES = {
-    "jql": "job_queue_latency",
-    "jqs": "job_queue_size",
+    JQL: "job_queue_latency",
+    JQS: "job_queue_size",
 }
 
 MAX_QUEUES = 64
@@ -218,7 +219,7 @@ def execute(entry: dict[str, Any], live: Callable[[], bool] | None = None) -> No
 def _samples_working(macro: Any, strategy: str, options: dict[str, Any]) -> bool:
     if not hasattr(macro, "job_queue_working"):
         return False
-    return strategy == "jql" or options.get("skip_working") is True
+    return strategy == JQL or options.get("skip_working") is True
 
 
 def _sample_job_strategy(
@@ -277,7 +278,7 @@ def _sample_working(
                 "wrk sample dropped.",
             )
             return
-        _record_sample(name, "wrk", coerce_sample(wrk))
+        _record_sample(name, WRK, coerce_sample(wrk))
     except SampleNotReadyError:
         return
     except Exception as error:

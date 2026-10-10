@@ -11,7 +11,7 @@ from freezegun import freeze_time
 from mocket import Mocket, mocketize
 from mocket.mockhttp import Entry, Request, Response
 
-from hirefire_resource import HireFire, plan
+from hirefire_resource import HireFire, identity, plan
 from hirefire_resource.dispatcher import Dispatcher
 from hirefire_resource.errors import RequestError
 from hirefire_resource.lease import Lease
@@ -2498,7 +2498,7 @@ def test_seven_sample_waves_of_a_full_plan_with_the_longest_names_ship_in_one_pa
     dispatcher = HireFire.configuration.dispatcher
     buffer = HireFire.configuration.buffer
     names = [
-        f"worker_{i:03d}".ljust(Lease.MAX_NAME_BYTES, "x")
+        f"worker_{i:03d}".ljust(identity.MAX_NAME_BYTES, "x")
         for i in range(Lease.MAX_JOB_QUEUES)
     ]
 

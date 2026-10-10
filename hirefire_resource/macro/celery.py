@@ -27,13 +27,14 @@ except ImportError:
 from hirefire_resource.errors import SampleIncompleteError, SampleNotReadyError
 from hirefire_resource.log import format_error, safe_log
 from hirefire_resource.plan import hooks as _plan_hooks
+from hirefire_resource.strategy import JQS
 from hirefire_resource.utility import normalize_queues
 
 before_sample_job_queues = _plan_hooks.before_sample_job_queues
 after_sample_job_queues = _plan_hooks.after_sample_job_queues
 supports_plan_strategy = _plan_hooks.supports_plan_strategy
 
-_PLAN_OPTION_SCHEMA = {"jqs": {"skip_working": "boolean"}}
+_PLAN_OPTION_SCHEMA = {JQS: {"skip_working": "boolean"}}
 _HELD_TASKS_INSPECT_TIMEOUT = 1.0
 _HELD_TASKS_INSPECT_BUDGET = 2.0
 _HELD_TASKS_REFRESH_INTERVAL = 5.0

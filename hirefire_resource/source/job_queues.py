@@ -5,6 +5,7 @@ from hirefire_resource.errors import SampleNotReadyError
 from hirefire_resource.log import format_error, safe_log
 from hirefire_resource.sample import coerce_sample, format_sample_value, valid_sample
 from hirefire_resource.source.job_queue import JobQueue
+from hirefire_resource.strategy import JOB_QUEUE
 
 if TYPE_CHECKING:
     import logging
@@ -53,7 +54,7 @@ class JobQueues:
             else str(name).strip()
         )
         strategy = str(strategy)
-        if strategy not in ("jql", "jqs"):
+        if strategy not in JOB_QUEUE:
             safe_log(
                 self._logger(),
                 "error",

@@ -1,6 +1,8 @@
 import os
 import re
 
+MAX_NAME_BYTES = 128
+
 
 def resolve() -> str | None:
     return explicit() or heroku_dyno() or render_service()
