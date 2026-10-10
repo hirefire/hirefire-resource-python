@@ -1,14 +1,19 @@
 import email.message
+import http.client
+import io
 import os
 import socket
+import ssl
 import time
+from types import SimpleNamespace
 
 import pytest
 from mocket import Mocket, mocketize
 from mocket.mockhttp import Entry
 
 from hirefire_resource import HireFire
-from hirefire_resource.client import Client, Response
+from hirefire_resource import client as client_module
+from hirefire_resource.client import Client, Deadline, DeadlineReader, Response
 from hirefire_resource.configuration import Configuration
 from hirefire_resource.errors import RequestError
 from hirefire_resource.version import VERSION
@@ -48,6 +53,86 @@ def closed_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
+
+
+def eventually(condition, seconds=2):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.005)
+    return condition()
+
+
+@pytest.fixture
+def sockets(monkeypatch):
+    made = []
+
+    class Recorded(socket.socket):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.options = []
+            made.append(self)
+
+        def setsockopt(self, *args):
+            self.options.append(args)
+            return super().setsockopt(*args)
+
+    namespace = SimpleNamespace(**vars(socket))
+    namespace.socket = Recorded
+    monkeypatch.setattr(client_module, "socket", namespace)
+    return made
+
+
+@pytest.fixture
+def steps(monkeypatch):
+    log = []
+
+    def logged(owner, name):
+        original = getattr(owner, name)
+
+        def step(self, *args, **kwargs):
+            log.append(name)
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(owner, name, step)
+
+    logged(Deadline, "apply")
+    logged(http.client.HTTPConnection, "send")
+    return log
+
+
+class TlsThatWrapsNothing:
+    verify_mode = ssl.CERT_REQUIRED
+    check_hostname = True
+
+    def __init__(self, log=None, failure=None):
+        self.log = [] if log is None else log
+        self.failure = failure
+        self.protocols = None
+        self.hostname = None
+
+    def set_alpn_protocols(self, protocols):
+        self.protocols = protocols
+
+    def wrap_socket(self, sock, server_hostname=None):
+        self.log.append("wrap_socket")
+        self.hostname = server_hostname
+        if self.failure:
+            raise self.failure
+        return sock
+
+
+@pytest.fixture
+def every_address_is_the_server(server, monkeypatch):
+    connect = Client._connect
+    monkeypatch.setattr(
+        Client,
+        "_connect",
+        staticmethod(
+            lambda host, port, deadline: connect("127.0.0.1", server.port, deadline)
+        ),
+    )
 
 
 @mocketize
@@ -759,3 +844,176 @@ def test_request_lease_returns_response_body(client, set_HIREFIRE_TOKEN):
     )
     response = client.request_lease("pid-1")
     assert response.body == body
+
+
+def test_a_deadline_that_has_just_passed_times_out_before_it_touches_the_socket(
+    monkeypatch,
+):
+    clock = [100.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    deadline = Deadline(5)
+    clock[0] = 105.0
+
+    with pytest.raises(TimeoutError):
+        deadline.apply(None)
+
+
+def test_closing_the_reader_of_a_response_closes_the_file_it_reads():
+    file = io.BytesIO(b"")
+    reader = DeadlineReader(file, None, None)
+
+    reader.close()
+
+    assert file.closed
+    assert reader.closed
+
+
+def test_every_write_of_a_request_on_a_kept_connection_gets_the_time_that_is_left(
+    server, client, steps
+):
+    payload = "[" + "1," * 20_000 + "1]"
+    client.submit_samples(payload)
+    steps.clear()
+
+    client.submit_samples(payload)
+
+    assert steps[:8] == ["apply", "send"] * 4
+
+
+def test_a_tls_connection_asks_for_http_1_1_and_gets_the_time_left_for_its_handshake(
+    server, client, steps, monkeypatch
+):
+    tls = TlsThatWrapsNothing(steps)
+    monkeypatch.setattr(ssl, "create_default_context", lambda: tls)
+    monkeypatch.setenv("HIREFIRE_DATA_URL", f"https://127.0.0.1:{server.port}")
+
+    assert client.submit_samples("[]").ok()
+
+    assert tls.protocols == ["http/1.1"]
+    assert tls.hostname == "127.0.0.1"
+    assert steps[:3] == ["apply", "apply", "wrap_socket"]
+
+
+def test_a_socket_whose_tls_handshake_fails_is_closed(
+    server, client, sockets, monkeypatch
+):
+    tls = TlsThatWrapsNothing(failure=ssl.SSLError("handshake failed"))
+    monkeypatch.setattr(ssl, "create_default_context", lambda: tls)
+    monkeypatch.setenv("HIREFIRE_DATA_URL", f"https://127.0.0.1:{server.port}")
+
+    with pytest.raises(RequestError, match="SSLError"):
+        client.submit_samples("[]")
+
+    assert [sock.fileno() for sock in sockets] == [-1]
+
+
+def test_a_connection_is_opened_with_the_delay_of_small_writes_off(
+    server, client, sockets
+):
+    client.submit_samples("[]")
+
+    assert (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) in sockets[0].options
+
+
+def test_a_socket_that_could_not_connect_is_closed(
+    client, sockets, set_HIREFIRE_TOKEN, monkeypatch, allow_network
+):
+    port = closed_port()
+    allow_network(("127.0.0.1", port))
+    monkeypatch.setenv("HIREFIRE_DATA_URL", f"http://127.0.0.1:{port}")
+
+    with pytest.raises(RequestError):
+        client.submit_samples("[]")
+
+    assert [sock.fileno() for sock in sockets] == [-1]
+
+
+@pytest.mark.parametrize("scheme", ["http", "https"])
+def test_a_data_url_without_a_port_keeps_its_connection(
+    server, client, every_address_is_the_server, monkeypatch, scheme
+):
+    monkeypatch.setattr(ssl, "create_default_context", TlsThatWrapsNothing)
+    monkeypatch.setenv("HIREFIRE_DATA_URL", f"{scheme}://localhost")
+
+    client.submit_samples("[]")
+    client.submit_samples("[]")
+
+    assert server.accepted == 1
+    assert len(server.requests) == 2
+
+
+def test_a_kept_connection_is_reused_for_the_whole_keep_alive_time_and_not_after(
+    server, client, monkeypatch
+):
+    clock = [1000.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    client.submit_samples("[]")
+
+    clock[0] += 60
+    client.submit_samples("[]")
+    assert server.accepted == 1
+
+    clock[0] += 60.5
+    client.submit_samples("[]")
+    assert server.accepted == 2
+
+
+def test_a_connection_past_its_keep_alive_time_is_closed_before_the_next_is_opened(
+    server, client, sockets
+):
+    client.submit_samples("[]")
+    client._last_used_at -= Client.KEEP_ALIVE_TIMEOUT + 1
+
+    client.submit_samples("[]")
+
+    assert [sock.fileno() == -1 for sock in sockets] == [True, False]
+
+
+def test_close_closes_the_socket_of_the_kept_connection(server, client, sockets):
+    client.submit_samples("[]")
+
+    client.close()
+
+    assert [sock.fileno() for sock in sockets] == [-1]
+
+
+def test_a_request_in_a_forked_child_closes_the_descriptor_it_inherited(
+    server, client, sockets
+):
+    client.submit_samples("[]")
+    client._owner_pid = os.getpid() - 1
+
+    client.submit_samples("[]")
+
+    assert eventually(lambda: server.open_sockets == 1)
+    assert server.accepted == 2
+
+
+def test_discarding_an_inherited_connection_closes_its_descriptor(
+    server, client, sockets
+):
+    client.submit_samples("[]")
+    assert server.open_sockets == 1
+
+    client.discard_inherited()
+
+    assert eventually(lambda: server.open_sockets == 0)
+    assert client._connection is None
+
+
+def test_discarding_an_inherited_connection_replaces_a_lock_another_thread_held(
+    client,
+):
+    held = client._mutex
+    held.acquire()
+
+    client.discard_inherited()
+
+    assert client._mutex is not held
+    client.close()
+
+
+def test_a_connection_never_opens_a_socket_on_its_own(server, client):
+    client.submit_samples("[]")
+
+    assert client._connection.auto_open == 0

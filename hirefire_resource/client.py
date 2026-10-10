@@ -310,7 +310,6 @@ class Client:
     @staticmethod
     def _abandon_inherited_connection(connection: http.client.HTTPConnection) -> None:
         sock = connection.sock
-        connection.sock = None
         if sock is None:
             return
         try:
