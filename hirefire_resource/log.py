@@ -2,7 +2,7 @@ import logging
 import os
 import re
 
-_USERINFO = re.compile(r"(://)([^/@\s]+)@")
+_USERINFO = re.compile(r"(://)[^?\s]*@")
 
 
 def redact(text: str) -> str:
@@ -10,7 +10,14 @@ def redact(text: str) -> str:
 
 
 def format_error(error: BaseException) -> str:
-    return redact(f"{type(error).__name__}: {error}")
+    return _on_one_line(redact(f"{type(error).__name__}: {error}"))
+
+
+def _on_one_line(text: str) -> str:
+    return "".join(
+        char if char.isprintable() else char.encode("unicode_escape").decode()
+        for char in text
+    )
 
 
 def verbose() -> bool:

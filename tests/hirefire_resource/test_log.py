@@ -160,3 +160,26 @@ def test_format_error_strips_url_userinfo():
     text = format_error(error)
     assert "secret" not in text
     assert "redis://***@127.0.0.1:6379/0" in text
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("redis://:p/ss@host:6379/0", "redis://***@host:6379/0"),
+        ("rediss://:pa@ss@host:6379", "rediss://***@host:6379"),
+        ("amqp://guest:gu%40est@host//", "amqp://***@host//"),
+        ("no reply from redis://host:6379/0", "no reply from redis://host:6379/0"),
+        ("redis://host:6379/0?name=a@b", "redis://host:6379/0?name=a@b"),
+        ("http://host/path failed for a@b", "http://host/path failed for a@b"),
+    ],
+)
+def test_format_error_hides_the_credentials_of_a_url_and_nothing_else(text, expected):
+    assert format_error(RuntimeError(text)) == f"RuntimeError: {expected}"
+
+
+def test_format_error_keeps_an_error_text_on_one_line():
+    error = RuntimeError("bad\x00reply\r\n[HireFire] forged \u2028line")
+
+    assert format_error(error) == (
+        "RuntimeError: bad\\x00reply\\r\\n[HireFire] forged \\u2028line"
+    )
