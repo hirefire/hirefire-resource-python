@@ -35,7 +35,7 @@ class Session:
     STALL_LIMIT = 10
 
     def __init__(
-        self, configuration: "Configuration", after: threading.Thread | None = None
+        self, configuration: "Configuration", after: "Session | None" = None
     ) -> None:
         self._configuration = configuration
         self._predecessor = after
@@ -49,7 +49,7 @@ class Session:
         self._abandoned = False
         self._dispatch_thread: threading.Thread | None = None
         self._lease_thread: threading.Thread | None = None
-        self.sample_thread: threading.Thread | None = None
+        self._sample_thread: threading.Thread | None = None
         self._dispatch_frequency = self.DEFAULT_DISPATCH_FREQUENCY
         self._next_dispatch_at: float | None = None
         self._last_rqt_second: int | None = None
@@ -95,6 +95,9 @@ class Session:
             ended = self._ended
         if ended:
             self.close()
+
+    def sampling(self) -> bool:
+        return self._running(self._lease_thread) or self._running(self._sample_thread)
 
     def discard_inherited(self) -> None:
         self._live = False
@@ -180,7 +183,7 @@ class Session:
             safe_log(self._logger(), "error", f"[HireFire] {format_error(error)}")
 
     def _ensure_lease_loop(self) -> None:
-        if self._running(self._lease_thread) or self._running(self._predecessor):
+        if self._running(self._lease_thread) or self._predecessor_sampling():
             return
         if not self._enter_race():
             return
@@ -188,10 +191,15 @@ class Session:
         self._lease_thread = self._spawn("hirefire-lease", self._lease_loop)
 
     def _ensure_sample_loop(self) -> None:
-        if self._running(self.sample_thread):
+        if self._running(self._sample_thread):
             return
 
-        self.sample_thread = self._spawn("hirefire-sample", self._sample_loop)
+        self._sample_thread = self._spawn("hirefire-sample", self._sample_loop)
+
+    def _predecessor_sampling(self) -> bool:
+        if self._predecessor is not None and not self._predecessor.sampling():
+            self._predecessor = None
+        return self._predecessor is not None
 
     @staticmethod
     def _running(thread: threading.Thread | None) -> bool:

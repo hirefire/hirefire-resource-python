@@ -36,10 +36,8 @@ class Dispatcher:
 
                 if self._session is not None:
                     self._session.halt()
-                retired = self._session or self._retired
                 self._session = Session(
-                    self._configuration,
-                    after=retired.sample_thread if retired is not None else None,
+                    self._configuration, after=self._session or self._retired
                 ).start()
                 self._retired = None
                 self._pid = os.getpid()

@@ -2777,6 +2777,56 @@ def test_a_new_session_does_not_sample_while_a_round_of_the_stopped_session_is_s
 
 
 @mocketize
+def test_a_new_session_does_not_sample_while_the_stopped_one_is_still_starting_its_round(
+    monkeypatch,
+):
+    stub_lease(granted=True)
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    monkeypatch.setattr(Session, "TICK", 0.01)
+    entered = queue.Queue()
+    release = queue.Queue()
+    spawned = threading.Event()
+    rounds = []
+    start = threading.Thread.start
+
+    def worker():
+        rounds.append(True)
+        entered.put(True)
+        release.get(timeout=5)
+        return 1
+
+    def start_and_hold_the_first_sample_thread(thread):
+        start(thread)
+        if thread.name == "hirefire-sample" and len(rounds) < 2:
+            spawned.wait(5)
+
+    HireFire.configuration.dyno("worker", worker)
+    dispatcher = HireFire.configuration.dispatcher
+
+    try:
+        with patch.object(
+            threading.Thread, "start", start_and_hold_the_first_sample_thread
+        ):
+            assert dispatcher.start()
+            entered.get(timeout=2)
+            assert dispatcher.stop()
+            assert dispatcher.start()
+            time.sleep(0.2)
+            assert len(rounds) == 1
+
+            spawned.set()
+            release.put(True)
+            entered.get(timeout=2)
+            assert len(rounds) == 2
+            release.put(True)
+            dispatcher.stop()
+    finally:
+        spawned.set()
+        for _ in range(5):
+            release.put(True)
+
+
+@mocketize
 def test_stop_without_flush_discards_the_buffer_and_posts_nothing_more():
     bodies = capture_ingest_bodies()
     dispatcher = configure_web_only()
