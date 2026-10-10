@@ -668,8 +668,8 @@ def test_sample_redis_sets_socket_timeouts(monkeypatch):
 
     monkeypatch.setattr(rq_macro.redis.Redis, "from_url", tracking_from_url)
     assert job_queue_size("default", redis_url=redis_url) == 0
-    assert seen["socket_timeout"] == rq_macro._SAMPLE_REDIS_TIMEOUT
-    assert seen["socket_connect_timeout"] == rq_macro._SAMPLE_REDIS_TIMEOUT
+    assert seen["socket_timeout"] == 5.0
+    assert seen["socket_connect_timeout"] == 5.0
 
 
 def test_hirefire_rq_url_is_plan_only(monkeypatch):
@@ -716,3 +716,45 @@ def test_on_heroku_a_rediss_url_that_sets_ssl_cert_reqs_is_followed(
 
 def test_every_name_that_the_macro_declares_public_exists():
     assert missing_public_names(macro) == []
+
+
+def test_job_queue_working_default_redis_url():
+    assert job_queue_working("test_default_redis_url") == 0
+
+
+def test_job_queue_latency_reads_the_scheduled_jobs_of_every_queue(
+    queues_in_the_order_given,
+):
+    r = Redis.from_url(redis_url)
+    r.zadd("rq:scheduled:second", {"due-job": time.time() - 40})
+
+    latency = job_queue_latency("first", "second", "third", redis_url=redis_url)
+
+    assert latency == pytest.approx(40, abs=1)
+
+
+@pytest.mark.parametrize(
+    "sample", [job_queue_size, job_queue_latency, job_queue_working]
+)
+def test_a_sample_closes_its_connection_before_it_returns(sample, monkeypatch):
+    from_url = Redis.from_url
+    kept = []
+
+    def keep(url, **options):
+        kept.append(from_url(url, **options))
+        return kept[-1]
+
+    observer = from_url(redis_url)
+    before = {client["id"] for client in observer.client_list()}
+    monkeypatch.setattr(macro.redis.Redis, "from_url", keep)
+
+    sample("default", redis_url=redis_url)
+
+    left = {client["id"] for client in observer.client_list()} - before
+    for _ in range(200):
+        if not left:
+            break
+        time.sleep(0.005)
+        left = {client["id"] for client in observer.client_list()} - before
+    assert len(kept) == 1
+    assert left == set()
