@@ -1,3 +1,4 @@
+import logging
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -56,6 +57,15 @@ def test_configure_does_not_start_dispatcher_when_token_is_forced_empty(
             config.token = ""
             config.dyno("web")
         mock_start.assert_not_called()
+
+
+def test_a_reset_leaves_the_level_of_the_logger_as_the_host_set_it(caplog):
+    caplog.set_level(logging.WARNING, logger="hirefire_resource")
+
+    HireFire.reset()
+
+    assert logging.getLogger("hirefire_resource").level == logging.WARNING
+    assert logging.getLogger("hirefire_resource").handlers == []
 
 
 def test_reset_stops_dispatcher_and_replaces_configuration():

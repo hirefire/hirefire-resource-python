@@ -1,6 +1,8 @@
 import datetime
 import os
 import signal
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -8,12 +10,37 @@ import pytest
 from hirefire_resource.plan import hooks
 
 HIREFIRE_TOKEN = "d2e39e50-82b1-478e-a457-5a53bfa153a1"
+STARTING = "[HireFire] Starting dispatcher."
 
 
 @pytest.fixture
 def set_HIREFIRE_TOKEN(reset_hirefire, monkeypatch):
     monkeypatch.setenv("HIREFIRE_TOKEN", HIREFIRE_TOKEN)
     return HIREFIRE_TOKEN
+
+
+def boot_in_a_new_process(configure_logging=""):
+    script = (
+        "import os, sys\n"
+        "from hirefire_resource import HireFire\n"
+        f"{configure_logging}\n"
+        "HireFire.boot()\n"
+        "sys.stdout.flush()\n"
+        "sys.stderr.flush()\n"
+        "os._exit(0)\n"
+    )
+    return subprocess.run(
+        [sys.executable, "-c", script],
+        env={
+            **os.environ,
+            "HIREFIRE_TOKEN": HIREFIRE_TOKEN,
+            "HIREFIRE_DATA_URL": "http://127.0.0.1:9",
+            "DYNO": "worker.1",
+        },
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
 
 
 def at(epoch):

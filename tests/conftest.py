@@ -163,11 +163,5 @@ def load_macros(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def capture_hirefire_logs(request, caplog):
-    if "macro" in request.node.path.parts:
-        yield
-        return
-
-    logger = logging.getLogger("hirefire_resource")
-    logger.addHandler(caplog.handler)
-    yield
-    logger.removeHandler(caplog.handler)
+    if "macro" not in request.node.path.parts:
+        caplog.set_level(logging.INFO, logger="hirefire_resource")

@@ -1,6 +1,5 @@
 import logging
 import os
-import sys
 import threading
 
 from hirefire_resource import identity
@@ -25,12 +24,12 @@ class Configuration:
     def __init__(self) -> None:
         self.http: HTTP | None = None
         self.job_queues = JobQueues()
-        self.logger = self._init_logger()
         self.once = Once(self)
         self._sources_by_name: dict[str, list[str]] = {}
         self._buffer: Buffer | None = None
         self._dispatcher: Dispatcher | None = None
         self._token: str | None = None
+        self._logger: logging.Logger | None = None
         self._mutex = threading.Lock()
         self._always_on_cpu: CPU | None = None
         self._always_on_http: HTTP | None = None
@@ -49,6 +48,14 @@ class Configuration:
     @token.setter
     def token(self, value: str | None) -> None:
         self._token = value
+
+    @property
+    def logger(self) -> logging.Logger:
+        return self._logger or logging.getLogger("hirefire_resource")
+
+    @logger.setter
+    def logger(self, value: logging.Logger) -> None:
+        self._logger = value
 
     def dyno(self, name: str, sampler: Sampler | None = None) -> None:
         name = self._coerce_name(name)
@@ -251,15 +258,3 @@ class Configuration:
                 "Set HIREFIRE_SERVICE_NAME or DYNO."
             ),
         )
-
-    def _init_logger(self) -> logging.Logger:
-        logger = logging.getLogger("hirefire_resource")
-        logger.setLevel(logging.INFO)
-
-        if not logger.handlers:
-            handler = logging.StreamHandler(sys.stdout)
-            handler.setFormatter(logging.Formatter("%(message)s"))
-            logger.addHandler(handler)
-            logger.propagate = False
-
-        return logger

@@ -16,14 +16,17 @@ def config():
     return Configuration()
 
 
-def test_default_logger_points_to_stdout(config):
-    assert isinstance(config.logger, logging.Logger)
-    assert config.logger.name == "hirefire_resource"
-    assert any(isinstance(h, logging.StreamHandler) for h in config.logger.handlers)
+def test_the_default_logger_is_the_logger_of_the_package_as_the_host_left_it(caplog):
+    logger = logging.getLogger("hirefire_resource")
+    caplog.set_level(logging.ERROR, logger=logger.name)
+    handlers = list(logger.handlers)
 
+    config = Configuration()
 
-def test_logger_does_not_propagate_to_root(config):
-    assert config.logger.propagate is False
+    assert config.logger is logger
+    assert logger.level == logging.ERROR
+    assert logger.handlers == handlers
+    assert logger.propagate is True
 
 
 def test_can_set_logger(config):

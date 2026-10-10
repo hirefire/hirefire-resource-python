@@ -27,6 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Celery `job_queue_size` skips a sample when it has no count of the tasks its workers hold from the last 30 seconds, for example in the first seconds after a start. 1.x waited for the workers during the sample.
 - Breaking: RQ `job_queue_size` now includes running jobs. Pass `skip_working=True` to count waiting jobs only.
 - Official Python support is 3.11+. Official Django support is 4+.
+- Log lines follow the logging of the app. The `hirefire_resource` logger is left as the app configures it, so the lines take its handlers, its format, and its level, and they are printed to stdout only when the app has configured no handler. 1.x set the logger to `INFO` and printed every line to stdout as well as passing it to the handlers of the app.
 - A Celery connection reset is retried once immediately. The sample no longer sleeps up to 9 seconds.
 - A `config.dyno` sampler that returns a coroutine is awaited on the metrics thread, in an event loop of its own. 1.x awaited it in the app's event loop while answering the poll, so a sampler that needs a client bound to that loop no longer works.
 - Process names may be any non-empty string up to 128 bytes. The 1.x letter-start charset and 30-character cap are gone. An invalid name raises `ValueError` (1.x raised `InvalidDynoNameError`).

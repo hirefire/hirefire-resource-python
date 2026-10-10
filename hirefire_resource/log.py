@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 
@@ -19,8 +20,17 @@ def verbose() -> bool:
 
 def safe_log(logger: object, level: str, message: str) -> None:
     try:
+        if isinstance(logger, logging.Logger) and not logger.hasHandlers():
+            _print(logger, level, message)
+            return
         method = getattr(logger, level, None)
         if callable(method):
             method(message)
     except Exception:
         pass
+
+
+def _print(logger: logging.Logger, level: str, message: str) -> None:
+    threshold = logger.level or logging.INFO
+    if not logger.disabled and getattr(logging, level.upper()) >= threshold:
+        print(message, flush=True)

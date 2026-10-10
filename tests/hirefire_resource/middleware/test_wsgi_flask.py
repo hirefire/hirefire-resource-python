@@ -8,7 +8,11 @@ from freezegun import freeze_time
 from hirefire_resource import HireFire
 from hirefire_resource.dispatcher import Dispatcher
 from hirefire_resource.middleware.wsgi.flask import HireFireMiddleware
-from tests.helpers import set_HIREFIRE_TOKEN  # noqa: F401
+from tests.helpers import (  # noqa: F401
+    STARTING,
+    boot_in_a_new_process,
+    set_HIREFIRE_TOKEN,
+)
 
 app = Flask(__name__)
 app.wsgi_app = HireFireMiddleware(app.wsgi_app)
@@ -113,3 +117,37 @@ def test_an_error_raised_by_the_host_app_still_propagates(
                 "/boom",
                 headers={"X-Request-Start": str(int(time.time() * 1000 - 5))},
             )
+
+
+def test_under_a_flask_app_without_a_logging_configuration_the_lines_are_printed_to_stdout():
+    result = boot_in_a_new_process(
+        "from flask import Flask\napp = Flask('host')\napp.logger.warning('host line')"
+    )
+
+    assert STARTING in result.stdout.splitlines()
+    assert "HireFire" not in result.stderr
+
+
+def test_under_a_flask_app_with_the_logging_configuration_of_its_documentation_the_lines_take_its_format():
+    config = {
+        "version": 1,
+        "formatters": {"default": {"format": "host %(levelname)s %(message)s"}},
+        "handlers": {
+            "wsgi": {
+                "class": "logging.StreamHandler",
+                "stream": "ext://flask.logging.wsgi_errors_stream",
+                "formatter": "default",
+            }
+        },
+        "root": {"level": "INFO", "handlers": ["wsgi"]},
+    }
+
+    result = boot_in_a_new_process(
+        "from logging.config import dictConfig\n"
+        "from flask import Flask\n"
+        f"dictConfig({config!r})\n"
+        "app = Flask('host')"
+    )
+
+    assert f"host INFO {STARTING}" in result.stderr.splitlines()
+    assert "HireFire" not in result.stdout

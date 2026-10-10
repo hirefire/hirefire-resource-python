@@ -9,7 +9,11 @@ from freezegun import freeze_time
 
 from hirefire_resource import HireFire
 from hirefire_resource.dispatcher import Dispatcher
-from tests.helpers import set_HIREFIRE_TOKEN  # noqa: F401
+from tests.helpers import (  # noqa: F401
+    STARTING,
+    boot_in_a_new_process,
+    set_HIREFIRE_TOKEN,
+)
 
 
 def catch_all(request):
@@ -92,3 +96,35 @@ def test_falls_back_to_x_queue_start(client, set_HIREFIRE_TOKEN, monkeypatch):
         assert HireFire.configuration.buffer.flush()["web"]["rqt"] == {
             _ts: {"sum": float(5), "count": 1}
         }
+
+
+DJANGO_WITH_LOGGING = (
+    "import django\n"
+    "from django.conf import settings\n"
+    "settings.configure(LOGGING={logging!r})\n"
+    "django.setup()"
+)
+
+
+def test_under_the_default_logging_of_django_the_lines_are_printed_to_stdout():
+    result = boot_in_a_new_process(DJANGO_WITH_LOGGING.format(logging={}))
+
+    assert STARTING in result.stdout.splitlines()
+    assert "HireFire" not in result.stderr
+
+
+def test_under_a_django_with_a_root_handler_the_lines_take_its_format():
+    logging = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {"host": {"format": "host %(levelname)s %(message)s"}},
+        "handlers": {
+            "console": {"class": "logging.StreamHandler", "formatter": "host"}
+        },
+        "root": {"handlers": ["console"], "level": "INFO"},
+    }
+
+    result = boot_in_a_new_process(DJANGO_WITH_LOGGING.format(logging=logging))
+
+    assert f"host INFO {STARTING}" in result.stderr.splitlines()
+    assert "HireFire" not in result.stdout
