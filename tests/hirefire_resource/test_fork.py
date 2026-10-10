@@ -1,5 +1,6 @@
 import logging
 import os
+import ssl
 from unittest.mock import patch
 
 import pytest
@@ -234,6 +235,7 @@ def test_install_fork_hooks_is_idempotent():
 )
 def test_real_fork_restarts_child_and_stops_parent(monkeypatch, set_HIREFIRE_TOKEN):
     monkeypatch.setenv("DYNO", "web.1")
+    ssl.create_default_context()
     HireFire.boot()
     assert HireFire.configuration.dispatcher.running()
 
