@@ -2189,6 +2189,20 @@ def test_the_first_failed_dispatch_is_logged_and_later_ones_once_a_minute_with_t
     ]
 
 
+def test_a_data_url_that_is_not_a_url_is_named_in_the_dispatch_error(
+    monkeypatch, caplog, session
+):
+    monkeypatch.setenv("HIREFIRE_DATA_URL", "data.hirefire.io")
+    configure_web_only()
+
+    attempts(session, range(1000, 1004))
+
+    assert messages(caplog) == [
+        "[HireFire] Dispatch error: RequestError: "
+        "HIREFIRE_DATA_URL must be an http or https URL with a host."
+    ]
+
+
 @mocketize
 def test_a_recovery_after_several_failed_dispatches_is_logged_once(caplog, session):
     stub_lease()

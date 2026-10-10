@@ -526,13 +526,108 @@ def test_raises_with_empty_token(client, monkeypatch):
     assert "HIREFIRE_TOKEN" in str(exc_info.value)
 
 
-def test_blank_and_slash_only_data_url_falls_back_to_default(monkeypatch):
-    monkeypatch.setenv("HIREFIRE_DATA_URL", "   ")
-    assert Client(HireFire.configuration)._base_url() == "https://data.hirefire.io"
-    monkeypatch.setenv("HIREFIRE_DATA_URL", "///")
-    assert Client(HireFire.configuration)._base_url() == "https://data.hirefire.io"
-    monkeypatch.setenv("HIREFIRE_DATA_URL", " https://example.test/path/ ")
-    assert Client(HireFire.configuration)._base_url() == "https://example.test/path"
+@mocketize
+@pytest.mark.parametrize("value", ["", "   ", "/", "///"])
+def test_blank_and_slash_only_data_url_falls_back_to_default(
+    value, set_HIREFIRE_TOKEN, monkeypatch
+):
+    monkeypatch.setenv("HIREFIRE_DATA_URL", value)
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+
+    Client(HireFire.configuration).submit_samples(PAYLOAD)
+
+    assert Mocket.last_request().headers.get("host") == "data.hirefire.io"
+
+
+@mocketize
+def test_whitespace_padded_data_url_is_stripped(set_HIREFIRE_TOKEN, monkeypatch):
+    monkeypatch.setenv("HIREFIRE_DATA_URL", "  https://custom.hirefire.io/path/  ")
+    Entry.single_register(
+        Entry.POST, "https://custom.hirefire.io/path/metrics/ingest", status=200
+    )
+
+    Client(HireFire.configuration).submit_samples(PAYLOAD)
+
+    assert Mocket.last_request().headers.get("host") == "custom.hirefire.io"
+    assert Mocket.last_request().path == "/path/metrics/ingest"
+
+
+@mocketize
+def test_a_plain_http_data_url_on_another_host_warns_once_that_the_token_is_sent_in_clear_text(
+    client, set_HIREFIRE_TOKEN, monkeypatch, caplog
+):
+    monkeypatch.setenv("HIREFIRE_DATA_URL", "http://collector.example.com:8080")
+    for endpoint in ("ingest", "lease"):
+        Entry.single_register(
+            Entry.POST,
+            f"http://collector.example.com:8080/metrics/{endpoint}",
+            status=200,
+        )
+
+    client.submit_samples("[]")
+    client.request_lease("abc123")
+    Client(HireFire.configuration).submit_samples("[]")
+
+    assert [record.getMessage() for record in caplog.records] == [
+        "[HireFire] HIREFIRE_DATA_URL uses http, so the HireFire token is sent to "
+        "collector.example.com in clear text. Use an https URL."
+    ]
+    assert caplog.records[0].levelname == "WARNING"
+
+
+@mocketize
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://localhost:9999",
+        "http://127.0.0.1:9999",
+        "http://[::1]:9999",
+        "https://collector.example.com",
+    ],
+)
+def test_a_plain_http_data_url_on_this_host_and_an_https_url_do_not_warn(
+    url, set_HIREFIRE_TOKEN, monkeypatch, caplog
+):
+    monkeypatch.setenv("HIREFIRE_DATA_URL", url)
+    Entry.single_register(Entry.POST, f"{url}/metrics/ingest", status=200)
+
+    Client(HireFire.configuration).submit_samples("[]")
+
+    assert Mocket.last_request().method == "POST"
+    assert caplog.records == []
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "collector.example.com",
+        "collector.example.com:8080",
+        "ftp://collector.example.com",
+        "https://",
+        "ht tp://collector.example.com",
+        "https://collector.example .com",
+        "//collector.example.com",
+        "https://collector.example.com:port",
+        "https://[::1",
+        "https://collector.example.com\nx",
+        "https://collect\u00f6r.example.com",
+    ],
+)
+def test_a_data_url_that_is_not_an_http_url_with_a_host_fails_the_request_with_a_reason(
+    url, client, set_HIREFIRE_TOKEN, monkeypatch
+):
+    monkeypatch.setenv("HIREFIRE_DATA_URL", url)
+
+    for call in (
+        lambda: client.submit_samples("[]"),
+        lambda: client.request_lease("a"),
+    ):
+        with pytest.raises(RequestError) as failure:
+            call()
+        assert (
+            str(failure.value)
+            == "HIREFIRE_DATA_URL must be an http or https URL with a host."
+        )
 
 
 @mocketize

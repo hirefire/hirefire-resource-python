@@ -136,6 +136,16 @@ class Configuration:
     def prefork_web_handoff(self) -> bool:
         return not self._http_active and identity.platform_http_role()
 
+    def warn_plain_http_data_url_once(self, host: str | None) -> None:
+        self.once.log(
+            "warning",
+            "plain_http_data_url",
+            lambda: (
+                "[HireFire] HIREFIRE_DATA_URL uses http, so the HireFire token "
+                f"is sent to {host} in clear text. Use an https URL."
+            ),
+        )
+
     def soft_identity(self) -> str | None:
         self._warn_heroku_conflict_once()
         name = identity.resolve()

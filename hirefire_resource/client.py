@@ -17,7 +17,8 @@ from hirefire_resource.version import VERSION
 if TYPE_CHECKING:
     from hirefire_resource.configuration import Configuration
 
-_DEFAULT_BASE_URL = "https://data.hirefire.io"
+DEFAULT_URL = "https://data.hirefire.io"
+LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
 
 
 @dataclass
@@ -151,7 +152,7 @@ class Client:
             self._abandon_inherited_connection(connection)
 
     def _execute(self, endpoint: str, body: str, headers: dict[str, str]) -> Response:
-        uri = urlparse(self._base_url())
+        uri = self._base_url()
         path = uri.path.rstrip("/") + endpoint
         payload = body.encode("utf-8")
 
@@ -317,12 +318,28 @@ class Client:
         except OSError:
             pass
 
-    def _base_url(self) -> str:
-        raw = os.environ.get("HIREFIRE_DATA_URL", _DEFAULT_BASE_URL)
-        stripped = str(raw).strip().rstrip("/")
-        if not stripped:
-            return _DEFAULT_BASE_URL
-        return stripped
+    def _base_url(self) -> ParseResult:
+        url = os.environ.get("HIREFIRE_DATA_URL", "").strip().rstrip("/")
+        uri = self._parse_http_url(url or DEFAULT_URL)
+        if uri is None:
+            raise RequestError(
+                "HIREFIRE_DATA_URL must be an http or https URL with a host."
+            )
+
+        if uri.scheme == "http" and uri.hostname not in LOCAL_HOSTS:
+            self._configuration.warn_plain_http_data_url_once(uri.hostname)
+        return uri
+
+    @staticmethod
+    def _parse_http_url(url: str) -> ParseResult | None:
+        if not (url.isascii() and url.isprintable()) or " " in url:
+            return None
+        try:
+            uri = urlparse(url)
+            uri.port
+        except ValueError:
+            return None
+        return uri if uri.scheme in ("http", "https") and uri.hostname else None
 
     def _require_token(self) -> str:
         token = self._configuration.token
