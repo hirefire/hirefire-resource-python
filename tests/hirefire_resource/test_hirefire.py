@@ -1,8 +1,9 @@
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
-from hirefire_resource import HireFire
+from hirefire_resource import HireFire, host
 from hirefire_resource.configuration import Configuration
 from hirefire_resource.dispatcher import Dispatcher
 from tests.helpers import set_HIREFIRE_TOKEN  # noqa: F401
@@ -115,3 +116,43 @@ def test_configure_starts_the_dispatcher_in_every_other_dyno(
     with patch.object(Dispatcher, "start") as start:
         HireFire.boot()
         start.assert_called_once()
+
+
+def test_boot_in_a_uwsgi_parent_starts_nothing_and_warns_once(
+    monkeypatch, set_HIREFIRE_TOKEN, caplog
+):
+    monkeypatch.setattr(host, "uwsgi", SimpleNamespace(worker_id=lambda: 0))
+
+    with patch.object(Dispatcher, "start") as start:
+        HireFire.boot()
+        HireFire.boot()
+        start.assert_not_called()
+
+    assert caplog.text.count("Run uWSGI with --lazy-apps") == 1
+    assert caplog.records[0].levelname == "WARNING"
+
+
+def test_boot_in_a_uwsgi_worker_starts_the_dispatcher(
+    monkeypatch, set_HIREFIRE_TOKEN, caplog
+):
+    monkeypatch.setattr(host, "uwsgi", SimpleNamespace(worker_id=lambda: 2))
+
+    with patch.object(Dispatcher, "start") as start:
+        HireFire.boot()
+        start.assert_called_once()
+
+    assert "uWSGI" not in caplog.text
+
+
+def test_boot_outside_uwsgi_does_not_ask_for_a_worker_id(set_HIREFIRE_TOKEN):
+    assert host.uwsgi is None
+    assert not host.under_uwsgi()
+    assert not host.uwsgi_parent()
+
+
+def test_a_uwsgi_parent_without_a_token_is_not_warned(monkeypatch, caplog):
+    monkeypatch.setattr(host, "uwsgi", SimpleNamespace(worker_id=lambda: 0))
+
+    HireFire.boot()
+
+    assert "uWSGI" not in caplog.text

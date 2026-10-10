@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from hirefire_resource import identity
+from hirefire_resource import host, identity
 from hirefire_resource.configuration import Configuration
 from hirefire_resource.dispatcher.session import Session
 from hirefire_resource.log import safe_log
@@ -90,6 +90,18 @@ class HireFire:
         if not cls.configuration.token:
             return
         if identity.one_off():
+            return
+        if host.uwsgi_parent():
+            cls.configuration.once.log(
+                "warning",
+                "uwsgi_parent",
+                lambda: (
+                    "[HireFire] uWSGI loaded the app in its parent process, so the "
+                    "dispatcher starts on the first request of each worker. Run uWSGI "
+                    "with --lazy-apps to start it when a worker boots. "
+                    "uWSGI is not a tested server."
+                ),
+            )
             return
         cls.configuration.dispatcher.start()
 

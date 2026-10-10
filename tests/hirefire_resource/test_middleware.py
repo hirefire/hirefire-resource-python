@@ -1,8 +1,9 @@
 import logging
 import time
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from hirefire_resource import HireFire
+from hirefire_resource import HireFire, host
 from hirefire_resource.dispatcher import Dispatcher
 from hirefire_resource.middleware import (
     calculate_request_queue_time,
@@ -268,3 +269,16 @@ def test_rounds_a_fractional_nanosecond_remainder():
 
 def test_drops_a_negative_request_start():
     assert calculate_request_queue_time("-1700000000250") is None
+
+
+def test_the_first_request_of_a_uwsgi_worker_starts_the_dispatcher_its_parent_did_not(
+    set_HIREFIRE_TOKEN, monkeypatch
+):
+    monkeypatch.setenv("DYNO", "web.1")
+    monkeypatch.setattr(host, "uwsgi", SimpleNamespace(worker_id=lambda: 0))
+    HireFire.boot()
+    assert not HireFire.configuration.dispatcher.running()
+
+    process_request_queue_time(recent_request_start())
+
+    assert HireFire.configuration.dispatcher.running()
