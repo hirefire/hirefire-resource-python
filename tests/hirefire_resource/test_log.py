@@ -183,3 +183,20 @@ def test_format_error_keeps_an_error_text_on_one_line():
     assert format_error(error) == (
         "RuntimeError: bad\\x00reply\\r\\n[HireFire] forged \\u2028line"
     )
+
+
+def test_a_printed_line_is_flushed_at_once(logger, monkeypatch):
+    class Stream(io.StringIO):
+        flushes = 0
+
+        def flush(self):
+            self.flushes += 1
+
+    cut_off_from_every_handler(logger, monkeypatch)
+    stream = Stream()
+    monkeypatch.setattr("sys.stdout", stream)
+
+    safe_log(logger, "info", "ready")
+
+    assert stream.getvalue() == "ready\n"
+    assert stream.flushes == 1

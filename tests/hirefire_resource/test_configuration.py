@@ -391,3 +391,47 @@ def test_a_request_queue_time_without_a_token_is_dropped_and_starts_nothing(conf
     assert config.buffer.flush() == {}
     assert not config.rqt_enabled()
     assert not config.dispatcher.running()
+
+
+def test_a_request_without_an_identity_warns_once_that_its_samples_are_dropped(
+    config, caplog
+):
+    config.token = "token"
+    config.mark_http_active()
+
+    assert config.http_source() is None
+    assert config.http_source() is None
+
+    assert [record.getMessage() for record in caplog.records] == [
+        "[HireFire] Request queue time samples dropped: process identity "
+        "is unresolved. Set HIREFIRE_SERVICE_NAME or DYNO."
+    ]
+
+
+def test_no_warning_about_dropped_samples_without_a_token_or_without_a_request(
+    config, caplog
+):
+    without_a_request = Configuration()
+    without_a_request.token = "token"
+    config.mark_http_active()
+
+    assert config.http_source() is None
+    assert without_a_request.http_source() is None
+
+    assert caplog.records == []
+
+
+def test_an_identity_of_exactly_the_byte_limit_is_used(config, monkeypatch):
+    monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "w" * 128)
+
+    assert config.soft_identity() == "w" * 128
+
+
+def test_unlocking_after_a_fork_replaces_a_lock_another_thread_held(config):
+    held = config._mutex
+    held.acquire()
+
+    config.unlock_after_fork()
+
+    assert config._mutex is not held
+    assert isinstance(config.buffer, Buffer)

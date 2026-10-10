@@ -118,3 +118,15 @@ def test_the_time_between_lines_follows_the_monotonic_clock(failures, caplog, mo
     failures.failed(RuntimeError("down"))
 
     assert len(lines(caplog)) == 2
+
+
+def test_the_second_logged_line_names_the_failures_in_a_row(failures, caplog):
+    with freeze_time(at(1000)) as clock:
+        failures.failed(RuntimeError("down"))
+        clock.move_to(at(1060))
+        failures.failed(RuntimeError("down"))
+
+    assert lines(caplog)[1] == (
+        logging.ERROR,
+        "[HireFire] Dispatch error: RuntimeError: down (2 failed attempts in a row)",
+    )
