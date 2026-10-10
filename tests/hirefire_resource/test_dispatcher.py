@@ -3116,13 +3116,15 @@ def test_a_sample_taken_in_a_forked_child_before_its_start_is_sent():
     bodies = capture_ingest_bodies()
     dispatcher = configure_web_only()
     assert dispatcher.start()
+    assert dispatcher.stop()
 
     with patch("os.getpid", return_value=os.getpid() + 1):
         dispatcher.abandon_inherited_state()
         HireFire.configuration.buffer.sample("web", "rqt", 7)
         assert dispatcher.start()
-        wait_until(lambda: sent(bodies, "web", "rqt", [7.0, 1]))
-        dispatcher.stop()
+        assert dispatcher.stop()
+
+    assert sent(bodies, "web", "rqt", [7.0, 1])
 
 
 @mocketize
