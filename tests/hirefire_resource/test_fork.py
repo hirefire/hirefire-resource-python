@@ -97,24 +97,60 @@ def connected_client():
     return client, sock.fileno()
 
 
-def test_discarding_an_inherited_connection_leaves_the_descriptor_of_the_parent_open():
+def is_open(descriptor):
+    try:
+        os.fstat(descriptor)
+    except OSError:
+        return False
+    return True
+
+
+def test_discarding_an_inherited_connection_closes_its_descriptor():
     client, descriptor = connected_client()
     client._owner_pid = os.getpid()
 
     client.discard_inherited()
 
     assert client._connection is None
-    os.fstat(descriptor)
+    assert not is_open(descriptor)
 
 
-def test_reset_connection_on_pid_mismatch_detaches_without_close():
+def test_a_connection_of_another_process_is_closed_without_a_shutdown():
     client, descriptor = connected_client()
     client._owner_pid = os.getpid() - 1
 
-    client._reset_connection()
+    with patch.object(http.client.HTTPConnection, "close") as close:
+        client._reset_connection()
+        close.assert_not_called()
 
     assert client._connection is None
-    os.fstat(descriptor)
+    assert not is_open(descriptor)
+
+
+def test_a_forked_child_closes_the_connections_it_inherits_and_its_parent_keeps_them(
+    fake_server, monkeypatch, set_HIREFIRE_TOKEN
+):
+    monkeypatch.setenv("HIREFIRE_DATA_URL", fake_server.url)
+    monkeypatch.setenv("DYNO", "worker.1")
+    monkeypatch.setattr(Session, "TICK", 0.01)
+    with HireFire.configure() as config:
+        config.dyno("worker", lambda: 1)
+    session = HireFire.configuration.dispatcher._session
+    clients = [session._client, session._lease._client]
+
+    def sockets():
+        return [client._connection and client._connection.sock for client in clients]
+
+    wait_until(lambda: all(sockets()))
+    descriptors = [sock.fileno() for sock in sockets()]
+
+    report = fork_and_report(lambda: [is_open(fd) for fd in descriptors])
+
+    assert report == "[False, False]"
+    assert [is_open(descriptor) for descriptor in descriptors] == [True, True]
+    served = len(fake_server.requests)
+    wait_until(lambda: len(fake_server.requests) > served)
+    assert fake_server.accepted == 2
 
 
 def test_after_fork_in_child_job_only_abandons_inherited_state(set_HIREFIRE_TOKEN):

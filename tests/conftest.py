@@ -43,6 +43,18 @@ def _load_worktree_env():
 
 _load_worktree_env()
 
+
+def _give_mocket_sockets_a_detach():
+    try:
+        from mocket.socket import MocketSocket
+    except ImportError:
+        return
+    if not hasattr(MocketSocket, "detach"):
+        MocketSocket.detach = lambda self: os.open(os.devnull, os.O_RDONLY)
+
+
+_give_mocket_sockets_a_detach()
+
 _HIREFIRE_ENV = [
     "HIREFIRE_TOKEN",
     "HIREFIRE_DATA_URL",

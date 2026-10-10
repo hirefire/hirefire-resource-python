@@ -308,18 +308,13 @@ class Client:
 
     @staticmethod
     def _abandon_inherited_connection(connection: http.client.HTTPConnection) -> None:
-        sock = getattr(connection, "sock", None)
+        sock = connection.sock
+        connection.sock = None
         if sock is None:
             return
-        detach = getattr(sock, "detach", None)
-        if callable(detach):
-            try:
-                detach()
-            except OSError:
-                pass
         try:
-            connection.sock = None
-        except Exception:
+            os.close(sock.detach())
+        except OSError:
             pass
 
     def _base_url(self) -> str:
