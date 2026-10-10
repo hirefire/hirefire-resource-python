@@ -48,6 +48,8 @@ No result is committed to this repository. Every script writes under `tools/resu
 
 `bin/evidence-all` needs `bin/services up`, Docker, a built wheel in `dist/`, and the virtual environment that `bin/free-threaded-run` makes. It starts a RabbitMQ 4 and a Redis with TLS in containers of its own and removes them at its end. `TOOLS_EVIDENCE_OUT` names the directory under `results/`. A name as the argument runs that one output.
 
+Two scripts reach outside the checkout. `lease_steal` also runs the Ruby client when `TOOLS_RUBY_ROOT` names a checkout of it with its bundle installed. `evidence/cedar_proc_cpu.py` is not part of `bin/evidence-all`: it uses the standard library only and runs on a one-off dyno, with `heroku run --no-tty -a APP -- python - < tools/evidence/cedar_proc_cpu.py`.
+
 ## Mutation run
 
 `bin/mutate run` runs a changed line with the tests whose coverage names it, not with the whole env. Three steps keep a verdict tied to the change:

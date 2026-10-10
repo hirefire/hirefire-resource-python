@@ -114,7 +114,10 @@ lease_nested_body() {
 }
 
 lease_steal() {
-  $evidence lease_steal.py py314-rq2
+  $evidence lease_steal.py py314-rq2 python
+  if [ -n "${TOOLS_RUBY_ROOT:-}" ]; then
+    $evidence lease_steal.py py314-core ruby
+  fi
 }
 
 loop_death() {

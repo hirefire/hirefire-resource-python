@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -19,9 +20,31 @@ with HireFire.configure() as config:
         config.dyno("worker", lambda: 1)
 time.sleep(float(sys.argv[2]))
 """
+RUBY_CLIENT = r"""
+require "logger"
+module Resque; end
+require "hirefire-resource"
+HireFire.configure do |config|
+  config.logger = Logger.new(IO::NULL)
+  config.dyno(:worker) { 1 } if ARGV[0] == "capable"
+end
+sleep Float(ARGV[1])
+"""
 
 
-def trial(incapable, seconds):
+def spawn(client, role, seconds, environment):
+    if client == "ruby":
+        return subprocess.Popen(
+            ["bundle", "exec", "ruby", "-Ilib", "-e", RUBY_CLIENT, role, str(seconds)],
+            env=environment,
+            cwd=os.environ["TOOLS_RUBY_ROOT"],
+        )
+    return subprocess.Popen(
+        [sys.executable, "-c", CLIENT, role, str(seconds)], env=environment
+    )
+
+
+def trial(client, incapable, seconds):
     lock = threading.Lock()
     state = {"holder": None, "expires": 0.0}
     grants = []
@@ -46,25 +69,17 @@ def trial(incapable, seconds):
 
     server = FakeServer(handler, record=False)
     environment = {
-        **__import__("os").environ,
+        **os.environ,
         "HIREFIRE_TOKEN": "evidence-token",
         "HIREFIRE_DATA_URL": server.url,
         "DYNO": "worker.1",
     }
     processes = [
-        subprocess.Popen(
-            [sys.executable, "-c", CLIENT, "incapable", str(seconds + 3)],
-            env=environment,
-        )
-        for _ in range(incapable)
+        spawn(client, "incapable", seconds + 3, environment) for _ in range(incapable)
     ]
     time.sleep(3)
     capable_started = time.monotonic()
-    processes.append(
-        subprocess.Popen(
-            [sys.executable, "-c", CLIENT, "capable", str(seconds)], env=environment
-        )
-    )
+    processes.append(spawn(client, "capable", seconds, environment))
     for process in processes:
         process.wait()
     server.stop()
@@ -78,6 +93,7 @@ def trial(incapable, seconds):
         if identifier not in renewed and at >= capable_started
     )
     return {
+        "client": client,
         "processes_that_cannot_sample": incapable,
         "seconds_until_the_capable_process_held_the_lease": None
         if first_held is None
@@ -89,4 +105,4 @@ def trial(incapable, seconds):
 
 if __name__ == "__main__":
     for incapable in (0, 1, 5):
-        print(json.dumps(trial(incapable, 150)), flush=True)
+        print(json.dumps(trial(sys.argv[1], incapable, 150)), flush=True)
