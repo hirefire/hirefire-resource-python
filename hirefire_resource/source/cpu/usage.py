@@ -161,7 +161,8 @@ class Usage:
 
     @classmethod
     def processor_count(cls) -> int | None:
-        return os.cpu_count()
+        affinity = getattr(os, "sched_getaffinity", None)
+        return len(affinity(0)) if affinity is not None else os.cpu_count()
 
     @classmethod
     def read(cls, path: str) -> str | None:

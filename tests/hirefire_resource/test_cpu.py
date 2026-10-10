@@ -387,7 +387,23 @@ def test_available_cpus_reads_cgroup_v1_quota():
 
 def test_available_cpus_falls_back_to_processor_count():
     with patch.object(Usage, "read", return_value=None):
-        assert Usage.available_cpus() == os.cpu_count()
+        assert Usage.available_cpus() == Usage.processor_count()
+
+
+def test_the_processor_count_is_the_number_of_cpus_the_process_may_run_on(monkeypatch):
+    monkeypatch.setattr(os, "cpu_count", lambda: 14)
+    monkeypatch.setattr(os, "sched_getaffinity", lambda pid: {0, 1}, raising=False)
+
+    assert Usage.processor_count() == 2
+
+
+def test_the_processor_count_is_the_cpu_count_of_the_machine_without_an_affinity_call(
+    monkeypatch,
+):
+    monkeypatch.setattr(os, "cpu_count", lambda: 14)
+    monkeypatch.delattr(os, "sched_getaffinity", raising=False)
+
+    assert Usage.processor_count() == 14
 
 
 def test_cedar_shared_1x_entitlement_from_memory_fingerprint(monkeypatch):
