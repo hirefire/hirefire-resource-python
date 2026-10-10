@@ -38,6 +38,19 @@ def client():
 
 
 @pytest.mark.asyncio
+async def test_the_app_is_passed_under_the_name_that_1_x_gave_it():
+    wrapped = HireFireMiddleware(inner=get_asgi_application())
+    transport = httpx.ASGITransport(app=wrapped)
+
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as c:
+        response = await c.get("/any")
+
+    assert response.text == "DEFAULT"
+
+
+@pytest.mark.asyncio
 async def test_pass_through_without_token(client):
     with patch.object(Dispatcher, "start") as mock_start:
         with HireFire.configure() as config:
