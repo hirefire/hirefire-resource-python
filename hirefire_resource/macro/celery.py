@@ -14,10 +14,12 @@ from celery.signals import before_task_publish
 from dateutil.parser import parse
 
 try:
+    from amqp import spec as amqp_spec
     from amqp.exceptions import ChannelError
 
     AMQP_AVAILABLE = True
 except ImportError:
+    amqp_spec = None
 
     class ChannelError(Exception):  # type: ignore[no-redef]
         pass
@@ -331,9 +333,13 @@ def _job_queue_latency_rabbitmq(channel: Any, queue: str) -> float:
         except Exception:
             return 0.0
         finally:
-            channel.basic_reject(message.delivery_tag, requeue=True)
+            _return_to_queue(channel, message.delivery_tag)
     except ChannelError:
         return 0.0
+
+
+def _return_to_queue(channel: Any, delivery_tag: int) -> None:
+    channel.send_method(amqp_spec.Basic.Nack, "Lbb", (delivery_tag, False, True))
 
 
 def _job_queue_size_broker(

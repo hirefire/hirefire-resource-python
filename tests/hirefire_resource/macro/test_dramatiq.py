@@ -1491,6 +1491,24 @@ def test_rabbitmq_latency_requeues_even_when_body_corrupt():
                     pass
 
 
+def test_latency_samples_leave_the_head_message_of_a_quorum_queue_in_the_queue():
+    queue = f"hf_dramatiq_quorum_{uuid.uuid4().hex[:8]}"
+    connection = pika.BlockingConnection(pika.URLParameters(amqp_url))
+    try:
+        channel = connection.channel()
+        channel.queue_declare(queue, durable=True, arguments={"x-queue-type": "quorum"})
+        channel.confirm_delivery()
+        channel.basic_publish("", queue, _encode(queue=queue))
+
+        for _ in range(25):
+            assert job_queue_latency(queue, broker_url=amqp_url) >= 0
+
+        assert job_queue_size(queue, broker_url=amqp_url) == 1
+    finally:
+        connection.close()
+        _rmq_cleanup(queue)
+
+
 def test_rabbitmq_broker_injection():
     queue = f"hf_dramatiq_broker_inj_{uuid.uuid4().hex[:8]}"
     _rmq_cleanup(queue)
@@ -1635,7 +1653,7 @@ def test_rabbitmq_samples_only_main_queue_names_not_dq_or_xq(monkeypatch):
             )
             return Method(), None, body
 
-        def basic_reject(self, delivery_tag, requeue=True):
+        def basic_nack(self, delivery_tag, requeue=False):
             assert requeue is True
             assert delivery_tag == 1
 
@@ -1690,7 +1708,7 @@ def test_rabbitmq_multi_queue_latency_max(monkeypatch):
             )
             return Method(self._tag), None, body
 
-        def basic_reject(self, delivery_tag, requeue=True):
+        def basic_nack(self, delivery_tag, requeue=False):
             assert requeue is True
 
     class Connection:
@@ -1792,7 +1810,7 @@ def test_rabbitmq_latency_always_rejects_even_when_reject_raises(monkeypatch):
             )
             return Method(), None, body
 
-        def basic_reject(self, delivery_tag, requeue=True):
+        def basic_nack(self, delivery_tag, requeue=False):
             rejected["n"] += 1
             assert delivery_tag == 7
             assert requeue is True

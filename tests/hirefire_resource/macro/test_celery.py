@@ -4,6 +4,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
@@ -466,6 +467,36 @@ async def test_job_queue_size_with_jobs_async(celery_app):
 
 
 @pytest.fixture
+def quorum_queue():
+    name = f"hf_celery_quorum_{uuid.uuid4().hex[:8]}"
+    arguments = {"x-queue-type": "quorum"}
+    app = _celery(amqp_url)
+    app.conf.task_queues = [Queue(name, queue_arguments=arguments)]
+    with app.connection_or_acquire() as connection:
+        connection.default_channel.queue_declare(
+            queue=name, durable=True, auto_delete=False, arguments=arguments
+        )
+
+    yield app, name
+
+    with app.connection_or_acquire() as connection:
+        connection.default_channel.queue_delete(queue=name)
+
+
+def test_latency_samples_leave_the_head_message_of_a_quorum_queue_in_the_queue(
+    quorum_queue,
+):
+    app, name = quorum_queue
+    app.send_task("test_task", queue=name)
+    _assert_size(1, name, celery_app=app, skip_working=True)
+
+    for _ in range(25):
+        assert job_queue_latency(name, broker_url=amqp_url) >= 0
+
+    assert job_queue_size(name, celery_app=app, skip_working=True) == 1
+
+
+@pytest.fixture
 def priority_celery_app():
     app = _celery(amqp_url)
 
@@ -573,8 +604,6 @@ def test_job_queue_size_with_mismatched_priority_arguments(celery_app):
 
     if not broker_url.startswith("amqp"):
         pytest.skip("Priority queues only work with RabbitMQ")
-
-    import uuid
 
     queue_name = f"test_mismatch_{uuid.uuid4().hex[:8]}"
 
@@ -696,20 +725,20 @@ def test_job_queue_latency_rabbitmq_requeues_after_parse_error():
 
     class FakeChannel:
         def __init__(self):
-            self.rejected = []
+            self.sent = []
 
         def basic_get(self, queue):
             return BrokenMessage()
 
-        def basic_reject(self, delivery_tag, requeue=False):
-            self.rejected.append((delivery_tag, requeue))
+        def send_method(self, method, format, arguments):
+            self.sent.append((method, format, arguments))
 
     channel = FakeChannel()
     latency = _job_queue_latency_rabbitmq(channel, "celery")
     _assert_float_seconds(latency)
     assert latency == 0
 
-    assert channel.rejected == [(7, True)]
+    assert channel.sent == [((60, 120), "Lbb", (7, False, True))]
 
 
 def test_job_queue_latency_redis_empty_queue_is_float_zero():

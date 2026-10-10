@@ -547,7 +547,7 @@ def _rabbitmq_queue_latency(
             latency = max(0.0, (now_ms - ts) / 1000.0)
     finally:
         try:
-            channel.basic_reject(method.delivery_tag, requeue=True)
+            channel.basic_nack(method.delivery_tag, requeue=True)
         except Exception:
             pass
     return latency, channel
