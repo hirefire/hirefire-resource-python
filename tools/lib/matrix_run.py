@@ -5,6 +5,7 @@ import random
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -12,6 +13,62 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tools_common as common
 
 PASSED_ENV = "PYTEST_ADDOPTS,TOOLS_SEED,TOOLS_RECORD,COVERAGE_FILE,PYTHONPATH"
+SERVICE_ENV = "REDIS_URL,AMQP_URL"
+MAX_LANES = 4
+
+
+def compose(lane, *arguments):
+    base = subprocess.run(
+        ["bin/worktree", "compose-project"],
+        cwd=common.ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return subprocess.run(
+        ["docker", "compose", "-p", f"{base}-lane{lane}", *arguments],
+        cwd=common.ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def lane_services(lane):
+    if lane == 0:
+        return {}
+    compose(lane, "up", "-d", "--wait")
+    redis = compose(lane, "port", "redis", "6379").rsplit(":", 1)[1]
+    rabbitmq = compose(lane, "port", "rabbitmq", "5672").rsplit(":", 1)[1]
+    return {
+        "REDIS_PORT": redis,
+        "RABBITMQ_PORT": rabbitmq,
+        "REDIS_URL": f"redis://127.0.0.1:{redis}/0",
+        "AMQP_URL": f"amqp://guest:guest@127.0.0.1:{rabbitmq}",
+    }
+
+
+def build_package(root, directory):
+    target = directory / "package"
+    for old in target.glob("*.tar.gz"):
+        old.unlink()
+    subprocess.run(
+        ["poetry", "build", "--format", "sdist", "--output", str(target)],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    return str(next(target.glob("*.tar.gz")))
+
+
+def lanes(envs, jobs):
+    by_python = {}
+    for env in envs:
+        by_python.setdefault(env.split("-", 1)[0], []).append(env)
+    result = [[] for _ in range(min(jobs, MAX_LANES, len(by_python)))]
+    for group in sorted(by_python.values(), key=len, reverse=True):
+        min(result, key=len).extend(group)
+    return result
 
 
 def read_record(path):
@@ -34,7 +91,7 @@ def read_record(path):
     return counts, failed, sessions
 
 
-def run_env(env, root, directory, seed, coverage):
+def run_env(env, root, directory, seed, coverage, services=None, package=None):
     record = directory / "tests" / f"{env}.jsonl"
     log = directory / "logs" / f"{env}.log"
     for path in (record, log):
@@ -64,11 +121,18 @@ def run_env(env, root, directory, seed, coverage):
         child_env["COVERAGE_FILE"] = str(directory / "coverage-scratch" / env)
         (directory / "coverage-scratch").mkdir(parents=True, exist_ok=True)
     child_env["PYTEST_ADDOPTS"] = " ".join(addopts)
+    passed_env = PASSED_ENV
+    if services:
+        child_env.update(services)
+        passed_env += f",{SERVICE_ENV}"
+    command = ["tox", "run", "-e", env, "-x", f"testenv.pass_env+={passed_env}"]
+    if package:
+        command += ["--installpkg", package]
 
     started = time.monotonic()
     with open(log, "w") as output:
         status = subprocess.run(
-            ["tox", "run", "-e", env, "-x", f"testenv.pass_env+={PASSED_ENV}"],
+            command,
             cwd=root,
             env=child_env,
             stdout=output,
@@ -76,7 +140,7 @@ def run_env(env, root, directory, seed, coverage):
         ).returncode
     seconds = round(time.monotonic() - started, 1)
     counts, failed, sessions = read_record(record)
-    return {
+    result = {
         "env": env,
         "exit": status,
         "seconds": seconds,
@@ -84,16 +148,31 @@ def run_env(env, root, directory, seed, coverage):
         **counts,
         "failed_tests": failed,
     }
+    lines = [
+        f"{env:<22} exit={status} {seconds:>6}s passed={counts['passed']} "
+        f"failed={counts['failed']} skipped={counts['skipped']}"
+    ]
+    lines += [f"  FAILED {test}" for test in failed]
+    print("\n".join(lines), flush=True)
+    return result
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("run")
+    parser.add_argument("run", nargs="?")
     parser.add_argument("--coverage", action="store_true")
     parser.add_argument("--seed")
     parser.add_argument("--only")
+    parser.add_argument("--jobs", type=int, default=1)
+    parser.add_argument("--down", action="store_true")
     parser.add_argument("--root", default=str(common.ROOT))
     options = parser.parse_args()
+    if options.down:
+        for lane in range(1, MAX_LANES):
+            compose(lane, "down", "--volumes")
+        return
+    if not options.run:
+        parser.error("a run name is required")
 
     root = Path(options.root)
     directory = common.results(options.run)
@@ -103,18 +182,27 @@ def main():
     envs = options.only.split(",") if options.only else common.tox_envs(root)
 
     started = time.monotonic()
-    results = []
-    for env in envs:
-        result = run_env(env, root, directory, seed, options.coverage)
-        results.append(result)
-        print(
-            f"{env:<22} exit={result['exit']} {result['seconds']:>6}s "
-            f"passed={result['passed']} failed={result['failed']} "
-            f"skipped={result['skipped']}",
-            flush=True,
-        )
-        for test in result["failed_tests"]:
-            print(f"  FAILED {test}", flush=True)
+    if options.jobs > 1:
+        package = build_package(root, directory)
+
+        def run_lane(numbered):
+            services = lane_services(numbered[0])
+            return [
+                run_env(env, root, directory, seed, options.coverage, services, package)
+                for env in numbered[1]
+            ]
+
+        groups = lanes(envs, options.jobs)
+        with ThreadPoolExecutor(len(groups)) as pool:
+            results = [
+                result
+                for lane in pool.map(run_lane, enumerate(groups))
+                for result in lane
+            ]
+    else:
+        results = [
+            run_env(env, root, directory, seed, options.coverage) for env in envs
+        ]
 
     summary = {
         "run": options.run,

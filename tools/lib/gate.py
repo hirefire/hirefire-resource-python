@@ -41,6 +41,8 @@ def factors(path):
                 return names
     if "middleware" in parts and parts[0] == "tests":
         return FRAMEWORKS
+    if parts[:2] == ("tests", "hirefire_resource") and "macro" not in parts:
+        return ["core"]
     return None
 
 
@@ -72,6 +74,8 @@ def main():
             "gate",
             "--only",
             ",".join(selected),
+            "--jobs",
+            "4",
         ],
         cwd=common.ROOT,
     )

@@ -4,40 +4,44 @@ Checks that go beyond the test suite. The suite shows that the code does what th
 
 Run every script from the repository root, after `tools/bin/setup`. They are not part of `paver check` or CI, because mutation testing and the soak take long.
 
-| Path                      | Holds                                                                                                        |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `bin/setup`               | Builds every tox env, starts the test services, and creates the virtual environment of the tools             |
-| `bin/sandbox`             | Copies the tree to a throwaway directory, with test services of its own on request                           |
-| `bin/matrix-run`          | Runs every tox env once, in random order and with coverage on request, and writes a summary                  |
-| `bin/matrix-repeat`       | Runs the matrix several times in random order                                                                |
-| `bin/matrix-summary`      | Combines the runs and names every test that failed in any of them                                            |
-| `bin/coverage-report`     | Merges line and branch coverage of all envs per file                                                         |
-| `bin/public-api`          | Writes the public names and signatures by import                                                             |
-| `bin/wire-goldens`        | Captures the ingest and lease requests, or checks them against the golden copies with `--check`              |
-| `bin/mutate`              | Changes `hirefire_resource/` one small step at a time and runs the tests that cover the line                 |
-| `bin/mutation-report`     | Reports the score per file and fails on a surviving change without a verdict                                 |
-| `bin/fault-run`           | Runs the client against a local server that misbehaves in 21 ways                                            |
-| `bin/fault-compare`       | Prints each fault beside the Ruby results that the canon keeps                                               |
-| `bin/soak`                | Runs the client for a long time with faults and forks, against a server in its own process                   |
-| `bin/soak-variants`       | Runs the soak with and without the client, the forks, and the faults, and prints the memory growth of each   |
-| `bin/host-run`            | Boots the client under Gunicorn, Uvicorn, uWSGI, and Celery in a Linux container                             |
-| `bin/host-race`           | Boots each preloading server ten times with a token and ten times without                                    |
-| `bin/host-summary`        | Prints the result per host of one or more host runs                                                          |
-| `bin/free-threaded-run`   | Runs the core tests on a Python build without the GIL                                                        |
-| `bin/evidence`            | Runs one script of `evidence/` in a tox env                                                                  |
-| `bin/evidence-all [NAME]` | Runs every script of `evidence/` with its arguments and writes one output per finding to `results/evidence/` |
-| `bin/check-audit`         | Checks the audit documents of the canon: findings, map, comparison table, and each point of each lens        |
-| `bin/check-fixes`         | Checks the status table of the fix plan of the canon against the commits that name a finding                 |
-| `bin/gate`                | Runs `paver check` and the tox envs of the changed files, or every env with `--all`, before a commit         |
-| `baseline/`               | The golden copies of the public API and the wire requests                                                    |
-| `evidence/`               | Scripts that reproduce one finding each                                                                      |
-| `hosts/`                  | The image, the apps, and the drivers of the host runs                                                        |
-| `lib/`                    | The code behind the scripts                                                                                  |
-| `results/`                | Where every script writes. Ignored by git                                                                    |
+| Path                      | Holds                                                                                                                                         |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bin/setup`               | Builds every tox env, starts the test services, and creates the virtual environment of the tools                                              |
+| `bin/sandbox`             | Copies the tree to a throwaway directory, with test services of its own on request                                                            |
+| `bin/matrix-run`          | Runs every tox env once, in random order and with coverage on request, and writes a summary. `--jobs 4` runs the Python versions side by side |
+| `bin/matrix-repeat`       | Runs the matrix several times in random order                                                                                                 |
+| `bin/matrix-summary`      | Combines the runs and names every test that failed in any of them                                                                             |
+| `bin/coverage-report`     | Merges line and branch coverage of all envs per file                                                                                          |
+| `bin/public-api`          | Writes the public names and signatures by import                                                                                              |
+| `bin/wire-goldens`        | Captures the ingest and lease requests, or checks them against the golden copies with `--check`                                               |
+| `bin/mutate`              | Changes `hirefire_resource/` one small step at a time and runs the tests that cover the line                                                  |
+| `bin/mutation-report`     | Reports the score per file and fails on a surviving change without a verdict                                                                  |
+| `bin/fault-run`           | Runs the client against a local server that misbehaves in 21 ways                                                                             |
+| `bin/fault-compare`       | Prints each fault beside the Ruby results that the canon keeps                                                                                |
+| `bin/soak`                | Runs the client for a long time with faults and forks, against a server in its own process                                                    |
+| `bin/soak-variants`       | Runs the soak with and without the client, the forks, and the faults, and prints the memory growth of each                                    |
+| `bin/host-run`            | Boots the client under Gunicorn, Uvicorn, uWSGI, and Celery in a Linux container                                                              |
+| `bin/host-race`           | Boots each preloading server ten times with a token and ten times without                                                                     |
+| `bin/host-summary`        | Prints the result per host of one or more host runs                                                                                           |
+| `bin/free-threaded-run`   | Runs the core tests on a Python build without the GIL                                                                                         |
+| `bin/evidence`            | Runs one script of `evidence/` in a tox env                                                                                                   |
+| `bin/evidence-all [NAME]` | Runs every script of `evidence/` with its arguments and writes one output per finding to `results/evidence/`                                  |
+| `bin/check-audit`         | Checks the audit documents of the canon: findings, map, comparison table, and each point of each lens                                         |
+| `bin/check-fixes`         | Checks the status table of the fix plan of the canon against the commits that name a finding                                                  |
+| `bin/gate`                | Runs `paver check` and the tox envs of the changed files, or every env with `--all`, before a commit                                          |
+| `baseline/`               | The golden copies of the public API and the wire requests                                                                                     |
+| `evidence/`               | Scripts that reproduce one finding each                                                                                                       |
+| `hosts/`                  | The image, the apps, and the drivers of the host runs                                                                                         |
+| `lib/`                    | The code behind the scripts                                                                                                                   |
+| `results/`                | Where every script writes. Ignored by git                                                                                                     |
 
 ## Results
 
 No result is committed to this repository. Every script writes under `tools/results/`, which git ignores. Results worth keeping are stored in the canon, under `hirefire-resource/python-audit/results/`, without paths or ports of the machine that produced them.
+
+## Matrix lanes
+
+`bin/matrix-run RUN --jobs N` runs up to four lanes, one or more Python versions each. Every lane after the first gets a Redis and a RabbitMQ of its own, in a Compose project named after that of the checkout with `-lane1` to `-lane3` appended, so two lanes never share a queue. The stacks stay up between runs. `bin/matrix-run --down` removes them. With `--jobs` the package is built once and every env installs that build. `bin/gate` runs with four lanes. The runs whose numbers are reported (`bin/matrix-repeat`) run one env at a time.
 
 ## Evidence
 
