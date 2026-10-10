@@ -7,8 +7,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import coverage
 import tools_common as common
 
-LINE_FLOOR = 96.0
-BRANCH_FLOOR = 91.0
+LINE_FLOOR = 98.0
+BRANCH_FLOOR = 95.0
 
 
 def recorded_commit(run):
