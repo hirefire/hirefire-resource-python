@@ -18,7 +18,7 @@ class Buffer:
     def sample(self, name: str, strategy: str, value: float) -> None:
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             return
-        if not math.isfinite(value):
+        if isinstance(value, float) and not math.isfinite(value):
             return
 
         timestamp = int(time.time())

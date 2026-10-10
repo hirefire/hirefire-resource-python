@@ -1,22 +1,18 @@
 import math
-from typing import TypeGuard
+import numbers
 
 
-def valid_sample(value: object) -> TypeGuard[int | float]:
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-        and value >= 0
-    )
-
-
-def coerce_sample(value: int | float) -> int | float:
-    if isinstance(value, bool):
-        return float(value)
+def coerce_sample(value: object) -> int | float | None:
+    if isinstance(value, bool) or not isinstance(value, numbers.Number):
+        return None
     if isinstance(value, int):
-        return value
-    return float(value)
+        return value if value >= 0 else None
+
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) and number >= 0 else None
 
 
 def format_sample_value(value: object) -> str:

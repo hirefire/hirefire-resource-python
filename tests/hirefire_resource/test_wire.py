@@ -4,6 +4,8 @@ import os
 import re
 import socket
 import time
+from decimal import Decimal
+from fractions import Fraction
 
 import pytest
 
@@ -156,6 +158,22 @@ def test_a_process_with_a_sampler_asks_for_the_lease_and_reports_what_the_plan_n
     assert re.fullmatch(
         r'\[\{"name":"worker","metrics":\{"jqs":\{"\d{10}":42\}\}\}\]', ingest.body
     )
+
+
+@pytest.mark.parametrize("value", [Decimal("7.5"), Fraction(15, 2)])
+def test_a_sampler_that_returns_a_decimal_or_a_fraction_reports_it_as_a_number(
+    wire, caplog, value
+):
+    wire.lease = grant()
+
+    with HireFire.configure() as config:
+        config.dyno("worker", lambda: value)
+    ingest = wire.wait_for_request(INGEST, containing="jqs")
+
+    assert re.fullmatch(
+        r'\[\{"name":"worker","metrics":\{"jqs":\{"\d{10}":7\.5\}\}\}\]', ingest.body
+    )
+    assert errors(caplog) == []
 
 
 def test_a_plan_that_asks_for_a_trace_gets_one_with_the_sample(wire):

@@ -8,7 +8,7 @@ from hirefire_resource.log import format_error, safe_log, verbose
 from hirefire_resource.once import Once
 from hirefire_resource.plan.entry import Entry
 from hirefire_resource.probe import Probe
-from hirefire_resource.sample import coerce_sample, format_sample_value, valid_sample
+from hirefire_resource.sample import coerce_sample, format_sample_value
 from hirefire_resource.strategy import WRK
 
 if TYPE_CHECKING:
@@ -115,8 +115,9 @@ class Sampler:
             if not live():
                 return
 
-            if valid_sample(value):
-                self._configuration.buffer.sample(name, strategy, coerce_sample(value))
+            number = coerce_sample(value)
+            if number is not None:
+                self._configuration.buffer.sample(name, strategy, number)
             else:
                 safe_log(
                     self._logger(),

@@ -1,6 +1,7 @@
 import logging
 import threading
 from decimal import Decimal
+from fractions import Fraction
 
 import pytest
 
@@ -174,6 +175,14 @@ def test_a_sampler_that_is_not_ready_is_dropped_without_a_line(config, sampler, 
         ("7", "str('7')"),
         (True, "bool('True')"),
         ([1], "list('[1]')"),
+        (Decimal("-1"), "Decimal('-1')"),
+        (Decimal("NaN"), "Decimal('NaN')"),
+        (Decimal("sNaN"), "Decimal('sNaN')"),
+        (Decimal("Infinity"), "Decimal('Infinity')"),
+        (Decimal("1e400"), "Decimal('1E+400')"),
+        (Fraction(-1, 2), "Fraction('-1/2')"),
+        (Fraction(10**400), f"Fraction('1{'0' * 63}…')"),
+        (1j, "complex('1j')"),
     ],
 )
 def test_a_value_that_is_not_a_non_negative_number_is_dropped_and_logged(
@@ -188,6 +197,39 @@ def test_a_value_that_is_not_a_non_negative_number_is_dropped_and_logged(
         f"[HireFire] The sampler for 'worker' returned {shown}, "
         "expected a non-negative number. Sample dropped."
     ]
+
+
+@pytest.mark.parametrize(
+    ("value", "recorded"),
+    [
+        (Decimal("7.5"), 7.5),
+        (Decimal("3"), 3.0),
+        (Decimal("0"), 0.0),
+        (Fraction(15, 2), 7.5),
+        (Fraction(3), 3.0),
+    ],
+)
+def test_a_decimal_or_a_fraction_is_recorded_as_a_float(
+    config, sampler, caplog, value, recorded
+):
+    config.dyno("worker", lambda: value)
+
+    sampler.round([LOCAL], always)
+
+    (sample,) = sampled(config)["worker"]["jql"]
+    assert (type(sample), sample) == (float, recorded)
+    assert messages(caplog) == []
+
+
+def test_a_whole_number_too_large_for_a_float_is_recorded_as_it_is(
+    config, sampler, caplog
+):
+    config.dyno("worker", lambda: 10**400)
+
+    sampler.round([LOCAL], always)
+
+    assert sampled(config) == {"worker": {"jql": [10**400]}}
+    assert messages(caplog) == []
 
 
 def test_a_sample_that_returns_after_the_round_ended_is_not_recorded(config, sampler):
@@ -525,18 +567,15 @@ def test_a_hook_that_raises_while_an_entry_is_read_is_logged_for_that_entry(
     ]
 
 
-def test_a_value_of_another_numeric_type_is_dropped(
+def test_a_decimal_that_a_macro_returns_is_recorded_as_a_float(
     config, sampler, load_macros, caplog
 ):
     load_macros(rq=fake_macro(job_queue_size=lambda *queues, **options: Decimal("3")))
 
     sampler.round([RQ_SIZE], always)
 
-    assert sampled(config) == {}
-    assert messages(caplog) == [
-        "[HireFire] Plan sampler for 'worker' returned Decimal('3'), "
-        "expected a non-negative number. Sample dropped."
-    ]
+    assert sampled(config) == {"worker": {"jqs": [3.0]}}
+    assert messages(caplog) == []
 
 
 def test_a_round_runs_inside_the_begin_and_end_hooks_of_the_macros(
