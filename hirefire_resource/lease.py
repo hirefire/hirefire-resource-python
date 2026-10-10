@@ -194,50 +194,43 @@ class Lease:
             )
             return self._empty_grant_body(trace=trace)
 
-        accepted: list[dict[str, Any]] = []
-        skipped = 0
-        for entry in entries:
-            if len(accepted) >= self.MAX_JOB_QUEUES:
-                skipped += 1
-                continue
-            if not isinstance(entry, dict):
-                skipped += 1
-                continue
+        return self.GrantBody(job_queues=self._plan_entries(entries), trace=trace)
 
-            name = self._wire_string(entry.get("name"))
-            strategy = self._wire_string(entry.get("strategy"))
-            adapter_present = "adapter" in entry
-            adapter = self._wire_string(entry["adapter"]) if adapter_present else None
-            if (
-                not name
-                or not strategy
-                or len(name.encode("utf-8")) > self.MAX_NAME_BYTES
-            ):
-                skipped += 1
-                continue
+    def _plan_entries(self, entries: list[Any]) -> list[dict[str, Any]]:
+        valid = [
+            entry for entry in map(self._normalize_entry, entries) if entry is not None
+        ]
+        invalid = len(entries) - len(valid)
 
-            normalized = dict(entry)
-            normalized["name"] = name
-            normalized["strategy"] = strategy
-            if adapter_present:
-                normalized["adapter"] = adapter
-            accepted.append(normalized)
-
-        if len(entries) > self.MAX_JOB_QUEUES:
-            extra = f" ({skipped} invalid also skipped)" if skipped > 0 else ""
+        if len(valid) > self.MAX_JOB_QUEUES:
+            extra = f" ({invalid} invalid also skipped)" if invalid else ""
             self._log(
                 "error",
                 f"[HireFire] Lease plan truncated to {self.MAX_JOB_QUEUES} job queue "
                 f"entries{extra}.",
             )
-        elif skipped > 0:
-            label = "entry" if skipped == 1 else "entries"
+        elif invalid:
+            label = "entry" if invalid == 1 else "entries"
             self._log(
                 "error",
-                f"[HireFire] Lease plan skipped {skipped} invalid job queue {label}.",
+                f"[HireFire] Lease plan skipped {invalid} invalid job queue {label}.",
             )
 
-        return self.GrantBody(job_queues=accepted, trace=trace)
+        return valid[: self.MAX_JOB_QUEUES]
+
+    def _normalize_entry(self, entry: Any) -> dict[str, Any] | None:
+        if not isinstance(entry, dict):
+            return None
+
+        name = self._wire_string(entry.get("name"))
+        strategy = self._wire_string(entry.get("strategy"))
+        if not name or not strategy or len(name.encode("utf-8")) > self.MAX_NAME_BYTES:
+            return None
+
+        normalized = {**entry, "name": name, "strategy": strategy}
+        if "adapter" in entry:
+            normalized["adapter"] = self._wire_string(entry["adapter"])
+        return normalized
 
     def _log(self, level: str, message: str) -> None:
         from hirefire_resource.hirefire import HireFire

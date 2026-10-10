@@ -605,33 +605,70 @@ def test_accepts_a_plan_of_max_job_queues_with_three_queues_each(caplog):
     assert caplog.text == ""
 
 
-@mocketize
-def test_truncates_plan_to_max_job_queues(caplog):
-    caplog.set_level(logging.ERROR)
-    entries = [
-        {
-            "name": f"w{i}",
-            "strategy": "jql",
-            "adapter": None,
-            "queues": [],
-            "options": {},
-        }
-        for i in range(Lease.MAX_JOB_QUEUES + 3)
-    ]
+def plan_of(valid, invalid=0):
+    entries = [{"name": f"w{i}", "strategy": "jql"} for i in range(valid)]
+    entries[1:1] = [{"name": "", "strategy": "jql"}] * invalid
     Entry.single_register(
         Entry.POST,
         LEASE_URL,
         status=200,
-        headers={
-            "HireFire-Lease-Granted": "true",
-            "HireFire-Sample-Frequency": "15",
-        },
+        headers={"HireFire-Lease-Granted": "true"},
         body=json.dumps({"version": 1, "job_queues": entries}),
     )
     lease = Lease()
     lease.request_if_due(hold=lambda _plan: True)
+    return lease
+
+
+@mocketize
+def test_truncates_plan_to_max_job_queues(caplog):
+    caplog.set_level(logging.ERROR)
+
+    lease = plan_of(valid=300)
+
+    assert [entry["name"] for entry in lease.job_queues] == [
+        f"w{i}" for i in range(Lease.MAX_JOB_QUEUES)
+    ]
+    assert [record.getMessage() for record in caplog.records] == [
+        "[HireFire] Lease plan truncated to 256 job queue entries."
+    ]
+
+
+@mocketize
+def test_a_truncated_plan_counts_only_its_invalid_entries_as_invalid(caplog):
+    caplog.set_level(logging.ERROR)
+
+    lease = plan_of(valid=257, invalid=3)
+
     assert len(lease.job_queues) == Lease.MAX_JOB_QUEUES
-    assert "truncated" in caplog.text
+    assert [record.getMessage() for record in caplog.records] == [
+        "[HireFire] Lease plan truncated to 256 job queue entries "
+        "(3 invalid also skipped)."
+    ]
+
+
+@mocketize
+def test_a_plan_is_not_truncated_when_its_valid_entries_fit(caplog):
+    caplog.set_level(logging.ERROR)
+
+    lease = plan_of(valid=256, invalid=50)
+
+    assert len(lease.job_queues) == Lease.MAX_JOB_QUEUES
+    assert [record.getMessage() for record in caplog.records] == [
+        "[HireFire] Lease plan skipped 50 invalid job queue entries."
+    ]
+
+
+@mocketize
+def test_a_single_invalid_plan_entry_is_named_in_the_singular(caplog):
+    caplog.set_level(logging.ERROR)
+
+    lease = plan_of(valid=2, invalid=1)
+
+    assert [entry["name"] for entry in lease.job_queues] == ["w0", "w1"]
+    assert [record.getMessage() for record in caplog.records] == [
+        "[HireFire] Lease plan skipped 1 invalid job queue entry."
+    ]
 
 
 @mocketize
