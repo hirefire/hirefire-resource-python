@@ -52,6 +52,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A Celery broker that is down no longer reports job queue size or latency as 0.
 - A `broker_url` passed to a Celery macro is used. `CELERY_BROKER_URL` overruled it before, without an error.
 - Celery `job_queue_size` with `celery_app` no longer raises `AttributeError` on every sample after an error closed a broker connection in the app's pool.
+- A Celery macro call no longer replaces the current Celery app of the thread it runs on.
 - Celery job queue latency on RabbitMQ no longer removes the oldest message of a quorum queue. Each sample returned that message with a reject, which RabbitMQ 4 counts toward the delivery limit of 20.
 - Celery Redis latency skips corrupt JSON instead of raising. Celery RabbitMQ latency always requeues the peeked message, even when the header parse fails.
 - RQ job queue latency skips an unreadable job timestamp instead of failing the whole sample.
