@@ -328,6 +328,40 @@ def test_a_failed_thread_spawn_leaves_the_dispatcher_retryable(caplog):
 
 
 @mocketize
+def test_a_start_without_package_metadata_warns_once_that_the_version_is_unknown(
+    monkeypatch, caplog
+):
+    monkeypatch.setattr("hirefire_resource.version.VERSION", "unknown")
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    dispatcher = configure_web_only()
+
+    for _ in range(2):
+        assert dispatcher.start()
+        assert dispatcher.stop()
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert warnings == [
+        "[HireFire] The version of hirefire-resource is unknown, because the "
+        "metadata of the package (its dist-info directory) is not installed. "
+        "HireFire treats a client without a version as a legacy client. "
+        "Install the package with its metadata."
+    ]
+
+
+@mocketize
+def test_a_start_with_package_metadata_does_not_warn(caplog):
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    dispatcher = configure_web_only()
+
+    assert dispatcher.start()
+    assert dispatcher.stop()
+
+    assert [r for r in caplog.records if r.levelname == "WARNING"] == []
+
+
+@mocketize
 def test_dispatches_web_metrics(session):
     stub_lease()
     bodies = capture_ingest_bodies()

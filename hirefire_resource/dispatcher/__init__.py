@@ -2,7 +2,7 @@ import os
 import threading
 from typing import TYPE_CHECKING
 
-from hirefire_resource import plan
+from hirefire_resource import plan, version
 from hirefire_resource.dispatcher.session import Session
 from hirefire_resource.log import safe_log
 
@@ -52,6 +52,7 @@ class Dispatcher:
             return False
 
         safe_log(self._logger(), "info", "[HireFire] Starting dispatcher.")
+        self._warn_unknown_version_once()
         return True
 
     def stop(self, flush: bool = True) -> bool:
@@ -113,6 +114,21 @@ class Dispatcher:
                 "error",
                 f"[HireFire] Could not abandon inherited dispatcher state: {error}",
             )
+
+    def _warn_unknown_version_once(self) -> None:
+        if version.VERSION != version.UNKNOWN:
+            return
+
+        self._configuration.once.log(
+            "warning",
+            "unknown_version",
+            lambda: (
+                "[HireFire] The version of hirefire-resource is unknown, because the "
+                "metadata of the package (its dist-info directory) is not installed. "
+                "HireFire treats a client without a version as a legacy client. "
+                "Install the package with its metadata."
+            ),
+        )
 
     def _healthy(self) -> bool:
         session = self._session
