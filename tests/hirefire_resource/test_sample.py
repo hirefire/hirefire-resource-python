@@ -75,3 +75,8 @@ def test_a_value_that_cannot_be_printed_is_named_by_its_type_alone():
             raise RuntimeError("no text")
 
     assert format_sample_value(Unprintable()) == "Unprintable"
+
+
+def test_a_value_of_exactly_64_bytes_is_shown_whole_and_a_longer_one_is_cut_there():
+    assert format_sample_value("x" * 64) == "str('" + "x" * 64 + "')"
+    assert format_sample_value("x" * 65) == "str('" + "x" * 64 + "…')"
