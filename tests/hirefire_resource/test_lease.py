@@ -650,6 +650,91 @@ def test_logs_to_the_logger_of_the_configuration_it_was_given(caplog):
 
 
 @mocketize
+def test_a_plan_problem_at_every_response_is_logged_once_a_minute_and_once_when_a_plan_reads_again(
+    caplog,
+):
+    caplog.set_level(logging.INFO)
+    grant = {"HireFire-Lease-Granted": "true", "HireFire-Lease-TTL": "5"}
+    bodies = ["{not json"] * 13 + ['{"job_queues": [1]}', '{"job_queues": []}']
+    Entry.register(
+        Entry.POST,
+        LEASE_URL,
+        *[Response(status=200, headers=grant, body=body) for body in bodies],
+    )
+
+    def messages():
+        return [record.getMessage() for record in caplog.records]
+
+    with freeze_time(at(1000)) as clock:
+        lease = Lease(HireFire.configuration)
+        for seconds in range(0, 60, 5):
+            clock.move_to(at(1000 + seconds))
+            lease.request_if_due(hold=lambda _plan: True)
+        assert messages() == [
+            "[HireFire] Lease grant body was not valid JSON. Plan ignored."
+        ]
+
+        clock.move_to(at(1060))
+        lease.request_if_due(hold=lambda _plan: True)
+        assert messages()[1:] == [
+            "[HireFire] Lease grant body was not valid JSON. Plan ignored. "
+            "(13 failed attempts in a row)"
+        ]
+
+        clock.move_to(at(1065))
+        lease.request_if_due(hold=lambda _plan: True)
+        assert len(messages()) == 2
+
+        clock.move_to(at(1070))
+        lease.request_if_due(hold=lambda _plan: True)
+        assert messages()[2:] == [
+            "[HireFire] Lease plan recovered after 14 failed attempts."
+        ]
+
+
+@mocketize
+def test_a_dropped_grant_is_logged_once_at_info(caplog):
+    caplog.set_level(logging.INFO)
+    stub_lease(granted="true", **{"HireFire-Lease-TTL": "5"})
+
+    with freeze_time(at(1000)) as clock:
+        lease = Lease(HireFire.configuration)
+        lease.request_if_due(hold=lambda _plan: False)
+        clock.move_to(at(1060))
+        lease.request_if_due(hold=lambda _plan: False)
+
+    assert lease_requests() == 2
+    assert [(record.levelno, record.getMessage()) for record in caplog.records] == [
+        (
+            logging.INFO,
+            "[HireFire] Lease grant dropped: this process cannot sample the plan "
+            "(no local job-queue samplers and no executable plan adapter).",
+        )
+    ]
+
+
+@mocketize
+def test_a_request_reports_whether_a_response_was_applied():
+    stub_lease(granted="true", **{"HireFire-Lease-TTL": "5"})
+
+    with freeze_time(at(1000)) as clock:
+        lease = Lease(HireFire.configuration)
+        assert lease.request_if_due(hold=lambda _plan: True) is True
+        assert lease.request_if_due(hold=lambda _plan: True) is False
+        clock.move_to(at(1005))
+        assert lease.request_if_due(hold=lambda _plan: False) is True
+
+
+@mocketize
+def test_a_request_with_a_rejected_token_reports_that_nothing_was_applied():
+    Entry.single_register(Entry.POST, LEASE_URL, status=401)
+
+    assert (
+        Lease(HireFire.configuration).request_if_due(hold=lambda _plan: True) is False
+    )
+
+
+@mocketize
 def test_truncates_plan_to_max_job_queues(caplog):
     caplog.set_level(logging.ERROR)
 

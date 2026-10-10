@@ -7,10 +7,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from hirefire_resource.client import Client
+from hirefire_resource.client import Client, Response
 from hirefire_resource.errors import RequestError
+from hirefire_resource.failure_log import FailureLog
 from hirefire_resource.identity import MAX_NAME_BYTES
-from hirefire_resource.log import safe_log
 
 if TYPE_CHECKING:
     from hirefire_resource.configuration import Configuration
@@ -41,6 +41,7 @@ class Lease:
         self._owner_pid = os.getpid()
         self.job_queues: list[dict[str, Any]] = []
         self._epoch = 0
+        self._plan_failures = FailureLog("Lease plan", configuration)
 
     def granted(self) -> bool:
         return self._granted
@@ -53,94 +54,40 @@ class Lease:
             self._apply_demote()
 
     def sample_if_due(self, sampler: Callable[[], None]) -> None:
-        due = False
         with self._mutex:
             if self._owner_pid != os.getpid():
                 self._reset_after_fork()
             if not (self._granted and time.monotonic() >= self._next_sample_at):
                 return
             self._next_sample_at = time.monotonic() + self.sample_frequency
-            due = True
-        if due:
-            sampler()
+        sampler()
 
-    def request_if_due(self, hold: Callable[[list[dict[str, Any]]], bool]) -> None:
-        epoch = None
-        with self._mutex:
-            if self._owner_pid != os.getpid():
-                self._reset_after_fork()
-            if time.monotonic() < self._expires_at:
-                return
-            epoch = self._epoch
-            self._expires_at = time.monotonic() + self._ttl
-
-        try:
-            response = self._client.request_lease(self.process_id)
-        except Exception:
-            with self._mutex:
-                if self._epoch != epoch:
-                    return
-                self._clear_grant()
-            raise
-
-        if not response.ok():
-            with self._mutex:
-                if self._epoch == epoch:
-                    self._clear_grant()
-            if response.unauthorized():
-                return
-            raise RequestError(f"Lease request failed with {response.status} status.")
-
-        next_sample_frequency = self.sample_frequency
-        next_sample_at = self._next_sample_at
-        frequency = response.integer("HireFire-Sample-Frequency")
-        if frequency is not None:
-            next_sample_frequency = self._clamp(frequency, self.SAMPLE_FREQUENCY_BOUNDS)
-            next_sample_at = min(
-                next_sample_at, time.monotonic() + next_sample_frequency
-            )
-
-        next_ttl = self._ttl
-        next_expires_at = self._expires_at
-        ttl = response.integer("HireFire-Lease-TTL")
-        if ttl is not None:
-            next_ttl = self._clamp(ttl, self.TTL_BOUNDS)
-            next_expires_at = time.monotonic() + next_ttl
+    def request_if_due(self, hold: Callable[[list[dict[str, Any]]], bool]) -> bool:
+        epoch = self._reserve()
+        if epoch is None:
+            return False
+        response = self._fetch(epoch)
+        if response is None:
+            return False
 
         granted = response.headers.get("HireFire-Lease-Granted") == "true"
-        grant_body = (
+        grant = (
             self._parse_grant_body(response.body)
             if granted
             else self._empty_grant_body()
         )
-
-        hold_ok = (not granted) or hold(grant_body.job_queues)
+        held = not granted or hold(grant.job_queues)
 
         with self._mutex:
             if self._epoch != epoch:
-                return
+                return False
 
-            self.sample_frequency = next_sample_frequency
-            self._next_sample_at = next_sample_at
-            self._ttl = next_ttl
-            self._expires_at = next_expires_at
-
-            if granted and not hold_ok:
-                self._clear_grant()
-                self.process_id = str(uuid.uuid4())
-                self._expires_at = time.monotonic() + max(self.DROP_WAIT, 3 * next_ttl)
-                self._log(
-                    "info",
-                    "[HireFire] Lease grant dropped: this process cannot sample the plan "
-                    "(no local job-queue samplers and no executable plan adapter).",
-                )
+            self._apply_cadence(response)
+            if held:
+                self._apply_grant(granted, grant)
             else:
-                was_granted = self._granted
-                self._granted = granted
-                self._trace = granted and grant_body.trace
-                self.job_queues = grant_body.job_queues
-                if granted and not was_granted:
-                    self._next_sample_at = time.monotonic()
+                self._drop_grant()
+            return True
 
     def close(self) -> None:
         self._client.close()
@@ -161,6 +108,71 @@ class Lease:
         self._expires_at = time.monotonic()
         self._next_sample_at = time.monotonic()
 
+    def _reserve(self) -> int | None:
+        with self._mutex:
+            if self._owner_pid != os.getpid():
+                self._reset_after_fork()
+            if time.monotonic() < self._expires_at:
+                return None
+
+            self._expires_at = time.monotonic() + self._ttl
+            return self._epoch
+
+    def _fetch(self, epoch: int) -> Response | None:
+        try:
+            response = self._client.request_lease(self.process_id)
+        except Exception:
+            if self._revoke(epoch):
+                raise
+            return None
+        if response.ok():
+            return response
+
+        self._revoke(epoch)
+        if response.unauthorized():
+            return None
+        raise RequestError(f"Lease request failed with {response.status} status.")
+
+    def _revoke(self, epoch: int) -> bool:
+        with self._mutex:
+            current = self._epoch == epoch
+            if current:
+                self._clear_grant()
+            return current
+
+    def _apply_cadence(self, response: Response) -> None:
+        frequency = response.integer("HireFire-Sample-Frequency")
+        if frequency is not None:
+            self.sample_frequency = self._clamp(frequency, self.SAMPLE_FREQUENCY_BOUNDS)
+            self._next_sample_at = min(
+                self._next_sample_at, time.monotonic() + self.sample_frequency
+            )
+
+        ttl = response.integer("HireFire-Lease-TTL")
+        if ttl is not None:
+            self._ttl = self._clamp(ttl, self.TTL_BOUNDS)
+            self._expires_at = time.monotonic() + self._ttl
+
+    def _apply_grant(self, granted: bool, grant: GrantBody) -> None:
+        if not self._granted:
+            self._next_sample_at = time.monotonic()
+        self._granted = granted
+        self._trace = grant.trace
+        self.job_queues = grant.job_queues
+
+    def _drop_grant(self) -> None:
+        self._clear_grant()
+        self.process_id = str(uuid.uuid4())
+        self._expires_at = time.monotonic() + max(self.DROP_WAIT, 3 * self._ttl)
+        self._configuration.once.log(
+            "info",
+            "lease_grant_dropped",
+            lambda: (
+                "[HireFire] Lease grant dropped: this process cannot sample the plan "
+                "(no local job-queue samplers and no executable plan adapter)."
+            ),
+        )
+
     def _clear_grant(self) -> None:
         self._granted = False
         self._trace = False
@@ -169,36 +181,34 @@ class Lease:
     def _empty_grant_body(self, *, trace: bool = False) -> GrantBody:
         return self.GrantBody(job_queues=[], trace=trace)
 
-    def _parse_grant_body(self, body: str | None) -> GrantBody:
-        if body is None or body == "":
+    def _parse_grant_body(self, body: str) -> GrantBody:
+        failures = self._plan_failures.count
+        grant = self._read_grant_body(body)
+        if self._plan_failures.count == failures:
+            self._plan_failures.recovered()
+        return grant
+
+    def _read_grant_body(self, body: str) -> GrantBody:
+        if not body:
             return self._empty_grant_body()
 
         try:
             payload = json.loads(body)
         except (TypeError, ValueError, RecursionError):
-            self._log(
-                "error",
-                "[HireFire] Lease grant body was not valid JSON. Plan ignored.",
-            )
-            return self._empty_grant_body()
-
+            return self._ignore_plan("was not valid JSON")
         if not isinstance(payload, dict):
-            self._log(
-                "error",
-                "[HireFire] Lease grant body was not a JSON object. Plan ignored.",
-            )
-            return self._empty_grant_body()
+            return self._ignore_plan("was not a JSON object")
 
         trace = payload.get("trace") is True
         entries = payload.get("job_queues")
         if not isinstance(entries, list):
-            self._log(
-                "error",
-                "[HireFire] Lease grant body job_queues was not an array. Plan ignored.",
-            )
-            return self._empty_grant_body(trace=trace)
+            return self._ignore_plan("job_queues was not an array", trace=trace)
 
         return self.GrantBody(job_queues=self._plan_entries(entries), trace=trace)
+
+    def _ignore_plan(self, reason: str, *, trace: bool = False) -> GrantBody:
+        self._plan_failures.record(f"Lease grant body {reason}. Plan ignored.")
+        return self._empty_grant_body(trace=trace)
 
     def _plan_entries(self, entries: list[Any]) -> list[dict[str, Any]]:
         valid = [
@@ -208,16 +218,14 @@ class Lease:
 
         if len(valid) > self.MAX_JOB_QUEUES:
             extra = f" ({invalid} invalid also skipped)" if invalid else ""
-            self._log(
-                "error",
-                f"[HireFire] Lease plan truncated to {self.MAX_JOB_QUEUES} job queue "
-                f"entries{extra}.",
+            self._plan_failures.record(
+                f"Lease plan truncated to {self.MAX_JOB_QUEUES} job queue "
+                f"entries{extra}."
             )
         elif invalid:
             label = "entry" if invalid == 1 else "entries"
-            self._log(
-                "error",
-                f"[HireFire] Lease plan skipped {invalid} invalid job queue {label}.",
+            self._plan_failures.record(
+                f"Lease plan skipped {invalid} invalid job queue {label}."
             )
 
         return valid[: self.MAX_JOB_QUEUES]
@@ -235,9 +243,6 @@ class Lease:
         if "adapter" in entry:
             normalized["adapter"] = self._wire_string(entry["adapter"])
         return normalized
-
-    def _log(self, level: str, message: str) -> None:
-        safe_log(self._configuration.logger, level, message)
 
     @staticmethod
     def _wire_string(value: object | None) -> str:
