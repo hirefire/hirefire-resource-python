@@ -10,6 +10,7 @@ from rq import Queue, SimpleWorker
 from rq.registry import StartedJobRegistry
 
 from hirefire_resource import HireFire, plan
+from hirefire_resource.macro import rq as macro
 from hirefire_resource.macro.rq import (
     _is_due_scheduled_score,
     _open_redis,
@@ -21,7 +22,7 @@ from hirefire_resource.macro.rq import (
     job_queue_size,
     job_queue_working,
 )
-from tests.helpers import sample_plan
+from tests.helpers import missing_public_names, sample_plan
 
 redis_url = f"redis://127.0.0.1:{os.environ.get('REDIS_PORT', '6379')}/0"
 queue_name = "default"
@@ -701,3 +702,7 @@ def test_on_heroku_a_rediss_url_that_sets_ssl_cert_reqs_is_followed(
 
     with pytest.raises(RedisConnectionError, match="CERTIFICATE_VERIFY_FAILED"):
         _ping(tls_redis.url + "?ssl_cert_reqs=required")
+
+
+def test_every_name_that_the_macro_declares_public_exists():
+    assert missing_public_names(macro) == []

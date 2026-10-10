@@ -11,6 +11,15 @@ from hirefire_resource.plan import hooks as _plan_hooks
 from hirefire_resource.strategy import JQS
 from hirefire_resource.utility import normalize_queues, redis_tls_options
 
+__all__ = [
+    "async_job_queue_latency",
+    "async_job_queue_size",
+    "async_job_queue_working",
+    "job_queue_latency",
+    "job_queue_size",
+    "job_queue_working",
+]
+
 before_sample_job_queues = _plan_hooks.before_sample_job_queues
 after_sample_job_queues = _plan_hooks.after_sample_job_queues
 attach = _plan_hooks.attach

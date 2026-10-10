@@ -21,6 +21,7 @@ from hirefire_resource.macro.dramatiq import (
     job_queue_latency,
     job_queue_size,
 )
+from tests.helpers import missing_public_names
 
 redis_url = f"redis://127.0.0.1:{os.environ.get('REDIS_PORT', '6379')}/0"
 amqp_url = f"amqp://guest:guest@127.0.0.1:{os.environ.get('RABBITMQ_PORT', '5672')}"
@@ -2092,3 +2093,7 @@ def test_on_heroku_a_rediss_url_that_sets_ssl_cert_reqs_is_followed(
         redis.exceptions.ConnectionError, match="CERTIFICATE_VERIFY_FAILED"
     ):
         _ping(tls_redis.url + "?ssl_cert_reqs=required")
+
+
+def test_every_name_that_the_macro_declares_public_exists():
+    assert missing_public_names(dramatiq_macro) == []

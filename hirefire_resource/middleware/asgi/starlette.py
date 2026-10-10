@@ -8,6 +8,8 @@ from hirefire_resource.middleware.asgi import (
     request_start_from_scope,
 )
 
+__all__ = ["HireFireMiddleware"]
+
 
 class HireFireMiddleware:
     def __init__(self, app: Any) -> None:

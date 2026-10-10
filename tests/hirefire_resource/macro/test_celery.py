@@ -32,7 +32,7 @@ from hirefire_resource.macro.celery import (
     job_queue_size,
     job_queue_working,
 )
-from tests.helpers import sample_plan
+from tests.helpers import missing_public_names, sample_plan
 
 redis_url = f"redis://127.0.0.1:{os.environ.get('REDIS_PORT', '6379')}/0"
 amqp_url = f"amqp://guest:guest@127.0.0.1:{os.environ.get('RABBITMQ_PORT', '5672')}"
@@ -1473,3 +1473,7 @@ def test_hirefire_celery_broker_url_is_plan_only(monkeypatch):
     monkeypatch.setenv("REDIS_URL", "redis://local/0")
     assert _resolve_broker_url(None) == "redis://local/0"
     assert celery_macro.plan_connection_options() == {"broker_url": "redis://hf/0"}
+
+
+def test_every_name_that_the_macro_declares_public_exists():
+    assert missing_public_names(celery_macro) == []

@@ -4,6 +4,8 @@ from typing import Any
 from hirefire_resource.middleware import process_request_queue_time
 from hirefire_resource.middleware.wsgi import request_start_from_environ
 
+__all__ = ["HireFireMiddleware"]
+
 
 class HireFireMiddleware:
     def __init__(self, app: Any) -> None:

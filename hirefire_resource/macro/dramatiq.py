@@ -12,6 +12,13 @@ from hirefire_resource.log import redact
 from hirefire_resource.plan import hooks as _plan_hooks
 from hirefire_resource.utility import normalize_queues, redis_tls_options
 
+__all__ = [
+    "async_job_queue_latency",
+    "async_job_queue_size",
+    "job_queue_latency",
+    "job_queue_size",
+]
+
 plan_options = _plan_hooks.plan_options
 supports_plan_strategy = _plan_hooks.supports_plan_strategy
 release = _plan_hooks.release

@@ -43,6 +43,14 @@ def boot_in_a_new_process(configure_logging=""):
     )
 
 
+def missing_public_names(module):
+    return [
+        f"{module.__name__}.{name}"
+        for name in getattr(module, "__all__", ())
+        if not hasattr(module, name)
+    ]
+
+
 def at(epoch):
     return datetime.datetime.fromtimestamp(epoch, tz=datetime.timezone.utc)
 
