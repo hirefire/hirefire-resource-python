@@ -303,13 +303,13 @@ def test_starts_and_stops():
 
     dispatcher = configure_web_and_workers()
 
-    assert not dispatcher.running()
-    assert dispatcher.start()
-    assert dispatcher.running()
-    assert not dispatcher.start()
-    assert dispatcher.stop()
-    assert not dispatcher.running()
-    assert not dispatcher.stop()
+    assert dispatcher.running() is False
+    assert dispatcher.start() is True
+    assert dispatcher.running() is True
+    assert dispatcher.start() is False
+    assert dispatcher.stop() is True
+    assert dispatcher.running() is False
+    assert dispatcher.stop() is False
 
 
 @mocketize
@@ -319,7 +319,7 @@ def test_a_failed_thread_spawn_leaves_the_dispatcher_retryable(caplog):
     dispatcher = configure_web_only()
 
     with patch("threading.Thread.start", side_effect=RuntimeError("cannot spawn")):
-        assert not dispatcher.start()
+        assert dispatcher.start() is False
         assert not dispatcher.running()
     assert "Could not start dispatcher" in caplog.text
 
@@ -550,6 +550,7 @@ def test_oversized_payload_is_dropped_without_a_request(caplog, session):
     assert bodies == []
     assert "web" not in HireFire.configuration.buffer.flush()
     assert "Dropped metrics payload" in caplog.text
+    assert "bytes exceeds the 131072-byte limit." in caplog.text
 
 
 @mocketize
@@ -3054,3 +3055,101 @@ def test_a_session_that_is_abandoned_after_its_loop_ended_closes_its_connection(
     session.abandon()
 
     assert len(closed) == 1
+
+
+@mocketize
+def test_a_stop_is_logged(caplog):
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    dispatcher = configure_web_only()
+    dispatcher.start()
+
+    dispatcher.stop()
+
+    assert "[HireFire] Dispatcher stopped." in messages(caplog)
+
+
+@mocketize
+def test_the_loops_of_a_stopped_dispatcher_end_without_an_error(monkeypatch):
+    raised = []
+    monkeypatch.setattr(threading, "excepthook", raised.append)
+    monkeypatch.setattr(Session, "TICK", 0.01)
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    dispatcher = configure_web_and_workers()
+    dispatcher.start()
+    wait_until(lambda: loop_threads("hirefire-lease"))
+
+    dispatcher.stop()
+    wait_until(
+        lambda: not (
+            loop_threads("hirefire-dispatch")
+            or loop_threads("hirefire-lease")
+            or loop_threads("hirefire-sample")
+        )
+    )
+
+    assert raised == []
+
+
+@mocketize
+def test_a_start_ends_the_other_loops_of_a_session_whose_dispatch_loop_ended():
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    dispatcher = configure_web_and_workers()
+
+    with patch.object(Session, "_dispatch_loop", Session._ensure_lease_loop):
+        assert dispatcher.start()
+        wait_until(lambda: loop_threads("hirefire-lease"))
+        wait_until(lambda: not loop_threads("hirefire-dispatch"))
+    left_behind = loop_threads("hirefire-lease")
+
+    assert dispatcher.start()
+
+    wait_until(lambda: not left_behind[0].is_alive())
+    dispatcher.stop()
+
+
+@mocketize
+def test_a_sample_taken_in_a_forked_child_before_its_start_is_sent():
+    stub_lease()
+    bodies = capture_ingest_bodies()
+    dispatcher = configure_web_only()
+    assert dispatcher.start()
+
+    with patch("os.getpid", return_value=os.getpid() + 1):
+        dispatcher.abandon_inherited_state()
+        HireFire.configuration.buffer.sample("web", "rqt", 7)
+        assert dispatcher.start()
+        wait_until(lambda: sent(bodies, "web", "rqt", [7.0, 1]))
+        dispatcher.stop()
+
+
+@mocketize
+def test_passes_that_each_come_within_ten_seconds_are_never_reported_under_uwsgi(
+    monkeypatch, caplog, session
+):
+    monkeypatch.setattr(host, "uwsgi", SimpleNamespace(worker_id=lambda: 1))
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    configure_web_only()
+
+    with freeze_time(at(1000)) as clock:
+        for second in (1000, 1006, 1012, 1018):
+            clock.move_to(at(second))
+            session.report()
+
+    assert "--enable-threads" not in caplog.text
+
+
+def test_a_dispatch_whose_buffer_cannot_be_read_counts_as_a_failed_dispatch(
+    caplog, session
+):
+    configure_web_only()
+
+    with patch.object(
+        HireFire.configuration.buffer, "flush", side_effect=RuntimeError("flush boom")
+    ):
+        session.report()
+
+    assert "[HireFire] Dispatch error: RuntimeError: flush boom" in messages(caplog)

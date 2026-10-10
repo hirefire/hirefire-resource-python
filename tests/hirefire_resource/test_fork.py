@@ -529,3 +529,41 @@ def test_a_failure_while_a_parent_waits_for_its_children_is_logged_and_a_later_f
         HireFire.after_fork_in_parent()
         wait_until(lambda: not handoff_threads())
         start.assert_called_once()
+
+
+def test_a_forked_child_replaces_the_handover_lock_another_thread_held():
+    held = HireFire._handoff_lock
+    held.acquire()
+    try:
+        HireFire.after_fork_in_child()
+
+        assert HireFire._handoff_lock is not held
+    finally:
+        held.release()
+
+
+def test_a_parent_that_waits_for_its_children_looks_once_per_tick_on_a_daemon_thread(
+    monkeypatch, set_HIREFIRE_TOKEN
+):
+    monkeypatch.setenv("DYNO", "web.1")
+    monkeypatch.setattr(Session, "TICK", 0.05)
+    looks = []
+
+    def two_looks_with_a_child_then_none(*_arguments):
+        looks.append(time.monotonic())
+        if len(looks) > 2:
+            raise ChildProcessError()
+
+    monkeypatch.setattr(os, "waitid", two_looks_with_a_child_then_none, raising=False)
+    monkeypatch.setattr(os, "P_ALL", 0, raising=False)
+    monkeypatch.setattr(os, "WEXITED", 4, raising=False)
+    monkeypatch.setattr(os, "WNOWAIT", 32, raising=False)
+
+    with patch.object(Dispatcher, "start") as start:
+        HireFire.after_fork_in_parent()
+        watch = handoff_threads()
+        wait_until(lambda: not handoff_threads())
+        start.assert_called_once()
+
+    assert [thread.daemon for thread in watch] == [True]
+    assert looks[2] - looks[0] >= 0.09

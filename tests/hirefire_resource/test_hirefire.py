@@ -1,4 +1,6 @@
+import importlib
 import logging
+import sys
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -29,7 +31,7 @@ def test_configure_starts_dispatcher_when_token_is_set(set_HIREFIRE_TOKEN):
 
 def test_boot_is_configure_with_empty_callable(set_HIREFIRE_TOKEN):
     with patch.object(Dispatcher, "start") as mock_start:
-        HireFire.boot()
+        assert HireFire.boot() is HireFire.configuration
         mock_start.assert_called_once()
 
 
@@ -201,3 +203,16 @@ def test_a_uwsgi_parent_without_a_token_is_not_warned(monkeypatch, caplog):
     HireFire.boot()
 
     assert "uWSGI" not in caplog.text
+
+
+def test_the_uwsgi_module_that_the_server_embeds_is_found_at_import():
+    embedded = SimpleNamespace(worker_id=lambda: 0)
+    try:
+        with patch.dict(sys.modules, {"uwsgi": embedded}):
+            importlib.reload(host)
+            assert host.uwsgi is embedded
+            assert host.uwsgi_parent() is True
+    finally:
+        importlib.reload(host)
+
+    assert host.under_uwsgi() is False
