@@ -308,6 +308,21 @@ def test_real_fork_keeps_job_only_parent_running(monkeypatch, set_HIREFIRE_TOKEN
     assert HireFire.configuration.dispatcher.running()
 
 
+def test_a_worker_that_boots_after_a_fork_reports_from_the_child(
+    monkeypatch, set_HIREFIRE_TOKEN
+):
+    monkeypatch.setenv("DYNO", "worker.1")
+    HireFire.boot()
+
+    def child():
+        before = HireFire.configuration.dispatcher.running()
+        HireFire.boot()
+        return [before, HireFire.configuration.dispatcher.running()]
+
+    assert fork_and_report(child) == "[False, True]"
+    assert HireFire.configuration.dispatcher.running()
+
+
 @pytest.mark.parametrize("name", LOCKS)
 def test_a_forked_child_starts_although_another_thread_held_a_lock_at_the_fork(
     name, monkeypatch, set_HIREFIRE_TOKEN
