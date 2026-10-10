@@ -1333,3 +1333,57 @@ def test_parse_grant_body_preserves_trace_for_non_array_job_queues():
 
     assert grant.trace is True
     assert grant.job_queues == []
+
+
+@mocketize
+def test_a_forked_child_does_not_sample_under_the_grant_it_inherited():
+    stub_lease(granted="true")
+    lease = Lease(HireFire.configuration)
+    lease.request_if_due(hold=lambda _plan: True)
+    inherited = lease.process_id
+
+    sampled = []
+    with patch("os.getpid", return_value=os.getpid() + 1):
+        lease.sample_if_due(lambda: sampled.append(True))
+
+    assert sampled == []
+    assert not lease.granted()
+    assert lease.process_id != inherited
+
+
+def newer_request_wins(lease, outcome):
+    calls = []
+
+    def request_lease(_process_id):
+        calls.append(True)
+        if len(calls) > 1:
+            return worker_grant()
+        lease.demote()
+        assert lease.request_if_due(hold=lambda _plan: True)
+        return outcome()
+
+    return patch.object(Client, "request_lease", side_effect=request_lease)
+
+
+def test_a_request_that_fails_after_a_newer_one_was_granted_leaves_that_grant_in_place():
+    lease = Lease(HireFire.configuration)
+
+    def fail():
+        raise RequestError("Network error")
+
+    with newer_request_wins(lease, fail):
+        assert lease.request_if_due(hold=lambda _plan: True) is False
+
+    assert lease.granted()
+    assert [entry["name"] for entry in lease.job_queues] == ["worker"]
+
+
+def test_a_server_error_that_arrives_after_a_newer_grant_leaves_that_grant_in_place():
+    lease = Lease(HireFire.configuration)
+
+    with newer_request_wins(lease, lambda: ClientResponse(500, {})):
+        with pytest.raises(RequestError, match="500 status"):
+            lease.request_if_due(hold=lambda _plan: True)
+
+    assert lease.granted()
+    assert [entry["name"] for entry in lease.job_queues] == ["worker"]

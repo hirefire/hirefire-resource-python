@@ -115,6 +115,16 @@ def test_discarding_an_inherited_connection_closes_its_descriptor():
     assert not is_open(descriptor)
 
 
+def test_a_descriptor_that_cannot_be_closed_does_not_fail_the_discard():
+    client, descriptor = connected_client()
+
+    with patch("hirefire_resource.client.os.close", side_effect=OSError):
+        client.discard_inherited()
+
+    assert client._connection is None
+    os.close(descriptor)
+
+
 def test_a_connection_of_another_process_is_closed_without_a_shutdown():
     client, descriptor = connected_client()
     client._owner_pid = os.getpid() - 1
@@ -276,6 +286,15 @@ def test_install_fork_hooks_is_idempotent():
     HireFire.install_fork_hooks()
     HireFire.install_fork_hooks()
     assert HireFire._fork_hooks_installed
+
+
+def test_no_fork_hook_is_installed_where_the_platform_has_none(monkeypatch):
+    monkeypatch.setattr(HireFire, "_fork_hooks_installed", False)
+    monkeypatch.delattr(os, "register_at_fork")
+
+    HireFire.install_fork_hooks()
+
+    assert not HireFire._fork_hooks_installed
 
 
 def test_real_fork_restarts_child_and_stops_parent(monkeypatch, set_HIREFIRE_TOKEN):

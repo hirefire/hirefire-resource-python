@@ -382,8 +382,6 @@ def _sample_pika_parameters(
         if isinstance(source, (list, tuple)):
             return [_bound_pika_parameters(copy.copy(item)) for item in source]
         return _bound_pika_parameters(copy.copy(source))
-    if pika is None:
-        raise RuntimeError("pika package is required for Dramatiq RabbitMQ sampling")
     return _bound_pika_parameters(pika.URLParameters(url))
 
 
@@ -547,17 +545,13 @@ def _rabbitmq_job_queue_size(connection: Any, queues: set[str]) -> int:
 
 
 def _rabbitmq_ready_count(connection: Any, channel: Any, queue: str) -> tuple[int, Any]:
-    if channel is None or getattr(channel, "is_closed", False):
+    if channel.is_closed:
         channel = connection.channel()
     try:
         result = channel.queue_declare(queue=queue, passive=True)
         return int(result.method.message_count), channel
     except AMQPChannelError as error:
         if _queue_missing(error):
-            try:
-                channel = connection.channel()
-            except Exception:
-                channel = None
             return 0, channel
         raise
 
@@ -575,16 +569,12 @@ def _rabbitmq_job_queue_latency(connection: Any, queues: set[str]) -> float:
 def _rabbitmq_queue_latency(
     connection: Any, channel: Any, queue: str, now_ms: int
 ) -> tuple[float, Any]:
-    if channel is None or getattr(channel, "is_closed", False):
+    if channel.is_closed:
         channel = connection.channel()
     try:
         method, _properties, body = channel.basic_get(queue, auto_ack=False)
     except AMQPChannelError as error:
         if _queue_missing(error):
-            try:
-                channel = connection.channel()
-            except Exception:
-                channel = None
             return 0.0, channel
         raise
 

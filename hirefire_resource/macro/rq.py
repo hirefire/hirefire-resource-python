@@ -102,9 +102,7 @@ def job_queue_latency(*queues: str, redis_url: str | None = None) -> float:
         for job_data in job_ids[1::2]:
             if job_data:
                 _job_id, score = job_data[0]
-                if _is_due_scheduled_score(score, current_time):
-                    latency = current_time - score
-                    max_latency = max(max_latency, latency)
+                max_latency = max(max_latency, current_time - score)
 
         return max_latency
     finally:
@@ -174,10 +172,6 @@ async def async_job_queue_working(*queues: str, redis_url: str | None = None) ->
 
 
 _QUEUE_KEY_PREFIX = "rq:queue:"
-
-
-def _is_due_scheduled_score(score: float, now: float) -> bool:
-    return score <= now
 
 
 def _count_working(pipeline: Any, queue: str, now: float) -> None:

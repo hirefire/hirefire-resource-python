@@ -354,3 +354,40 @@ def test_a_handover_applies_only_to_a_platform_web_process_that_has_not_served_a
 
     monkeypatch.delenv("DYNO")
     assert not config.prefork_web_handoff()
+
+
+class LockThatAnotherThreadHeld:
+    def __init__(self, meanwhile):
+        self._meanwhile = meanwhile
+
+    def __enter__(self):
+        self._meanwhile()
+
+    def __exit__(self, *error):
+        return False
+
+
+def test_a_thread_that_waited_for_the_buffer_takes_the_one_another_thread_made(config):
+    made = Buffer()
+    config._mutex = LockThatAnotherThreadHeld(lambda: setattr(config, "_buffer", made))
+
+    assert config.buffer is made
+
+
+def test_a_thread_that_waited_for_the_dispatcher_takes_the_one_another_thread_made(
+    config,
+):
+    made = Dispatcher(config)
+    config._mutex = LockThatAnotherThreadHeld(
+        lambda: setattr(config, "_dispatcher", made)
+    )
+
+    assert config.dispatcher is made
+
+
+def test_a_request_queue_time_without_a_token_is_dropped_and_starts_nothing(config):
+    config.sample_request_queue_time(5)
+
+    assert config.buffer.flush() == {}
+    assert not config.rqt_enabled()
+    assert not config.dispatcher.running()

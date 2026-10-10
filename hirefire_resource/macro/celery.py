@@ -84,15 +84,13 @@ def mitigate_connection_reset_error(
     def decorator(func: _F) -> _F:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            attempts = max(1, retries)
-            for attempt in range(attempts):
+            for _ in range(retries - 1):
                 try:
                     return func(*args, **kwargs)
                 except ConnectionResetError:
-                    if attempt >= attempts - 1:
-                        raise
                     if delay:
                         time.sleep(delay)
+            return func(*args, **kwargs)
 
         return cast(_F, wrapper)
 

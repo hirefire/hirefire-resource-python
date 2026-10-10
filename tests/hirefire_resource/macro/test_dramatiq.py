@@ -2,6 +2,7 @@ import os
 import threading
 import time
 import uuid
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import dramatiq
@@ -335,6 +336,54 @@ def test_job_queue_size_url_owned_client_closed(monkeypatch):
     monkeypatch.setattr(dramatiq_macro.redis.Redis, "from_url", tracking_from_url)
     assert job_queue_size("default", broker_url=redis_url) == 0
     assert closed["n"] == 1
+
+
+def test_a_redis_client_that_fails_to_close_does_not_fail_the_sample(monkeypatch):
+    real_from_url = redis.Redis.from_url
+    opened = []
+
+    def from_url(url, **kwargs):
+        client = real_from_url(url, **kwargs)
+        opened.append(client.close)
+        client.close = MagicMock(side_effect=redis.exceptions.RedisError("gone"))
+        return client
+
+    monkeypatch.setattr(dramatiq_macro.redis.Redis, "from_url", from_url)
+    try:
+        assert job_queue_size("default", broker_url=redis_url) == 0
+    finally:
+        for close in opened:
+            close()
+
+
+def test_an_id_on_the_queue_whose_message_is_gone_has_no_latency_and_no_due_count():
+    client = redis.Redis.from_url(redis_url)
+    try:
+        client.rpush(f"{NAMESPACE}:default", "gone")
+        client.rpush(f"{NAMESPACE}:default.DQ", "gone")
+
+        assert job_queue_latency("default", broker_url=redis_url) == 0.0
+        assert job_queue_size("default", broker_url=redis_url) == 1
+    finally:
+        client.close()
+
+
+def test_latency_reads_the_first_timestamp_of_a_message_that_only_parses_as_json(
+    monkeypatch,
+):
+    client = redis.Redis.from_url(redis_url)
+    try:
+        monkeypatch.setattr(dramatiq_macro, "_now_ms", lambda: 1_722_600_000_000)
+        client.rpush(f"{NAMESPACE}:default", "one")
+        client.hset(
+            f"{NAMESPACE}:default.msgs",
+            "one",
+            '{"message_timestamp": 1722599980000}',
+        )
+
+        assert job_queue_latency("default", broker_url=redis_url) == 20.0
+    finally:
+        client.close()
 
 
 def test_job_queue_latency_empty():
@@ -1436,15 +1485,40 @@ def test_resolve_namespace_precedence(monkeypatch):
     assert dramatiq_macro._resolve_namespace(None, None, redis_path=True) == "dramatiq"
 
 
-def test_resolve_broker_url_default_prefers_amqp_when_pika_available(monkeypatch):
+def test_without_a_url_the_local_broker_is_rabbitmq_when_pika_is_installed(monkeypatch):
     _clear_broker_env(monkeypatch)
-    if dramatiq_macro.PIKA_AVAILABLE:
-        assert (
-            dramatiq_macro._resolve_broker_url(None)
-            == "amqp://guest:guest@localhost:5672"
-        )
-    else:
-        assert dramatiq_macro._resolve_broker_url(None) == "redis://localhost:6379/0"
+    monkeypatch.setattr(dramatiq_macro, "PIKA_AVAILABLE", True)
+
+    assert (
+        dramatiq_macro._resolve_broker_url(None) == "amqp://guest:guest@localhost:5672"
+    )
+
+
+def test_without_a_url_the_local_broker_is_redis_when_pika_is_missing(monkeypatch):
+    _clear_broker_env(monkeypatch)
+    monkeypatch.setattr(dramatiq_macro, "PIKA_AVAILABLE", False)
+
+    assert dramatiq_macro._resolve_broker_url(None) == "redis://localhost:6379/0"
+
+
+def test_a_url_of_a_scheme_the_macro_does_not_know_is_read_as_redis():
+    assert dramatiq_macro._url_kind("unix:///tmp/redis.sock") == "redis"
+
+
+def test_a_redis_url_without_the_redis_package_fails_the_sample_with_a_reason(
+    monkeypatch,
+):
+    monkeypatch.setattr(dramatiq_macro, "redis", None)
+
+    with pytest.raises(RuntimeError, match="redis package is required"):
+        job_queue_size("default", broker_url=redis_url)
+
+
+def test_an_amqp_url_without_pika_fails_the_sample_with_a_reason(monkeypatch):
+    monkeypatch.setattr(dramatiq_macro, "pika", None)
+
+    with pytest.raises(RuntimeError, match="pika package is required"):
+        job_queue_latency("default", broker_url=amqp_url)
 
 
 def test_url_kind_amqp_scheme_fragment():
@@ -1932,6 +2006,83 @@ def test_rabbitmq_url_owned_connection_closed(monkeypatch):
     assert closed["n"] == 1
 
 
+def test_a_rabbitmq_connection_that_fails_to_close_does_not_fail_the_sample(
+    monkeypatch,
+):
+    class Channel:
+        is_closed = False
+
+        def queue_declare(self, queue, passive=False):
+            return SimpleNamespace(method=SimpleNamespace(message_count=3))
+
+    class Connection:
+        is_open = True
+
+        def channel(self):
+            return Channel()
+
+        def close(self):
+            raise pika.exceptions.AMQPError("gone")
+
+    monkeypatch.setattr(
+        dramatiq_macro.pika, "BlockingConnection", lambda *a, **k: Connection()
+    )
+
+    assert job_queue_size("default", broker_url=amqp_url) == 3
+
+
+def test_a_rabbitmq_connection_that_is_closed_already_is_not_closed_again(monkeypatch):
+    closes = []
+
+    class Channel:
+        is_closed = False
+
+        def queue_declare(self, queue, passive=False):
+            return SimpleNamespace(method=SimpleNamespace(message_count=3))
+
+    class Connection:
+        is_open = False
+
+        def channel(self):
+            return Channel()
+
+        def close(self):
+            closes.append(True)
+
+    monkeypatch.setattr(
+        dramatiq_macro.pika, "BlockingConnection", lambda *a, **k: Connection()
+    )
+
+    assert job_queue_size("default", broker_url=amqp_url) == 3
+    assert closes == []
+
+
+def test_a_rabbitmq_channel_error_other_than_a_missing_queue_fails_the_latency_sample(
+    monkeypatch,
+):
+    class Channel:
+        is_closed = False
+
+        def basic_get(self, queue, auto_ack=False):
+            raise pika.exceptions.ChannelClosedByBroker(403, "ACCESS_REFUSED")
+
+    class Connection:
+        is_open = True
+
+        def channel(self):
+            return Channel()
+
+        def close(self):
+            self.is_open = False
+
+    monkeypatch.setattr(
+        dramatiq_macro.pika, "BlockingConnection", lambda *a, **k: Connection()
+    )
+
+    with pytest.raises(pika.exceptions.ChannelClosedByBroker):
+        job_queue_latency("default", broker_url=amqp_url)
+
+
 def test_rabbitmq_connect_fail_raises(monkeypatch):
     def boom(*args, **kwargs):
         raise pika.exceptions.AMQPConnectionError("refused")
@@ -1991,45 +2142,68 @@ def test_rabbitmq_latency_always_rejects_even_when_reject_raises(monkeypatch):
     assert rejected["n"] == 1
 
 
-def test_rabbitmq_channel_404_recovers_for_next_queue(monkeypatch):
-    state = {"channels": 0, "declares": []}
+class ChannelsOfABrokerWithoutTheQueueGone:
+    def __init__(self):
+        self.opened = 0
+        self.asked = []
 
-    class Method:
-        message_count = 4
-
-    class Result:
-        method = Method()
+    def channel(self):
+        self.opened += 1
+        return self.Channel(self)
 
     class Channel:
-        def __init__(self):
+        def __init__(self, connection):
+            self.connection = connection
             self.is_closed = False
 
-        def queue_declare(self, queue, passive=False):
-            state["declares"].append(queue)
+        def _ask(self, queue):
+            self.connection.asked.append(queue)
             if queue == "gone":
                 self.is_closed = True
                 raise pika.exceptions.ChannelClosedByBroker(404, "NOT_FOUND")
-            return Result()
 
-    class Connection:
-        is_open = True
+        def queue_declare(self, queue, passive=False):
+            self._ask(queue)
+            return SimpleNamespace(method=SimpleNamespace(message_count=4))
 
-        def channel(self):
-            state["channels"] += 1
-            return Channel()
+        def basic_get(self, queue, auto_ack=False):
+            self._ask(queue)
+            enqueued = dramatiq_macro._now_ms() - 30_000
+            body = _encode(queue=queue, message_timestamp=enqueued)
+            return SimpleNamespace(delivery_tag=7), None, body
 
-        def close(self):
-            self.is_open = False
+        def basic_nack(self, delivery_tag, requeue=False):
+            pass
 
-    monkeypatch.setattr(
-        dramatiq_macro.pika, "BlockingConnection", lambda *a, **k: Connection()
-    )
-    monkeypatch.setattr(dramatiq_macro.pika, "URLParameters", lambda url: {"url": url})
 
-    assert job_queue_size("gone", "alive", broker_url=amqp_url) == 4
-    assert "gone" in state["declares"]
-    assert "alive" in state["declares"]
-    assert state["channels"] >= 2
+def test_a_missing_rabbitmq_queue_counts_as_zero_and_the_next_queue_is_read_on_a_new_channel():
+    connection = ChannelsOfABrokerWithoutTheQueueGone()
+
+    size = dramatiq_macro._rabbitmq_job_queue_size(connection, ["gone", "alive"])
+
+    assert size == 4
+    assert connection.asked == ["gone", "alive"]
+    assert connection.opened == 2
+
+
+def test_a_missing_rabbitmq_queue_has_no_latency_and_the_next_queue_is_read_on_a_new_channel(
+    monkeypatch,
+):
+    monkeypatch.setattr(dramatiq_macro, "_now_ms", lambda: 1_722_600_000_000)
+    connection = ChannelsOfABrokerWithoutTheQueueGone()
+
+    latency = dramatiq_macro._rabbitmq_job_queue_latency(connection, ["gone", "alive"])
+
+    assert latency == 30.0
+    assert connection.asked == ["gone", "alive"]
+    assert connection.opened == 2
+
+
+def test_a_missing_rabbitmq_queue_that_is_read_last_opens_no_second_channel():
+    connection = ChannelsOfABrokerWithoutTheQueueGone()
+
+    assert dramatiq_macro._rabbitmq_job_queue_size(connection, ["alive", "gone"]) == 4
+    assert connection.opened == 1
 
 
 def test_rabbitmq_channel_error_other_than_a_missing_queue_raises(monkeypatch):

@@ -305,6 +305,10 @@ def test_the_publish_handler_writes_into_an_empty_header_mapping():
     assert datetime.fromisoformat(headers["run_at"]).tzinfo is not None
 
 
+def test_the_publish_handler_does_nothing_for_a_publish_without_headers():
+    assert celery_macro.run_at_header_signal(headers=None, body={"eta": None}) is None
+
+
 def test_the_publish_handler_takes_the_time_from_the_body_of_a_protocol_one_task():
     headers = {}
 
@@ -450,6 +454,50 @@ def test_mitigate_connection_reset_error_retries_zero_still_calls_once():
 
     assert once() == 1
     assert call_count[0] == 1
+
+
+def test_a_connection_reset_on_every_attempt_is_raised_after_the_last_one():
+    calls = []
+
+    @celery_macro.mitigate_connection_reset_error(retries=3)
+    def always_reset():
+        calls.append(True)
+        raise ConnectionResetError("reset")
+
+    with pytest.raises(ConnectionResetError):
+        always_reset()
+
+    assert len(calls) == 3
+
+
+def test_a_delay_between_attempts_is_slept_when_one_is_given(monkeypatch):
+    slept = []
+    monkeypatch.setattr(time, "sleep", lambda seconds: slept.append(seconds))
+    calls = []
+
+    @celery_macro.mitigate_connection_reset_error(retries=3, delay=0.5)
+    def resets_twice():
+        calls.append(True)
+        if len(calls) < 3:
+            raise ConnectionResetError("reset")
+        return "done"
+
+    assert resets_twice() == "done"
+    assert slept == [0.5, 0.5]
+
+
+def test_an_error_other_than_a_connection_reset_is_not_retried():
+    calls = []
+
+    @celery_macro.mitigate_connection_reset_error(retries=3)
+    def broken():
+        calls.append(True)
+        raise BrokenPipeError("pipe")
+
+    with pytest.raises(BrokenPipeError):
+        broken()
+
+    assert len(calls) == 1
 
 
 def test_plan_drops_sample_when_celery_raises_operational_error(monkeypatch, caplog):
@@ -789,6 +837,55 @@ def test_job_queue_latency_redis_skips_corrupt_payload():
     latency = _job_queue_latency_redis(FakeChannel(), "celery")
     _assert_float_seconds(latency)
     assert latency == 0
+
+
+def test_queue_arguments_are_read_for_the_sampled_queues_only():
+    app = Celery(broker=redis_url)
+    app.conf.task_queues = [
+        Queue("sampled", queue_arguments={"x-max-priority": 5}),
+        Queue("other", queue_arguments={"x-max-priority": 9}),
+    ]
+
+    arguments = celery_macro._get_queue_arguments_from_app(app, {"sampled"})
+
+    assert arguments == {"sampled": {"x-max-priority": 5}}
+
+
+def test_a_redis_task_that_no_client_stamped_reads_as_no_latency():
+    class FakeClient:
+        def lindex(self, queue, index):
+            return '{"headers": {"task": "app.work"}, "body": ""}'
+
+    class FakeChannel:
+        client = FakeClient()
+
+    latency = _job_queue_latency_redis(FakeChannel(), "celery")
+
+    _assert_float_seconds(latency)
+    assert latency == 0
+
+
+def test_a_rabbitmq_task_that_no_client_stamped_reads_as_no_latency_and_goes_back():
+    class Message:
+        headers = {"task": "app.work"}
+        delivery_tag = 7
+
+    class FakeChannel:
+        def __init__(self):
+            self.sent = []
+
+        def basic_get(self, queue):
+            return Message()
+
+        def send_method(self, method, format, arguments):
+            self.sent.append((method, format, arguments))
+
+    channel = FakeChannel()
+    latency = _job_queue_latency_rabbitmq(channel, "celery")
+
+    _assert_float_seconds(latency)
+    assert latency == 0
+    assert channel.sent == [((60, 120), "Lbb", (7, False, True))]
 
 
 def test_job_queue_latency_redis_corrupt_queue_does_not_hide_sibling():
@@ -1398,6 +1495,38 @@ def test_resolve_broker_url_multi_key_precedence(monkeypatch):
 
     monkeypatch.delenv("AMQP_URL")
     assert _resolve_broker_url(None) == "amqp://rabbitmq-url"
+
+
+def test_without_a_url_in_the_environment_the_local_rabbitmq_is_read(monkeypatch):
+    _clear_broker_env(monkeypatch)
+
+    assert _resolve_broker_url(None) == "amqp://guest:guest@localhost:5672"
+    assert _resolve_broker_url("") == "amqp://guest:guest@localhost:5672"
+
+
+@pytest.mark.parametrize(
+    "url, options",
+    [
+        ("redis://host/0", {"socket_timeout", "socket_connect_timeout"}),
+        ("rediss://host/0", {"socket_timeout", "socket_connect_timeout"}),
+        ("amqp://host", {"read_timeout", "write_timeout"}),
+        ("amqps://host", {"read_timeout", "write_timeout"}),
+        ("pyamqp://host", {"read_timeout", "write_timeout"}),
+        (
+            "sqs://host",
+            {
+                "socket_timeout",
+                "socket_connect_timeout",
+                "read_timeout",
+                "write_timeout",
+            },
+        ),
+    ],
+)
+def test_a_sample_connection_times_out_after_five_seconds_on_every_transport(
+    url, options
+):
+    assert celery_macro._sample_transport_options(url) == dict.fromkeys(options, 5.0)
 
 
 def test_resolve_broker_url_explicit_wins_over_env(monkeypatch):

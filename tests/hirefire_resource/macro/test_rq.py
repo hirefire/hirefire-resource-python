@@ -12,7 +12,6 @@ from rq.registry import StartedJobRegistry
 from hirefire_resource import HireFire, plan
 from hirefire_resource.macro import rq as macro
 from hirefire_resource.macro.rq import (
-    _is_due_scheduled_score,
     _open_redis,
     _resolve_redis_url,
     async_job_queue_latency,
@@ -226,14 +225,6 @@ def test_job_queue_latency_with_decode_responses():
     assert job_queue_latency("default", redis_url=decode_url) == pytest.approx(
         200, abs=10
     )
-
-
-def test_is_due_scheduled_score_is_inclusive():
-    now = 1_722_600_000.25
-    assert _is_due_scheduled_score(now - 1.0, now) is True
-    assert _is_due_scheduled_score(now, now) is True
-    assert _is_due_scheduled_score(now + 0.001, now) is False
-    assert _is_due_scheduled_score(now, now) != (now < now)
 
 
 def test_job_queue_size_includes_running_jobs_by_default():
@@ -619,20 +610,29 @@ def test_resolve_redis_url_explicit_wins_over_env(monkeypatch):
     assert _resolve_redis_url("redis://explicit/0") == "redis://explicit/0"
 
 
-def test_job_queue_latency_skips_non_utf8_live_id():
+@pytest.fixture
+def queues_in_the_order_given(monkeypatch):
+    monkeypatch.setattr(
+        macro, "normalize_queues", lambda *queues, allow_empty: list(queues)
+    )
+
+
+@pytest.mark.parametrize("queues", [("bad", "good"), ("good", "bad")])
+def test_job_queue_latency_skips_non_utf8_live_id(queues, queues_in_the_order_given):
     r = Redis.from_url(redis_url)
     r.sadd("rq:queues", "rq:queue:good", "rq:queue:bad")
     r.rpush("rq:queue:good", "jobgood")
     r.hset("rq:job:jobgood", "enqueued_at", "2020-01-01T00:00:00.000000Z")
     r.rpush("rq:queue:bad", b"\xff\xfe")
 
-    latency = job_queue_latency("good", "bad", redis_url=redis_url)
+    latency = job_queue_latency(*queues, redis_url=redis_url)
     assert latency > 0
-    assert job_queue_size("good", "bad", redis_url=redis_url) == 2
-    assert job_queue_working("good", "bad", redis_url=redis_url) == 0
+    assert job_queue_size(*queues, redis_url=redis_url) == 2
+    assert job_queue_working(*queues, redis_url=redis_url) == 0
 
 
-def test_job_queue_latency_skips_corrupt_enqueued_at():
+@pytest.mark.parametrize("queues", [("bad", "good"), ("good", "bad")])
+def test_job_queue_latency_skips_corrupt_enqueued_at(queues, queues_in_the_order_given):
     r = Redis.from_url(redis_url)
     r.sadd("rq:queues", "rq:queue:good", "rq:queue:bad")
     r.rpush("rq:queue:good", "jobgood")
@@ -640,10 +640,20 @@ def test_job_queue_latency_skips_corrupt_enqueued_at():
     r.rpush("rq:queue:bad", "jobbad")
     r.hset("rq:job:jobbad", "enqueued_at", "not-a-timestamp")
 
-    latency = job_queue_latency("good", "bad", redis_url=redis_url)
+    latency = job_queue_latency(*queues, redis_url=redis_url)
     assert latency > 0
-    assert job_queue_size("good", "bad", redis_url=redis_url) == 2
-    assert job_queue_working("good", "bad", redis_url=redis_url) == 0
+    assert job_queue_size(*queues, redis_url=redis_url) == 2
+    assert job_queue_working(*queues, redis_url=redis_url) == 0
+
+
+def test_a_member_of_the_registered_queues_without_the_queue_prefix_is_ignored():
+    r = Redis.from_url(redis_url)
+    r.sadd("rq:queues", "rq:queue:default", "stray")
+    r.rpush("rq:queue:default", "one")
+    r.rpush("rq:queue:stray", "two")
+    r.rpush("stray", "three")
+
+    assert job_queue_size(redis_url=redis_url) == 1
 
 
 def test_sample_redis_sets_socket_timeouts(monkeypatch):

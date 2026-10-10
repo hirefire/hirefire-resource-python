@@ -73,10 +73,4 @@ def _parse_timestamp(request_start: str) -> float | None:
         text = text[2:]
 
     match = _LEADING_NUMBER.match(text)
-    if match is None:
-        return None
-
-    try:
-        return float(match.group(1))
-    except ValueError:
-        return None
+    return float(match.group(1)) if match else None

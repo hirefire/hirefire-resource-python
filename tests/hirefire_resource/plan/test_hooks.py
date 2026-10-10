@@ -20,6 +20,8 @@ def test_hooks_default_sample_wave_methods_are_noops():
     assert hooks.before_sample_job_queues() is None
     assert hooks.after_sample_job_queues("anything") is None
     assert hooks.reinit_after_fork() is None
+    assert hooks.attach() is None
+    assert hooks.release() is None
 
 
 def test_extract_allowlists_and_coerces():
@@ -45,6 +47,16 @@ def test_coerce_plan_value():
     assert hooks.coerce_plan_value("non_negative_integer", "4.2") is None
     assert hooks.coerce_plan_value("non_negative_integer", 4.2) is None
     assert hooks.coerce_plan_value("non_negative_integer", True) is None
+    assert hooks.coerce_plan_value("non_negative_integer", "-1") is None
+    assert hooks.coerce_plan_value("non_negative_integer", None) is None
+
+
+def test_a_whole_number_with_more_digits_than_python_converts_is_not_an_option_value():
+    assert hooks.coerce_plan_value("non_negative_integer", "9" * 5000) is None
+
+
+def test_a_value_of_a_type_the_schema_does_not_know_is_not_an_option_value():
+    assert hooks.coerce_plan_value("string", "default") is None
 
 
 def test_extract_drops_invalid_and_non_dict():

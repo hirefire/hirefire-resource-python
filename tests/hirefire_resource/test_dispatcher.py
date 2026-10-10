@@ -3033,3 +3033,24 @@ def test_a_late_pass_outside_uwsgi_is_not_reported(caplog, session):
         session.report()
 
     assert "--enable-threads" not in caplog.text
+
+
+def test_a_session_that_never_started_has_no_loop_to_wait_for(session):
+    assert seconds_to(lambda: session.join(5)) < 1
+    assert session.join(5) is True
+
+
+def test_a_session_that_is_abandoned_after_its_loop_ended_closes_its_connection(
+    monkeypatch,
+):
+    closed = []
+    monkeypatch.setattr(Client, "close", lambda client: closed.append(client))
+    monkeypatch.setattr(Session, "TICK", 0.01)
+    session = Session(HireFire.configuration).start()
+    session.halt(handoff=True)
+    assert session.join(2)
+    assert closed == []
+
+    session.abandon()
+
+    assert len(closed) == 1
