@@ -8,6 +8,7 @@ from hirefire_resource.strategy import rqt
 
 class Buffer:
     SAMPLE_COUNT_LIMIT = 1_000_000
+    EMPTY_BUCKET: dict[str, Any] = {"sum": 0.0, "count": 0}
 
     def __init__(self, ttl: int = 60) -> None:
         self._metrics: dict[str, dict[str, dict[int, Any]]] = {}

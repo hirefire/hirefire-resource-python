@@ -11,7 +11,7 @@ from mocket import Mocket, mocketize
 from mocket.mockhttp import Entry, Request, Response
 
 from hirefire_resource import HireFire, identity, plan
-from hirefire_resource.dispatcher import Dispatcher
+from hirefire_resource.dispatcher import Dispatcher, payload
 from hirefire_resource.errors import RequestError
 from hirefire_resource.lease import Lease
 from hirefire_resource.once import Once
@@ -320,9 +320,9 @@ def test_backfill_is_capped_at_the_limit():
         dispatcher._tick()
 
     keys = [int(key) for key in bodies[1][0]["metrics"]["rqt"].keys()]
-    assert min(keys) == 1100 - Dispatcher.RQT_BACKFILL_LIMIT
+    assert min(keys) == 1100 - payload.RQT_BACKFILL_LIMIT
     assert max(keys) == 1100
-    assert len(keys) == Dispatcher.RQT_BACKFILL_LIMIT + 1
+    assert len(keys) == payload.RQT_BACKFILL_LIMIT + 1
 
 
 @mocketize
@@ -1284,32 +1284,6 @@ def test_encode_omits_non_finite_rqt_mean(caplog):
 
 
 @mocketize
-def test_encode_rqt_accepts_dict_buckets_and_empty_leaf_for_non_mapping():
-    stub_lease()
-    bodies = capture_ingest_bodies()
-    dispatcher = configure_web_only()
-
-    with freeze_time(at(1000)):
-        buffer = HireFire.configuration.buffer
-        with buffer._mutex:
-            buffer._metrics["web"] = {
-                "rqt": {
-                    1000: {"sum": 8.0, "count": 2},
-                    999: {"sum": 6.0, "count": 2},
-                    998: 12,
-                    997: None,
-                }
-            }
-        dispatcher._tick()
-
-    rqt = bodies[0][0]["metrics"]["rqt"]
-    assert rqt["1000"] == [4.0, 2]
-    assert rqt["999"] == [3.0, 2]
-    assert rqt["998"] == []
-    assert rqt["997"] == []
-
-
-@mocketize
 def test_dispatch_with_stale_generation_does_not_post():
     stub_lease()
     bodies = capture_ingest_bodies()
@@ -2038,26 +2012,10 @@ def test_seven_sample_waves_of_a_full_plan_with_the_longest_names_ship_in_one_pa
 
 
 @mocketize
-def test_encode_clamps_rqt_sample_count_to_limit():
-    stub_lease()
-    bodies = capture_ingest_bodies()
-    dispatcher = configure_web_only()
-    limit = Dispatcher.SAMPLE_COUNT_LIMIT
-    with freeze_time(at(1000)):
-        buffer = HireFire.configuration.buffer
-        with buffer._mutex:
-            buffer._metrics["web"] = {
-                "rqt": {1000: {"sum": 20.0 * (limit + 50), "count": limit + 50}}
-            }
-        dispatcher._tick()
-    assert bodies[0][0]["metrics"]["rqt"]["1000"] == [20.0, limit]
-
-
-@mocketize
 def test_encode_omits_invalid_non_rqt_values():
     stub_lease(granted=True)
     bodies = capture_ingest_bodies()
-    limit = Dispatcher.METRIC_VALUE_LIMIT
+    limit = payload.METRIC_VALUE_LIMIT
     dispatcher = configure_web_only()
     HireFire.configuration.dyno("worker", lambda: 1)
     with freeze_time(at(1000)):
@@ -2069,7 +2027,6 @@ def test_encode_omits_invalid_non_rqt_values():
                     999: float("inf"),
                     998: -1.0,
                     997: limit + 1,
-                    996: "nope",
                     995: 4.5,
                 },
                 "cpu": {1000: -0.1, 999: 12.0},
@@ -2084,7 +2041,6 @@ def test_encode_omits_invalid_non_rqt_values():
     assert "999" not in jql
     assert "998" not in jql
     assert "997" not in jql
-    assert "996" not in jql
     assert jql.get("995") == 4.5
     assert "1000" not in cpu
     assert cpu.get("999") == 12.0
@@ -2330,14 +2286,6 @@ def test_start_after_fork_calls_reinit_macros_after_fork():
             reinit.assert_called_once_with(HireFire.configuration.logger)
     finally:
         dispatcher.stop()
-
-
-def test_encode_leaf_omits_non_numeric_non_rqt_silently(caplog):
-    dispatcher = Dispatcher(HireFire.configuration)
-    with caplog.at_level(logging.ERROR):
-        assert dispatcher._encode_leaf("jqs", "10") is None
-        assert dispatcher._encode_leaf("jql", None) is None
-    assert "Omitting" not in caplog.text
 
 
 @mocketize

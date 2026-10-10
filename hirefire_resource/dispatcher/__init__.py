@@ -1,5 +1,4 @@
 import json
-import math
 import os
 import threading
 import time
@@ -8,10 +7,12 @@ from typing import TYPE_CHECKING, Any, Callable
 from hirefire_resource import plan
 from hirefire_resource.buffer import Buffer
 from hirefire_resource.client import Client, Response
+from hirefire_resource.dispatcher import payload
 from hirefire_resource.lease import Lease
 from hirefire_resource.log import format_error, safe_log, verbose
+from hirefire_resource.once import Once
 from hirefire_resource.sampler import Sampler
-from hirefire_resource.strategy import RQT, rqt
+from hirefire_resource.strategy import RQT
 
 if TYPE_CHECKING:
     import logging
@@ -20,10 +21,7 @@ if TYPE_CHECKING:
 
 
 class Dispatcher:
-    RQT_BACKFILL_LIMIT = 60
     PAYLOAD_SIZE_LIMIT = 131_072
-    SAMPLE_COUNT_LIMIT = Buffer.SAMPLE_COUNT_LIMIT
-    METRIC_VALUE_LIMIT = 1e15
     DEFAULT_DISPATCH_FREQUENCY = 1
     MAX_DISPATCH_FREQUENCY = 30
     JOIN_TIMEOUT = 5
@@ -47,6 +45,7 @@ class Dispatcher:
         self._next_dispatch_at: float | None = None
         self._pending_sample_trace: dict[str, Any] | None = None
         self._sampler = Sampler(self._configuration)
+        self._once = Once(self._configuration)
 
     def start(self) -> bool:
         if self._healthy_running():
@@ -339,6 +338,7 @@ class Dispatcher:
         self._dispatch_frequency = self.DEFAULT_DISPATCH_FREQUENCY
         self._pending_sample_trace = None
         self._sampler = Sampler(self._configuration)
+        self._once = Once(self._configuration)
 
     def _enter_race(self) -> bool:
         return self._configuration.job_queues.any() or plan.any_library_loaded()
@@ -378,16 +378,16 @@ class Dispatcher:
                 return
 
             data = self._buffer().flush()
-            payload, watermark = self._build_payload(data)
-            if not payload:
+            entries, watermark = self._build_payload(data)
+            if not entries:
                 return
 
-            body = json.dumps(payload, separators=(",", ":"))
-            if len(
-                body.encode("utf-8")
-            ) > self.PAYLOAD_SIZE_LIMIT and self._payload_has_sample_trace(payload):
-                payload = self._strip_sample_trace(payload)
-                body = json.dumps(payload, separators=(",", ":"))
+            body = json.dumps(entries, separators=(",", ":"))
+            if len(body.encode("utf-8")) > self.PAYLOAD_SIZE_LIMIT and payload.traced(
+                entries
+            ):
+                self._pending_sample_trace = None
+                body = json.dumps(payload.without_trace(entries), separators=(",", ":"))
             if len(body.encode("utf-8")) > self.PAYLOAD_SIZE_LIMIT:
                 if not (
                     generation is None
@@ -474,147 +474,25 @@ class Dispatcher:
     def _build_payload(
         self, data: dict[str, dict[str, dict[int, Any]]]
     ) -> tuple[list[Any], int | None]:
-        entries_by_name: dict[str, dict[str, dict[int, Any]]] = {}
-        http_name = self._configuration.http_name()
-        watermark = self._append_http_rqt(entries_by_name, data, http_name)
-
-        for name, strategies in data.items():
-            for strategy, series in strategies.items():
-                strategy_key = str(strategy)
-                if not series:
-                    continue
-                if rqt(strategy_key) and name == http_name:
-                    continue
-                self._merge_metrics(entries_by_name, name, strategy_key, series)
-
-        entries: list[Any] = []
-        for name, metrics in entries_by_name.items():
-            encoded: dict[str, dict[str, Any]] = {}
-            for strategy, series in metrics.items():
-                strategy_key = str(strategy)
-                leaf_series: dict[str, Any] = {}
-                for second, bucket in series.items():
-                    leaf = self._encode_leaf(strategy_key, bucket)
-                    if leaf is None:
-                        continue
-                    leaf_series[str(second)] = leaf
-                if leaf_series:
-                    encoded[strategy_key] = leaf_series
-            if encoded:
-                entries.append({"name": name, "metrics": encoded})
-
-        self._attach_sample_trace(entries)
-        return entries, watermark
-
-    def _payload_has_sample_trace(self, payload: list[Any]) -> bool:
-        return bool(
-            payload and isinstance(payload[0], dict) and "sample_trace" in payload[0]
-        )
-
-    def _strip_sample_trace(self, payload: list[Any]) -> list[Any]:
-        self._pending_sample_trace = None
-        stripped: list[Any] = []
-        for entry in payload:
-            if isinstance(entry, dict) and "sample_trace" in entry:
-                copy = dict(entry)
-                copy.pop("sample_trace", None)
-                stripped.append(copy)
-            else:
-                stripped.append(entry)
-        return stripped
-
-    def _attach_sample_trace(self, entries: list[Any]) -> None:
-        if self._pending_sample_trace is None or not entries or not self._lease.trace():
-            return
-        entries[0]["sample_trace"] = self._pending_sample_trace
-
-    def _append_http_rqt(
-        self,
-        entries_by_name: dict[str, dict[str, dict[int, Any]]],
-        data: dict[str, dict[str, dict[int, Any]]],
-        http_name: str | None,
-    ) -> int | None:
-        if http_name is None:
-            return None
-
-        rqt_buckets = data.get(http_name, {}).get(RQT) or {}
         configuration = self._configuration
-
-        if configuration.rqt_enabled() and configuration.rqt_liveness():
-            payload_rqt = self._backfill_rqt_seconds(rqt_buckets)
-            self._merge_metrics(entries_by_name, http_name, RQT, payload_rqt)
-            return max(payload_rqt.keys()) if payload_rqt else None
-        if rqt_buckets:
-            self._merge_metrics(entries_by_name, http_name, RQT, rqt_buckets)
-            return None
-        return None
-
-    def _merge_metrics(
-        self,
-        entries_by_name: dict[str, dict[str, dict[int, Any]]],
-        name: str,
-        strategy: str,
-        series_buckets: dict[int, Any],
-    ) -> None:
-        dest_name = entries_by_name.setdefault(name, {})
-        dest = dest_name.setdefault(strategy, {})
-        for second, bucket in series_buckets.items():
-            if rqt(strategy):
-                sum_v, count = Buffer.rqt_parts(bucket)
-                existing = dest.get(second)
-                if existing is None:
-                    dest[second] = {"sum": sum_v, "count": count}
-                else:
-                    dest[second] = {
-                        "sum": existing["sum"] + sum_v,
-                        "count": existing["count"] + count,
-                    }
-            else:
-                dest[second] = bucket
-
-    def _encode_leaf(self, strategy: str, bucket: Any) -> Any | None:
-        if rqt(strategy):
-            sum_v, count = Buffer.rqt_parts(bucket)
-            if count == 0:
-                return []
-            mean = sum_v / count
-            if not math.isfinite(mean) or mean < 0 or mean > self.METRIC_VALUE_LIMIT:
-                safe_log(
-                    self._logger(),
-                    "error",
-                    "[HireFire] Omitting rqt second: non-finite or out-of-range mean.",
-                )
-                return None
-            n = count if count <= self.SAMPLE_COUNT_LIMIT else self.SAMPLE_COUNT_LIMIT
-            return [mean, n]
-        if not isinstance(bucket, (int, float)) or isinstance(bucket, bool):
-            return None
-        if not math.isfinite(bucket) or bucket < 0 or bucket > self.METRIC_VALUE_LIMIT:
-            safe_log(
-                self._logger(),
-                "error",
-                f"[HireFire] Omitting {strategy} second: non-finite or out-of-range value.",
-            )
-            return None
-        return bucket
-
-    def _backfill_rqt_seconds(self, buckets: dict[int, Any]) -> dict[int, Any]:
-        now = int(time.time())
-        from_second = (
-            self._last_rqt_second + 1 if self._last_rqt_second is not None else now
+        return payload.build(
+            data,
+            liveness=configuration.http_name() if configuration.rqt_enabled() else None,
+            since=self._last_rqt_second,
+            trace=self._pending_sample_trace if self._lease.trace() else None,
+            omitted=self._log_omitted,
         )
-        if from_second < now - self.RQT_BACKFILL_LIMIT:
-            from_second = now - self.RQT_BACKFILL_LIMIT
-        if from_second > now:
-            from_second = now
 
-        payload: dict[int, Any] = {}
-        for second, bucket in buckets.items():
-            sum_v, count = Buffer.rqt_parts(bucket)
-            payload[second] = {"sum": sum_v, "count": count}
-        for second in range(from_second, now + 1):
-            payload.setdefault(second, {"sum": 0.0, "count": 0})
-        return payload
+    def _log_omitted(self, name: str, strategy: str) -> None:
+        self._once.log(
+            "error",
+            "out_of_range",
+            lambda: (
+                f"[HireFire] Omitting {strategy} seconds of {name!r}: "
+                "a value is out of range."
+            ),
+            key=(name, strategy),
+        )
 
     def _buffer(self) -> Buffer:
         return self._configuration.buffer
