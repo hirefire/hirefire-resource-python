@@ -1,5 +1,4 @@
 import asyncio
-import math
 import os
 import subprocess
 import sys
@@ -55,6 +54,12 @@ def _assert_int_count(value):
 
 def _assert_float_seconds(value):
     assert isinstance(value, float), type(value)
+
+
+def _assert_latency(latency, age, since):
+    waited = (datetime.now(timezone.utc) - since).total_seconds()
+    _assert_float_seconds(latency)
+    assert age - 1 <= latency <= age + waited + 1
 
 
 def _assert_size(expected, *queues, **kwargs):
@@ -180,20 +185,21 @@ def enqueue_for_job_queue_latency_with_job(celery_app):
         celery_app.send_task(
             "test_task", queue="mailer", eta=(now - timedelta(seconds=i * 2))
         )
+    return now
 
 
 def test_job_queue_latency_with_jobs(celery_app):
-    enqueue_for_job_queue_latency_with_job(celery_app)
+    enqueued_at = enqueue_for_job_queue_latency_with_job(celery_app)
 
-    celery_latency = job_queue_latency("celery", broker_url=celery_app.conf.broker_url)
-    _assert_float_seconds(celery_latency)
-    assert math.isclose(
-        celery_latency,
+    _assert_latency(
+        job_queue_latency("celery", broker_url=celery_app.conf.broker_url),
         4,
-        abs_tol=1,
+        enqueued_at,
     )
-    assert math.isclose(
-        job_queue_latency("mailer", broker_url=celery_app.conf.broker_url), 8, abs_tol=1
+    _assert_latency(
+        job_queue_latency("mailer", broker_url=celery_app.conf.broker_url),
+        8,
+        enqueued_at,
     )
     _assert_size(
         10, "celery", "mailer", broker_url=celery_app.conf.broker_url, skip_working=True
@@ -201,12 +207,12 @@ def test_job_queue_latency_with_jobs(celery_app):
 
 
 def test_job_queue_latency_with_jobs_multi(celery_app):
-    enqueue_for_job_queue_latency_with_job(celery_app)
+    enqueued_at = enqueue_for_job_queue_latency_with_job(celery_app)
 
-    assert math.isclose(
+    _assert_latency(
         job_queue_latency("celery", "mailer", broker_url=celery_app.conf.broker_url),
         8,
-        abs_tol=1,
+        enqueued_at,
     )
     _assert_size(
         10, "celery", "mailer", broker_url=celery_app.conf.broker_url, skip_working=True
@@ -230,21 +236,17 @@ async def test_job_queue_latency_without_jobs_async(celery_app):
 
 @pytest.mark.asyncio
 async def test_job_queue_latency_with_jobs_async(celery_app):
-    enqueue_for_job_queue_latency_with_job(celery_app)
+    enqueued_at = enqueue_for_job_queue_latency_with_job(celery_app)
 
-    celery_latency = await async_job_queue_latency(
-        "celery", broker_url=celery_app.conf.broker_url
-    )
-    _assert_float_seconds(celery_latency)
-    assert math.isclose(
-        celery_latency,
+    _assert_latency(
+        await async_job_queue_latency("celery", broker_url=celery_app.conf.broker_url),
         4,
-        abs_tol=1,
+        enqueued_at,
     )
-    assert math.isclose(
+    _assert_latency(
         await async_job_queue_latency("mailer", broker_url=celery_app.conf.broker_url),
         8,
-        abs_tol=1,
+        enqueued_at,
     )
     await _assert_async_size(
         10, "celery", "mailer", broker_url=celery_app.conf.broker_url, skip_working=True
@@ -253,14 +255,14 @@ async def test_job_queue_latency_with_jobs_async(celery_app):
 
 @pytest.mark.asyncio
 async def test_job_queue_latency_with_jobs_multi_async(celery_app):
-    enqueue_for_job_queue_latency_with_job(celery_app)
+    enqueued_at = enqueue_for_job_queue_latency_with_job(celery_app)
 
-    assert math.isclose(
+    _assert_latency(
         await async_job_queue_latency(
             "celery", "mailer", broker_url=celery_app.conf.broker_url
         ),
         8,
-        abs_tol=1,
+        enqueued_at,
     )
     await _assert_async_size(
         10, "celery", "mailer", broker_url=celery_app.conf.broker_url, skip_working=True
@@ -621,7 +623,8 @@ def test_job_queue_size_with_mismatched_priority_arguments(celery_app):
 
 
 def test_job_queue_latency_redis_accepts_str_payload():
-    run_at = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat()
+    now = datetime.now(timezone.utc)
+    run_at = (now - timedelta(seconds=5)).isoformat()
     payload = (
         '{"headers": {"run_at": "'
         + run_at
@@ -635,9 +638,7 @@ def test_job_queue_latency_redis_accepts_str_payload():
     class FakeChannel:
         client = FakeClient()
 
-    latency = _job_queue_latency_redis(FakeChannel(), "celery")
-    _assert_float_seconds(latency)
-    assert math.isclose(latency, 5, abs_tol=1)
+    _assert_latency(_job_queue_latency_redis(FakeChannel(), "celery"), 5, now)
 
 
 def test_job_queue_latency_redis_skips_corrupt_payload():
@@ -654,7 +655,8 @@ def test_job_queue_latency_redis_skips_corrupt_payload():
 
 
 def test_job_queue_latency_redis_corrupt_queue_does_not_hide_sibling():
-    run_at = (datetime.now(timezone.utc) - timedelta(seconds=8)).isoformat()
+    now = datetime.now(timezone.utc)
+    run_at = (now - timedelta(seconds=8)).isoformat()
     payload = '{"headers": {"run_at": "' + run_at + '"}}'
 
     class FakeClient:
@@ -668,9 +670,8 @@ def test_job_queue_latency_redis_corrupt_queue_does_not_hide_sibling():
     bad = _job_queue_latency_redis(channel, "bad")
     good = _job_queue_latency_redis(channel, "good")
     _assert_float_seconds(bad)
-    _assert_float_seconds(good)
     assert bad == 0
-    assert math.isclose(good, 8, abs_tol=1)
+    _assert_latency(good, 8, now)
 
 
 def test_job_queue_latency_rabbitmq_requeues_after_parse_error():
