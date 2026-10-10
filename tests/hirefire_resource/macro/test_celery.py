@@ -998,7 +998,7 @@ def test_job_queue_size_drops_the_sample_when_the_counts_are_stale(
 
     deadline = time.monotonic() + _SIZE_WAIT_S
     seen = None
-    while not isinstance(seen, SampleIncompleteError):
+    while "RuntimeError: workers unreachable" not in str(seen):
         assert time.monotonic() < deadline, seen
         try:
             seen = job_queue_size("celery", celery_app=celery_app)
@@ -1006,7 +1006,7 @@ def test_job_queue_size_drops_the_sample_when_the_counts_are_stale(
             seen = error
         time.sleep(_SIZE_POLL_S)
 
-    assert "RuntimeError: workers unreachable" in str(seen)
+    assert isinstance(seen, SampleIncompleteError)
 
 
 def _execute_until_recorded(entry, series):
