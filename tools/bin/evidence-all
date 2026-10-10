@@ -48,12 +48,25 @@ celery_app_cost() {
   $evidence celery_app_cost.py py314-celery 2>/dev/null
 }
 
+celery_due_scheduled() {
+  $evidence celery_due_scheduled.py py314-celery threads
+  local port
+  port="$(awk -F= '$1 == "REDIS_PORT" { print $2 }' "$TOOLS_ROOT/.env")"
+  docker run --rm -e TOOLS_REDIS_URL="redis://host.docker.internal:$port/14" \
+    -v "$TOOLS_ROOT/tools/evidence":/evidence:ro -w /evidence "$host_image" python celery_due_scheduled.py prefork
+}
+
 celery_host_app() {
   $evidence celery_host_app.py py314-celery
 }
 
 celery_protocol_one() {
   $evidence celery_protocol_one.py py314-celery
+}
+
+celery_scheduled_reply() {
+  $evidence celery_scheduled_reply.py py314-celery 10000
+  $evidence celery_scheduled_reply.py py314-celery 100000
 }
 
 celery_run_at_header() {
@@ -215,7 +228,8 @@ version_metadata() {
 
 case "$only" in "" | rabbitmq_*) rabbitmq_4 ;; esac
 case "$only" in "" | tls_self_signed | transport_security) redis_tls ;; esac
-for name in celery_app_cost celery_host_app celery_protocol_one celery_run_at_header dramatiq_broker_subclass \
+for name in celery_app_cost celery_due_scheduled celery_host_app celery_protocol_one celery_run_at_header \
+  celery_scheduled_reply dramatiq_broker_subclass \
   dramatiq_delayed_latency exit_and_fork_warning fork_behavior fork_first_request fork_test_alone format_error \
   import_effects lease_cases lease_nested_body lease_steal loop_death performance proc_fork_cpu \
   rabbitmq_nack_quorum rabbitmq_peek_quorum request_path_cost sampler_values stale_generation_test_race \
