@@ -1,0 +1,217 @@
+#!/usr/bin/env bash
+set -uo pipefail
+source "$(dirname "$0")/env"
+cd "$TOOLS_ROOT"
+out="$TOOLS_RESULTS/${TOOLS_EVIDENCE_OUT:-evidence}"
+only="${1:-}"
+evidence=tools/bin/evidence
+free_threaded="$TOOLS_RESULTS/free-threaded-venv/bin/python"
+host_image="hirefire-python-hosts:3.13-uwsgi"
+tls="$TOOLS_RESULTS/tls"
+mkdir -p "$out" "$tls"
+ls dist/*.whl >/dev/null 2>&1 || poetry build -q
+wheel="$(ls dist/*.whl | head -1)"
+trap 'docker rm -f python-audit-rmq4 python-audit-redis-tls >/dev/null 2>&1' EXIT
+
+write() {
+  local name="$1"
+  if [ -n "$only" ] && [ "$only" != "$name" ]; then
+    return 0
+  fi
+  "$name" >"$out/$name.txt" 2>&1
+  echo "$name exit=$? lines=$(wc -l <"$out/$name.txt" | tr -d ' ')"
+}
+
+rabbitmq_4() {
+  docker rm -f python-audit-rmq4 >/dev/null 2>&1
+  docker run -d -p 127.0.0.1::5672 --name python-audit-rmq4 rabbitmq:4 >/dev/null
+  for _ in $(seq 1 60); do
+    docker logs python-audit-rmq4 2>&1 | grep -q "Server startup complete" && break
+    sleep 1
+  done
+  export RABBITMQ_4_URL="amqp://guest:guest@127.0.0.1:$(docker port python-audit-rmq4 5672 | cut -d: -f2)"
+}
+
+redis_tls() {
+  openssl req -x509 -newkey rsa:2048 -nodes -keyout "$tls/redis.key" -out "$tls/redis.crt" -days 2 \
+    -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1" >/dev/null 2>&1
+  chmod 644 "$tls/redis.key" "$tls/redis.crt"
+  docker rm -f python-audit-redis-tls >/dev/null 2>&1
+  docker run -d --name python-audit-redis-tls -p 127.0.0.1::6380 -v "$tls":/certs:ro redis:7 redis-server \
+    --port 0 --tls-port 6380 --tls-cert-file /certs/redis.crt --tls-key-file /certs/redis.key \
+    --tls-ca-cert-file /certs/redis.crt --tls-auth-clients no >/dev/null
+  sleep 2
+  export REDIS_TLS_URL="rediss://127.0.0.1:$(docker port python-audit-redis-tls 6380 | cut -d: -f2)/0"
+}
+
+celery_app_cost() {
+  $evidence celery_app_cost.py py314-celery 2>/dev/null
+}
+
+celery_protocol_one() {
+  $evidence celery_protocol_one.py py314-celery
+}
+
+celery_run_at_header() {
+  $evidence celery_run_at_header.py py314-celery
+}
+
+dramatiq_broker_subclass() {
+  $evidence dramatiq_broker_subclass.py py314-dramatiq
+}
+
+dramatiq_delayed_latency() {
+  $evidence dramatiq_delayed_latency.py py314-dramatiq
+}
+
+exit_and_fork_warning() {
+  $evidence exit_and_fork_warning.py py314-core
+}
+
+fork_behavior() {
+  $evidence fork_behavior.py py314-core web 2>/dev/null
+  $evidence fork_behavior.py py314-core worker 2>/dev/null
+}
+
+fork_first_request() {
+  local started
+  started="$(date +%s)"
+  $evidence fork_first_request.py py314-core | tail -3
+  docker build -q --build-arg PYTHON=3.13 --build-arg UWSGI=uwsgi -t "$host_image" -f tools/hosts/Dockerfile . >/dev/null
+  docker run --rm -v "$TOOLS_ROOT/tools/evidence":/evidence:ro "$host_image" python /evidence/fork_first_request.py | tail -3
+  sleep 20
+  $evidence crash_report.py py314-core "$started"
+}
+
+fork_test_alone() {
+  for env in py311-core py312-core py313-core py314-core; do
+    $evidence fork_test_alone.py "$env"
+  done
+}
+
+format_error() {
+  $evidence format_error.py py314-core
+}
+
+import_effects() {
+  $evidence import_effects.py py314-core
+}
+
+lease_cases() {
+  for case in truncation one_off fork_during_stall middleware_errors slow_sampler; do
+    $evidence lease_cases.py py314-core "$case" 2>/dev/null
+  done
+  $evidence lease_cases.py py314-rq2 masked_import 2>/dev/null
+}
+
+lease_nested_body() {
+  $evidence lease_nested_body.py py314-core
+  for version in py311 py312 py313; do
+    echo "== $version"
+    $evidence lease_nested_body.py "$version-core" 2>&1 | tr -d '\n' | cut -c1-420
+    echo
+  done
+}
+
+lease_steal() {
+  $evidence lease_steal.py py314-rq2
+}
+
+loop_death() {
+  $evidence loop_death.py py314-core worker 2>/dev/null
+  $evidence loop_death.py py314-core web 2>/dev/null
+  $evidence late_library.py py314-rq2
+}
+
+performance() {
+  $evidence performance.py py314-core contention
+  PYTHONPATH="$TOOLS_ROOT:$TOOLS_ROOT/tools/lib" PYTHON_GIL=0 "$free_threaded" -X gil=0 tools/evidence/performance.py contention
+  $evidence performance.py py314-core idle worker.1
+  $evidence performance.py py314-core idle web.1
+}
+
+proc_fork_cpu() {
+  docker run --rm -v "$TOOLS_ROOT":/src:ro -e PYTHONPATH=/src python:3.13-bookworm python /src/tools/evidence/proc_fork_cpu.py
+}
+
+rabbitmq_nack_quorum() {
+  echo "RabbitMQ $(docker exec python-audit-rmq4 rabbitmqctl version)"
+  TOOLS_AMQP_URL="$RABBITMQ_4_URL" $evidence rabbitmq_nack_quorum.py py314-dramatiq
+}
+
+rabbitmq_peek_quorum() {
+  echo "RabbitMQ $(docker exec python-audit-rmq4 rabbitmqctl version)"
+  TOOLS_AMQP_URL="$RABBITMQ_4_URL" $evidence rabbitmq_peek_quorum.py py314-celery celery
+  TOOLS_AMQP_URL="$RABBITMQ_4_URL" $evidence rabbitmq_peek_quorum.py py314-dramatiq dramatiq
+}
+
+request_path_cost() {
+  $evidence request_path_cost.py py314-core token
+  $evidence request_path_cost.py py314-rq2 with_job_library
+  $evidence request_path_cost.py py314-core no_token
+  $evidence request_path_cost.py py311-core token
+}
+
+sampler_values() {
+  for value in int float bool decimal fraction huge_int nan negative numeric_string; do
+    $evidence sampler_values.py py314-core "$value"
+  done
+}
+
+stale_generation_test_race() {
+  $evidence stale_generation_test_race.py py312-core
+}
+
+stopping_inherited() {
+  $evidence stopping_inherited.py py314-core 2>/dev/null
+}
+
+tls_self_signed() {
+  {
+    TOOLS_REDIS_TLS_URL="$REDIS_TLS_URL" $evidence tls_self_signed.py py314-rq2 rq
+    TOOLS_REDIS_TLS_URL="$REDIS_TLS_URL" $evidence tls_self_signed.py py314-celery celery
+    TOOLS_REDIS_TLS_URL="$REDIS_TLS_URL" $evidence tls_self_signed.py py314-dramatiq dramatiq
+  } 2>&1 | sed -E 's/127\.0\.0\.1:[0-9]+/127.0.0.1:<port>/g'
+}
+
+token_and_url() {
+  $evidence token_in_log.py
+  $evidence data_url_without_scheme.py py314-core data.hirefire.io
+  $evidence data_url_without_scheme.py py314-core http://127.0.0.1:port
+}
+
+transport_security() {
+  $evidence transport_security.py py314-core certificate "$tls/redis.crt" "$tls/redis.key"
+  $evidence transport_security.py py314-core proxy
+}
+
+typing_consumer() {
+  local consumer="$TOOLS_RESULTS/consumer"
+  mkdir -p "$consumer"
+  cp tools/evidence/typing_consumer.py "$consumer/"
+  "$TOOLS_VENV/bin/pip" install -q --force-reinstall --no-deps "$wheel"
+  (
+    cd "$consumer"
+    echo "== mypy --strict"
+    "$TOOLS_VENV/bin/mypy" --strict typing_consumer.py 2>&1 | sed -E 's#[^ ]*site-packages/##'
+    echo "== pyright"
+    "$TOOLS_VENV/bin/pyright" typing_consumer.py 2>&1 | sed -E 's#[^ ]*/consumer/##' | tail -14
+  )
+}
+
+version_metadata() {
+  uv pip uninstall --python "$free_threaded" hirefire-resource -q >/dev/null 2>&1
+  "$free_threaded" -m pytest -q -p no:cacheprovider tests/hirefire_resource/test_version.py 2>&1 | tail -4
+  PYTHONPATH=. "$free_threaded" -c "from hirefire_resource.client import VERSION; print('agent header without package metadata:', f'Python-{VERSION}')"
+  uv pip install --python "$free_threaded" --no-deps "$wheel" -q >/dev/null 2>&1
+}
+
+case "$only" in "" | rabbitmq_*) rabbitmq_4 ;; esac
+case "$only" in "" | tls_self_signed | transport_security) redis_tls ;; esac
+for name in celery_app_cost celery_protocol_one celery_run_at_header dramatiq_broker_subclass \
+  dramatiq_delayed_latency exit_and_fork_warning fork_behavior fork_first_request fork_test_alone format_error \
+  import_effects lease_cases lease_nested_body lease_steal loop_death performance proc_fork_cpu \
+  rabbitmq_nack_quorum rabbitmq_peek_quorum request_path_cost sampler_values stale_generation_test_race \
+  stopping_inherited tls_self_signed token_and_url transport_security typing_consumer version_metadata; do
+  write "$name"
+done
