@@ -2,7 +2,9 @@ import asyncio
 import copy
 import json
 import os
+import sys
 import time
+import weakref
 from typing import Any
 
 from hirefire_resource.identity import presence
@@ -11,7 +13,6 @@ from hirefire_resource.utility import normalize_queues
 
 plan_options = _plan_hooks.plan_options
 supports_plan_strategy = _plan_hooks.supports_plan_strategy
-attach = _plan_hooks.attach
 release = _plan_hooks.release
 
 _HMGET_BATCH = 200
@@ -21,8 +22,10 @@ _REDIS_SCHEMES = ("redis://", "rediss://")
 _SAMPLE_REDIS_TIMEOUT = 5.0
 _SAMPLE_AMQP_TIMEOUT = 5.0
 _DQ_WALK_LIMIT = 2000
+ENQUEUED_AT = "hirefire_enqueued_at"
 
 _dq_wave: dict[tuple[object, str, str], tuple[int, int | None]] | None = None
+_attached_broker: "weakref.ref[Any] | None" = None
 
 
 def before_sample_job_queues() -> object:
@@ -39,12 +42,38 @@ def after_sample_job_queues(token: object = None) -> None:
 def reinit_after_fork() -> None:
     global _dq_wave
     _dq_wave = None
+    attach()
 
 
 try:
     import redis
 except ImportError:
     redis = None
+
+
+try:
+    from dramatiq.middleware import Middleware
+except ImportError:
+    Middleware = object
+
+
+class EnqueueTime(Middleware):
+    def before_enqueue(self, broker: Any, message: Any, delay: Any) -> None:
+        if delay is None:
+            message.options[ENQUEUED_AT] = _now_ms()
+
+
+def attach() -> None:
+    global _attached_broker
+    broker = getattr(sys.modules.get("dramatiq.broker"), "global_broker", None)
+    if broker is None:
+        return
+    if _attached_broker is not None and _attached_broker() is broker:
+        return
+
+    _attached_broker = weakref.ref(broker)
+    if not any(isinstance(item, EnqueueTime) for item in broker.middleware):
+        broker.add_middleware(EnqueueTime())
 
 
 try:
@@ -379,34 +408,30 @@ def _decode_message(body: bytes | str | None) -> Any | None:
             return None
 
 
-def _message_timestamp_ms(message: Any) -> int | None:
-    if message is None:
-        return None
+def _message_enqueued_ms(message: Any) -> int | None:
+    enqueued = _milliseconds(_message_options(message).get(ENQUEUED_AT))
+    if enqueued is not None:
+        return enqueued
     if isinstance(message, dict):
-        value = message.get("message_timestamp")
-    else:
-        value = getattr(message, "message_timestamp", None)
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
+        return _milliseconds(message.get("message_timestamp"))
+    return _milliseconds(getattr(message, "message_timestamp", None))
 
 
 def _message_eta_ms(message: Any) -> int | None:
-    if message is None:
-        return None
+    return _milliseconds(_message_options(message).get("eta"))
+
+
+def _message_options(message: Any) -> dict[str, Any]:
     if isinstance(message, dict):
-        options = message.get("options") or {}
-        value = options.get("eta") if isinstance(options, dict) else None
+        options = message.get("options")
     else:
-        options = getattr(message, "options", None) or {}
-        value = options.get("eta") if isinstance(options, dict) else None
-    if value is None:
-        return None
+        options = getattr(message, "options", None)
+    return options if isinstance(options, dict) else {}
+
+
+def _milliseconds(value: object) -> int | None:
     try:
-        return int(value)
+        return int(value)  # type: ignore[call-overload]
     except (TypeError, ValueError):
         return None
 
@@ -434,7 +459,7 @@ def _redis_job_queue_latency(
         mid = client.lindex(f"{namespace}:{queue}", 0)
         if mid:
             body = client.hget(f"{namespace}:{queue}.msgs", mid)
-            ts = _message_timestamp_ms(_decode_message(body))
+            ts = _message_enqueued_ms(_decode_message(body))
             if ts is not None:
                 max_lat = max(max_lat, max(0.0, (now_ms - ts) / 1000.0))
 
@@ -543,7 +568,7 @@ def _rabbitmq_queue_latency(
 
     latency = 0.0
     try:
-        ts = _message_timestamp_ms(_decode_message(body))
+        ts = _message_enqueued_ms(_decode_message(body))
         if ts is not None:
             latency = max(0.0, (now_ms - ts) / 1000.0)
     finally:

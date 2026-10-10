@@ -1,13 +1,16 @@
 import os
+import threading
 import time
 import uuid
 from unittest.mock import MagicMock
 
+import dramatiq
 import pika
 import pytest
 import redis
 from dramatiq import Message
 from dramatiq.brokers.redis import RedisBroker
+from dramatiq.brokers.stub import StubBroker
 
 from hirefire_resource import plan
 from hirefire_resource.errors import MissingQueueError
@@ -1199,6 +1202,159 @@ def test_unreachable_redis_raises():
         job_queue_size("default", broker_url="redis://127.0.0.1:1/0")
     with pytest.raises((redis.exceptions.RedisError, OSError)):
         job_queue_latency("default", broker_url="redis://127.0.0.1:1/0")
+
+
+@pytest.fixture
+def global_broker(monkeypatch):
+    monkeypatch.setattr(dramatiq_macro, "_attached_broker", None)
+
+    def use(broker):
+        monkeypatch.setattr(dramatiq.broker, "global_broker", broker)
+        return broker
+
+    return use
+
+
+def _enqueue_times(broker):
+    return [
+        item
+        for item in broker.middleware
+        if isinstance(item, dramatiq_macro.EnqueueTime)
+    ]
+
+
+def test_attach_adds_the_enqueue_time_middleware_to_the_broker_of_the_app_once(
+    global_broker,
+):
+    broker = global_broker(StubBroker())
+
+    for _ in range(3):
+        dramatiq_macro.attach()
+
+    assert len(_enqueue_times(broker)) == 1
+    assert broker.middleware[-1] is _enqueue_times(broker)[0]
+
+
+def test_attach_follows_a_broker_that_the_app_sets_later(global_broker):
+    global_broker(None)
+    dramatiq_macro.attach()
+    first = global_broker(StubBroker())
+    dramatiq_macro.attach()
+    second = global_broker(StubBroker())
+    dramatiq_macro.attach()
+    global_broker(first)
+    dramatiq_macro.attach()
+
+    assert len(_enqueue_times(first)) == 1
+    assert len(_enqueue_times(second)) == 1
+
+
+def test_attach_without_a_broker_of_the_app_creates_none(global_broker):
+    global_broker(None)
+
+    dramatiq_macro.attach()
+
+    assert dramatiq.broker.global_broker is None
+
+
+def test_a_forked_child_attaches_to_the_broker_of_the_app(global_broker):
+    broker = global_broker(StubBroker())
+
+    dramatiq_macro.reinit_after_fork()
+
+    assert len(_enqueue_times(broker)) == 1
+
+
+def test_a_message_that_enters_the_main_queue_is_stamped_and_a_delayed_one_is_not(
+    global_broker,
+):
+    broker = global_broker(RedisBroker(url=redis_url, namespace=NAMESPACE))
+    dramatiq_macro.attach()
+    try:
+        broker.declare_queue("default")
+        before = int(time.time() * 1000)
+
+        sent = broker.enqueue(_message("default"))
+        delayed = broker.enqueue(_message("default"), delay=60_000)
+
+        assert before <= sent.options[dramatiq_macro.ENQUEUED_AT] <= before + 5_000
+        assert dramatiq_macro.ENQUEUED_AT not in delayed.options
+    finally:
+        broker.close()
+
+
+def test_latency_reads_the_enqueue_time_of_a_message_before_its_first_timestamp():
+    client = redis.Redis.from_url(redis_url)
+    try:
+        now_ms = int(time.time() * 1000)
+        mid = str(uuid.uuid4())
+        body = _encode(
+            options={
+                "redis_message_id": mid,
+                dramatiq_macro.ENQUEUED_AT: now_ms - 5_000,
+            },
+            message_timestamp=now_ms - 3_600_000,
+        )
+        client.rpush(f"{NAMESPACE}:default", mid)
+        client.hset(f"{NAMESPACE}:default.msgs", mid, body)
+
+        latency = job_queue_latency("default", broker_url=redis_url)
+
+        assert latency == pytest.approx(5, abs=3)
+    finally:
+        client.close()
+
+
+def test_a_delayed_message_that_a_worker_moved_to_the_queue_waits_from_that_move(
+    global_broker,
+):
+    queue = f"hf_delayed_{uuid.uuid4().hex[:8]}"
+    broker = global_broker(RedisBroker(url=redis_url, namespace=NAMESPACE))
+    dramatiq_macro.attach()
+    release = threading.Event()
+
+    @dramatiq.actor(broker=broker, queue_name=queue, max_retries=0)
+    def hold():
+        release.wait(30)
+
+    @dramatiq.actor(broker=broker, queue_name=queue, max_retries=0)
+    def work():
+        pass
+
+    hold.send()
+    hold.send()
+    first_enqueued = int(time.time() * 1000) - 3_600_000
+    broker.enqueue(
+        Message(
+            queue_name=queue,
+            actor_name="work",
+            args=(),
+            kwargs={},
+            options={},
+            message_timestamp=first_enqueued,
+        ),
+        delay=200,
+    )
+    worker = dramatiq.Worker(broker, worker_threads=1)
+    worker.start()
+    try:
+        for _ in range(1000):
+            if broker.client.llen(f"{NAMESPACE}:{queue}") == 1:
+                break
+            time.sleep(0.01)
+
+        assert job_queue_size(queue, broker=broker) == 1
+        assert job_queue_latency(queue, broker=broker) < 30
+    finally:
+        release.set()
+        worker.stop(timeout=5_000)
+        broker.close()
+
+
+def _message(queue):
+    return Message(
+        queue_name=queue, actor_name="do_work", args=(), kwargs={}, options={}
+    )
 
 
 def test_unsupported_broker_type_raises():
