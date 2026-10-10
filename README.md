@@ -24,7 +24,7 @@ Celery, RQ, and Dramatiq sampling use the application's broker driver (Redis or 
 
 Django 6 requires Python 3.12+.
 
-The test suite runs against these minimum versions and the current latest release of each runtime and library. Older versions may still work, but are not officially supported.
+The test suite runs against the newest release of each supported major version of each runtime and library. Older versions may still work, but are not officially supported.
 
 **Types:**
 
