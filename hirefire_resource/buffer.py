@@ -44,16 +44,13 @@ class Buffer:
             self._metrics = {}
             return metrics
 
-    def discard_inherited(self) -> None:
+    def discard(self) -> None:
         with self._mutex:
             self._metrics = {}
 
     def reinit_after_fork(self) -> None:
         self._mutex = threading.Lock()
         self._metrics = {}
-
-    def reinit_locks_after_fork(self) -> None:
-        self._mutex = threading.Lock()
 
     def repopulate(self, name: str, strategy: str, data: dict[int, Any]) -> None:
         strategy = str(strategy)

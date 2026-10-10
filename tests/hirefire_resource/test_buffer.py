@@ -18,13 +18,13 @@ def test_sample_rqt_accumulates_sum_and_count():
     assert data["web"]["rqt"][100] == {"sum": 60.0, "count": 3}
 
 
-def test_discard_inherited_clears_all_strategies():
+def test_discard_clears_all_strategies():
     buffer = Buffer()
     with freeze_time(at(100)):
         buffer.sample("web", "rqt", 7)
         buffer.sample("worker", "jql", 5)
         buffer.sample("web", "cpu", 12.5)
-        buffer.discard_inherited()
+        buffer.discard()
         assert buffer.flush() == {}
 
 

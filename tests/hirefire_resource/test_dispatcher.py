@@ -1,8 +1,11 @@
 import json
 import logging
 import os
+import queue
+import re
 import threading
 import time
+from contextlib import contextmanager
 from unittest.mock import patch
 
 import pytest
@@ -11,10 +14,15 @@ from mocket import Mocket, mocketize
 from mocket.mockhttp import Entry, Request, Response
 
 from hirefire_resource import HireFire, identity, plan
+from hirefire_resource.client import Client
+from hirefire_resource.client import Response as ClientResponse
 from hirefire_resource.dispatcher import Dispatcher, payload
+from hirefire_resource.dispatcher.session import Session
 from hirefire_resource.errors import RequestError
 from hirefire_resource.lease import Lease
 from hirefire_resource.once import Once
+from hirefire_resource.sampler import Sampler
+from hirefire_resource.source.cpu import CPU
 from hirefire_resource.source.cpu.usage import Usage
 from tests.helpers import at, fake_macro, set_HIREFIRE_TOKEN  # noqa: F401
 
@@ -25,6 +33,24 @@ LEASE_URL = "https://data.hirefire.io/metrics/lease"
 @pytest.fixture(autouse=True)
 def with_token(set_HIREFIRE_TOKEN):
     pass
+
+
+class SessionOnFirstUse:
+    def __getattr__(self, name):
+        made = self.__dict__.get("made")
+        if made is None:
+            made = self.__dict__["made"] = Session(HireFire.configuration)
+        return getattr(made, name)
+
+
+@pytest.fixture
+def session(with_token):
+    return SessionOnFirstUse()
+
+
+def job_queue_pass(session):
+    session.renew()
+    session.sample()
 
 
 def stub_lease(granted=False, plan=None, trace=False):
@@ -114,6 +140,105 @@ def test_ingest_bodies_read_a_request_whose_body_arrived():
     assert list(bodies) == [[]]
 
 
+def answer(status=200, headers=None):
+    return ClientResponse(status=status, headers=headers or {})
+
+
+@contextmanager
+def ingest(submit):
+    with patch.object(
+        Client,
+        "submit_samples",
+        autospec=True,
+        side_effect=lambda _, body: submit(body),
+    ):
+        yield
+
+
+def ingest_statuses(*statuses):
+    Entry.register(
+        Entry.POST, INGEST_URL, *[Response(status=status) for status in statuses]
+    )
+    return IngestBodies()
+
+
+def ingest_texts():
+    return [
+        body
+        for request in list(Mocket.request_list())
+        if request.path == "/metrics/ingest"
+        and (body := complete_body(request)) is not None
+    ]
+
+
+def ingest_requests():
+    return request_paths().count("/metrics/ingest")
+
+
+def lease_requests():
+    return request_paths().count("/metrics/lease")
+
+
+def messages(caplog):
+    return [record.getMessage() for record in caplog.records]
+
+
+def sent(bodies, name, strategy, leaf):
+    return any(
+        leaf in entry["metrics"].get(strategy, {}).values()
+        for body in bodies
+        for entry in body
+        if entry["name"] == name
+    )
+
+
+def seconds_claimed_at(session, second, bodies):
+    with freeze_time(at(second)):
+        session.report()
+    return sorted(bodies[-1][0]["metrics"]["rqt"])
+
+
+def attempts(session, seconds):
+    seen = []
+    with freeze_time(at(seconds[0])) as clock:
+        for second in seconds:
+            clock.move_to(at(second))
+            before = ingest_requests()
+            session.report()
+            if ingest_requests() > before:
+                seen.append(second)
+    return seen
+
+
+def renew_each_second(session, seconds):
+    with freeze_time(at(seconds[0])) as clock:
+        for second in seconds:
+            clock.move_to(at(second))
+            session.renew()
+
+
+def loop_threads(name):
+    return [
+        thread
+        for thread in threading.enumerate()
+        if thread.name == name and thread.is_alive()
+    ]
+
+
+def wait_until(condition, seconds=2):
+    for _ in range(int(seconds / 0.005)):
+        if condition():
+            return
+        time.sleep(0.005)
+    pytest.fail(f"the condition was not met within {seconds} seconds")
+
+
+def seconds_to(call):
+    started = time.perf_counter()
+    call()
+    return time.perf_counter() - started
+
+
 def configure_web_and_workers(monkeypatch=None):
     if monkeypatch is not None:
         monkeypatch.setenv("DYNO", "web.1")
@@ -198,16 +323,16 @@ def test_a_failed_thread_spawn_leaves_the_dispatcher_retryable(caplog):
 
 
 @mocketize
-def test_dispatches_web_metrics():
+def test_dispatches_web_metrics(session):
     stub_lease()
     bodies = capture_ingest_bodies()
 
-    dispatcher = configure_web_only()
+    configure_web_only()
 
     with freeze_time(at(1000)):
         HireFire.configuration.buffer.sample("web", "rqt", 12)
         HireFire.configuration.buffer.sample("web", "rqt", 8)
-        dispatcher._tick()
+        session.report()
 
     assert len(bodies) == 1
     assert bodies[0][0]["name"] == "web"
@@ -215,72 +340,72 @@ def test_dispatches_web_metrics():
 
 
 @mocketize
-def test_logs_the_payload_when_verbose_is_set(monkeypatch, caplog):
+def test_logs_the_payload_when_verbose_is_set(monkeypatch, caplog, session):
     caplog.set_level(logging.INFO)
     monkeypatch.setenv("HIREFIRE_VERBOSE", "1")
     Entry.single_register(Entry.POST, INGEST_URL, status=200)
 
-    dispatcher = configure_web_only()
+    configure_web_only()
     with freeze_time(at(1000)):
         HireFire.configuration.buffer.sample("web", "rqt", 12)
-        dispatcher._tick()
+        session.report()
 
     assert "Dispatching metrics" in caplog.text
 
 
 @mocketize
-def test_no_dispatch_when_nothing_configured():
+def test_no_dispatch_when_nothing_configured(session):
     stub_lease()
     bodies = capture_ingest_bodies()
 
-    HireFire.configuration.dispatcher._tick()
+    session.report()
 
     assert bodies == []
 
 
 @mocketize
-def test_first_dispatch_claims_only_the_current_second():
+def test_first_dispatch_claims_only_the_current_second(session):
     stub_lease()
     bodies = capture_ingest_bodies()
 
-    dispatcher = configure_web_only()
+    configure_web_only()
     with freeze_time(at(1000)):
-        dispatcher._tick()
+        session.report()
 
     assert bodies[0][0]["metrics"]["rqt"] == {"1000": []}
 
 
 @mocketize
-def test_backfills_seconds_skipped_between_dispatches():
+def test_backfills_seconds_skipped_between_dispatches(session):
     stub_lease()
     bodies = capture_ingest_bodies()
 
-    dispatcher = configure_web_only()
+    configure_web_only()
     with freeze_time(at(1000)):
-        dispatcher._tick()
+        session.report()
     with freeze_time(at(1003)):
-        dispatcher._tick()
+        session.report()
 
     assert bodies[1][0]["metrics"]["rqt"] == {"1001": [], "1002": [], "1003": []}
 
 
 @mocketize
-def test_backfill_preserves_buffered_samples():
+def test_backfill_preserves_buffered_samples(session):
     stub_lease()
     bodies = capture_ingest_bodies()
 
-    dispatcher = configure_web_only()
+    configure_web_only()
     with freeze_time(at(1000)):
-        dispatcher._tick()
+        session.report()
     with freeze_time(at(1003)):
         HireFire.configuration.buffer.sample("web", "rqt", 5)
-        dispatcher._tick()
+        session.report()
 
     assert bodies[1][0]["metrics"]["rqt"] == {"1001": [], "1002": [], "1003": [5.0, 1]}
 
 
 @mocketize
-def test_seconds_from_a_failed_dispatch_are_reclaimed_by_the_next_success():
+def test_seconds_from_a_failed_dispatch_are_reclaimed_by_the_next_success(session):
     stub_lease()
     Entry.register(
         Entry.POST,
@@ -291,13 +416,13 @@ def test_seconds_from_a_failed_dispatch_are_reclaimed_by_the_next_success():
     )
     bodies = IngestBodies()
 
-    dispatcher = configure_web_only()
+    configure_web_only()
     with freeze_time(at(1000)):
-        dispatcher._tick()
+        session.report()
     with freeze_time(at(1003)):
-        dispatcher._tick()
+        session.report()
     with freeze_time(at(1005)):
-        dispatcher._tick()
+        session.report()
 
     assert sorted(bodies[2][0]["metrics"]["rqt"].keys()) == [
         "1001",
@@ -309,15 +434,15 @@ def test_seconds_from_a_failed_dispatch_are_reclaimed_by_the_next_success():
 
 
 @mocketize
-def test_backfill_is_capped_at_the_limit():
+def test_backfill_is_capped_at_the_limit(session):
     stub_lease()
     bodies = capture_ingest_bodies()
 
-    dispatcher = configure_web_only()
+    configure_web_only()
     with freeze_time(at(1000)):
-        dispatcher._tick()
+        session.report()
     with freeze_time(at(1100)):
-        dispatcher._tick()
+        session.report()
 
     keys = [int(key) for key in bodies[1][0]["metrics"]["rqt"].keys()]
     assert min(keys) == 1100 - payload.RQT_BACKFILL_LIMIT
@@ -326,44 +451,44 @@ def test_backfill_is_capped_at_the_limit():
 
 
 @mocketize
-def test_lease_unauthorized_does_not_log_error(caplog):
+def test_lease_unauthorized_does_not_log_error(caplog, session):
     caplog.set_level(logging.ERROR)
     Entry.single_register(Entry.POST, LEASE_URL, status=401)
     bodies = capture_ingest_bodies()
 
-    dispatcher = configure_workers_only()
-    dispatcher._job_queue_tick()
-    dispatcher._tick()
+    configure_workers_only()
+    job_queue_pass(session)
+    session.report()
 
     assert bodies == []
     assert "401" not in caplog.text
 
 
 @mocketize
-def test_web_buffer_discarded_on_unauthorized(caplog):
+def test_web_buffer_discarded_on_unauthorized(caplog, session):
     caplog.set_level(logging.ERROR)
     stub_lease()
-    Entry.single_register(Entry.POST, INGEST_URL, status=401)
+    bodies = ingest_statuses(401, 200)
 
-    dispatcher = configure_web_only()
+    configure_web_only()
     with freeze_time(at(1000)):
         HireFire.configuration.buffer.sample("web", "rqt", 7)
-        dispatcher._tick()
+        session.report()
 
     assert "web" not in HireFire.configuration.buffer.flush()
-    assert dispatcher._last_rqt_second == 1000
+    assert seconds_claimed_at(session, 1002, bodies) == ["1001", "1002"]
     assert "Dispatch error" not in caplog.text
 
 
 @mocketize
-def test_web_buffer_repopulated_on_dispatch_failure():
+def test_web_buffer_repopulated_on_dispatch_failure(session):
     stub_lease()
     Entry.single_register(Entry.POST, INGEST_URL, status=500)
 
-    dispatcher = configure_web_only()
+    configure_web_only()
     with freeze_time(at(1000)):
         HireFire.configuration.buffer.sample("web", "rqt", 7)
-        dispatcher._tick()
+        session.report()
 
     assert HireFire.configuration.buffer.flush()["web"]["rqt"][1000] == {
         "sum": 7.0,
@@ -372,15 +497,15 @@ def test_web_buffer_repopulated_on_dispatch_failure():
 
 
 @mocketize
-def test_oversized_payload_is_dropped_without_a_request(caplog):
+def test_oversized_payload_is_dropped_without_a_request(caplog, session):
     caplog.set_level(logging.ERROR)
     stub_lease()
     bodies = capture_ingest_bodies()
 
-    dispatcher = configure_web_only()
+    configure_web_only()
     with freeze_time(at(1000)):
         inject_oversized_series()
-        dispatcher._tick()
+        session.report()
 
     assert bodies == []
     assert "web" not in HireFire.configuration.buffer.flush()
@@ -389,49 +514,47 @@ def test_oversized_payload_is_dropped_without_a_request(caplog):
 
 @mocketize
 def test_an_oversized_payload_without_web_data_drops_without_touching_the_watermark(
-    caplog,
+    caplog, session
 ):
     caplog.set_level(logging.ERROR)
     stub_lease(granted=False)
     bodies = capture_ingest_bodies()
 
-    dispatcher = HireFire.configuration.dispatcher
     inject_oversized_series(name="worker", strategy="jql")
-    dispatcher._tick()
+    session.report()
 
     assert bodies == []
     assert "Dropped metrics payload" in caplog.text
-    assert dispatcher._last_rqt_second is None
 
 
 @mocketize
-def test_oversized_drop_advances_the_watermark_past_the_hole():
+def test_oversized_drop_advances_the_watermark_past_the_hole(session):
     stub_lease()
     bodies = capture_ingest_bodies()
 
-    dispatcher = configure_web_only()
+    configure_web_only()
     with freeze_time(at(1000)):
-        dispatcher._tick()
+        session.report()
     with freeze_time(at(1010)):
         inject_oversized_series()
-        dispatcher._tick()
+        session.report()
     with freeze_time(at(1012)):
-        dispatcher._tick()
+        session.report()
 
     assert len(bodies) == 2
     assert sorted(bodies[1][0]["metrics"]["rqt"].keys()) == ["1011", "1012"]
 
 
 @mocketize
-def test_combined_web_and_worker_dispatch():
+def test_combined_web_and_worker_dispatch(session):
     stub_lease(granted=True)
     bodies = capture_ingest_bodies()
 
     with freeze_time(at(1000)):
-        dispatcher = configure_web_and_workers()
+        configure_web_and_workers()
         HireFire.configuration.buffer.sample("web", "rqt", 5)
-        dispatcher._job_queue_tick()
-        dispatcher._tick()
+        job_queue_pass(session)
+        session.report()
 
     entries = bodies[0]
     assert any(entry["name"] == "web" and "metrics" in entry for entry in entries)
@@ -442,7 +565,7 @@ def test_combined_web_and_worker_dispatch():
 
 
 @mocketize
-def test_dispatch_tick_does_not_run_job_queue_sampling():
+def test_dispatch_tick_does_not_run_job_queue_sampling(session):
     stub_lease(granted=True)
     bodies = capture_ingest_bodies()
     sampled = []
@@ -454,27 +577,27 @@ def test_dispatch_tick_does_not_run_job_queue_sampling():
     with freeze_time(at(1000)):
         HireFire.configuration.dyno("web")
         HireFire.configuration.dyno("worker", sampler)
-        dispatcher = HireFire.configuration.dispatcher
         HireFire.configuration.buffer.sample("web", "rqt", 5)
-        dispatcher._tick()
+        session.report()
 
     assert [entry["name"] for entry in bodies[0]] == ["web"]
     assert sampled == []
 
 
 @mocketize
-def test_job_queue_tick_samples_without_dispatching_and_a_later_tick_delivers_it():
+def test_job_queue_tick_samples_without_dispatching_and_a_later_tick_delivers_it(
+    session,
+):
     stub_lease(granted=True)
     bodies = capture_ingest_bodies()
 
     with freeze_time(at(1000)):
         HireFire.configuration.dyno("worker", lambda: 42)
-        dispatcher = HireFire.configuration.dispatcher
 
-        dispatcher._job_queue_tick()
+        job_queue_pass(session)
         assert bodies == []
 
-        dispatcher._tick()
+        session.report()
 
     assert len(bodies) == 1
     assert any(
@@ -484,7 +607,7 @@ def test_job_queue_tick_samples_without_dispatching_and_a_later_tick_delivers_it
 
 
 @mocketize
-def test_hyphen_dyno_samples_and_dispatches_name_as_is(monkeypatch, caplog):
+def test_hyphen_dyno_samples_and_dispatches_name_as_is(monkeypatch, caplog, session):
     stub_lease(
         granted=True,
         plan={
@@ -505,9 +628,8 @@ def test_hyphen_dyno_samples_and_dispatches_name_as_is(monkeypatch, caplog):
 
     with freeze_time(at(1000)):
         HireFire.configuration.dyno("worker-latency", lambda: 7)
-        dispatcher = HireFire.configuration.dispatcher
-        dispatcher._job_queue_tick()
-        dispatcher._tick()
+        job_queue_pass(session)
+        session.report()
 
     names = [entry["name"] for entry in bodies[0]]
     assert "worker-latency" in names
@@ -518,13 +640,13 @@ def test_hyphen_dyno_samples_and_dispatches_name_as_is(monkeypatch, caplog):
 
 
 @mocketize
-def test_lease_granted_dispatches_workers():
+def test_lease_granted_dispatches_workers(session):
     stub_lease(granted=True)
     bodies = capture_ingest_bodies()
 
-    dispatcher = configure_workers_only()
-    dispatcher._job_queue_tick()
-    dispatcher._tick()
+    configure_workers_only()
+    job_queue_pass(session)
+    session.report()
 
     assert any(
         entry["name"] == "worker" and entry.get("metrics", {}).get("jql")
@@ -533,13 +655,13 @@ def test_lease_granted_dispatches_workers():
 
 
 @mocketize
-def test_sample_trace_attached_when_grant_trace_true():
+def test_sample_trace_attached_when_grant_trace_true(session):
     stub_lease(granted=True, trace=True)
     bodies = capture_ingest_bodies()
 
-    dispatcher = configure_workers_only()
-    dispatcher._job_queue_tick()
-    dispatcher._tick()
+    configure_workers_only()
+    job_queue_pass(session)
+    session.report()
 
     assert len(bodies) == 1
     entry = bodies[0][0]
@@ -556,74 +678,252 @@ def test_sample_trace_attached_when_grant_trace_true():
 
 
 @mocketize
-def test_dead_live_omits_remaining_plan_entries_from_sample_trace():
-    from hirefire_resource.probe import Probe
-
+def test_a_session_halted_during_a_round_samples_no_further_entry_and_traces_only_what_ran(
+    monkeypatch, session
+):
     stub_lease(granted=True, trace=True)
     bodies = capture_ingest_bodies()
-    dispatcher = configure_workers_only()
-    dispatcher._lease.request_if_due(hold=lambda _plan: True)
-    measured = {"n": 0}
-    orig = Probe.measure
+    monkeypatch.setenv("DYNO", "web.1")
+    sampled = []
 
-    def measure(self, entry, fn):
-        result = orig(self, entry, fn)
-        measured["n"] += 1
-        return result
+    def worker():
+        sampled.append("worker")
+        session.halt(handoff=True)
+        return 42
 
-    with patch.object(Probe, "measure", measure):
-        dispatcher._sample_job_queues(live=lambda: measured["n"] < 1)
-    dispatcher._dispatch()
+    HireFire.configuration.dyno("worker", worker)
+    HireFire.configuration.dyno("mailer", lambda: sampled.append("mailer"))
 
+    job_queue_pass(session)
+    session.flush()
+
+    assert sampled == ["worker"]
     assert len(bodies) == 1
-    entry = bodies[0][0]
-    assert "sample_trace" in entry
-    assert len(entry["sample_trace"]["ops"]) == 1
-    assert not any(
-        row["name"] == "mailer" and row.get("metrics", {}).get("jql")
-        for row in bodies[0]
-    )
+    assert len(bodies[0][0]["sample_trace"]["ops"]) == 1
+    assert not any("jql" in row["metrics"] for row in bodies[0])
 
 
 @mocketize
-def test_oversized_sample_trace_is_stripped_so_metrics_still_ship(caplog):
-    stub_lease()
-    bodies = capture_ingest_bodies()
+def test_oversized_sample_trace_is_stripped_so_metrics_still_ship(caplog, session):
     caplog.set_level(logging.ERROR)
-    dispatcher = configure_web_only()
-    dispatcher._lease.trace = lambda: True
-    dispatcher._pending_sample_trace = {
-        "wave_ms": 1.0,
-        "ops": [
-            {
-                "adapter": "rq",
-                "strategy": "jqs",
-                "queues": ["q" * Dispatcher.PAYLOAD_SIZE_LIMIT],
-                "options": {},
-                "ms": 1.0,
-            }
-        ],
-    }
+    stub_lease(granted=True, trace=True)
+    bodies = capture_ingest_bodies()
+    configure_workers_only()
+    trace = {"wave_ms": 1.0, "ops": [], "pad": "x" * Session.PAYLOAD_SIZE_LIMIT}
+
+    with patch.object(Sampler, "round", return_value=trace), freeze_time(at(1000)):
+        job_queue_pass(session)
+        HireFire.configuration.buffer.sample("worker", "jql", 7)
+        session.report()
+
+    assert bodies == [[{"name": "worker", "metrics": {"jql": {"1000": 7}}}]]
+    assert "Dropped metrics payload" not in caplog.text
+
+
+@mocketize
+def test_a_trace_is_kept_in_a_payload_of_exactly_the_limit_and_stripped_one_byte_over(
+    caplog,
+):
+    caplog.set_level(logging.ERROR)
+    limit = Session.PAYLOAD_SIZE_LIMIT
+    stub_lease(granted=True, trace=True)
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    configure_workers_only()
+
+    def send_with_pad(pad):
+        trace = {"wave_ms": 1.0, "ops": [], "pad": "x" * pad}
+        with patch.object(Sampler, "round", return_value=trace):
+            run = Session(HireFire.configuration)
+            job_queue_pass(run)
+            HireFire.configuration.buffer.sample("worker", "jql", 1)
+            run.report()
+        return ingest_texts()[-1]
 
     with freeze_time(at(1000)):
-        HireFire.configuration.buffer.sample("web", "rqt", 7)
-        dispatcher._tick()
+        base = len(send_with_pad(0))
+        exact = send_with_pad(limit - base)
+        over = send_with_pad(limit - base + 1)
 
-    assert len(bodies) == 1
-    assert "sample_trace" not in bodies[0][0]
-    assert "rqt" in bodies[0][0]["metrics"]
+    assert len(exact) == limit
+    assert "sample_trace" in exact
+    assert over == '[{"name":"worker","metrics":{"jql":{"1000":1}}}]'
     assert "Dropped metrics payload" not in caplog.text
-    assert dispatcher._pending_sample_trace is None
 
 
 @mocketize
-def test_sample_trace_absent_without_grant_trace():
+def test_a_trace_that_was_stripped_is_not_sent_with_a_later_payload(session):
+    stub_lease(granted=True, trace=True)
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    configure_workers_only()
+    pad = "x" * (Session.PAYLOAD_SIZE_LIMIT - 1_500)
+
+    with patch.object(Sampler, "round", return_value={"ops": [], "pad": pad}):
+        with freeze_time(at(1000)):
+            job_queue_pass(session)
+            HireFire.configuration.buffer.sample("worker", "jql", 1)
+            HireFire.configuration.buffer.sample("p" * 2_000, "jql", 1)
+            session.report()
+        with freeze_time(at(1002)):
+            HireFire.configuration.buffer.sample("worker", "jql", 2)
+            session.report()
+
+    first, second = ingest_texts()
+    assert "sample_trace" not in first
+    assert "p" * 2_000 in first
+    assert second == '[{"name":"worker","metrics":{"jql":{"1002":2}}}]'
+
+
+@mocketize
+def test_a_trace_sent_with_a_payload_the_server_rejects_as_too_large_is_not_sent_again(
+    session,
+):
+    stub_lease(granted=True, trace=True)
+    ingest_statuses(413, 200)
+    configure_workers_only()
+
+    with freeze_time(at(1000)):
+        job_queue_pass(session)
+        session.report()
+    with freeze_time(at(1002)):
+        HireFire.configuration.buffer.sample("worker", "jql", 2)
+        session.report()
+
+    first, second = ingest_texts()
+    assert "sample_trace" in first
+    assert "sample_trace" not in second
+
+
+@mocketize
+def test_the_trace_of_a_round_that_ends_during_a_dispatch_is_sent_with_the_next_payload(
+    monkeypatch, session
+):
+    stub_lease(granted=True, trace=True)
+    configure_workers_only()
+    bodies = []
+    in_request = threading.Event()
+    release = threading.Event()
+
+    def submit(body):
+        bodies.append(body)
+        if len(bodies) == 1:
+            in_request.set()
+            assert release.wait(5)
+        return answer()
+
+    clock = [time.monotonic()]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    with ingest(submit):
+        job_queue_pass(session)
+        dispatch = threading.Thread(target=session.report)
+        dispatch.start()
+        assert in_request.wait(5)
+        clock[0] += 100
+        job_queue_pass(session)
+        release.set()
+        dispatch.join(5)
+        clock[0] += 100
+        session.report()
+
+    assert "sample_trace" in bodies[0]
+    assert "sample_trace" in bodies[1]
+
+
+@mocketize
+def test_a_round_that_is_still_running_past_its_limit_is_reported_once(
+    monkeypatch, caplog, session
+):
+    stub_lease(granted=True)
+    entered = threading.Event()
+    release = threading.Event()
+
+    def worker():
+        entered.set()
+        assert release.wait(5)
+        return 1
+
+    HireFire.configuration.dyno("worker", worker)
+    HireFire.configuration.dyno("mailer", lambda: 1)
+    clock = [time.monotonic()]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+
+    session.renew()
+    sampler = threading.Thread(target=session.sample)
+    sampler.start()
+    assert entered.wait(5)
+    clock[0] += Session.SAMPLE_ROUND_LIMIT + 1
+    for _ in range(3):
+        session.renew()
+    release.set()
+    sampler.join(5)
+
+    line = "A job queue sample round has run for more than 60 seconds."
+    assert caplog.text.count(line) == 1
+
+
+@mocketize
+def test_a_round_that_runs_past_its_limit_gives_up_the_lease_and_its_samples(
+    monkeypatch, caplog, session
+):
+    stub_lease(granted=True)
+    clock = [time.monotonic()]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+
+    def worker():
+        clock[0] += Session.SAMPLE_ROUND_LIMIT + 1
+        session.renew()
+        return 42
+
+    def mailer():
+        pytest.fail("an entry was sampled after the lease was given up")
+
+    HireFire.configuration.dyno("worker", worker)
+    HireFire.configuration.dyno("mailer", mailer)
+
+    job_queue_pass(session)
+
+    assert lease_requests() == 1
+    line = (
+        "A job queue sample round has run for more than 60 seconds. "
+        "The lease is released so that another process can sample."
+    )
+    assert caplog.text.count(line) == 1
+    assert HireFire.configuration.buffer.flush() == {}
+
+    session.renew()
+    assert lease_requests() == 2
+
+
+@mocketize
+def test_a_round_inside_its_limit_keeps_the_lease(monkeypatch, caplog, session):
+    assert Session.SAMPLE_ROUND_LIMIT == 60
+    stub_lease(granted=True)
+    bodies = capture_ingest_bodies()
+    clock = [time.monotonic()]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+
+    def worker():
+        clock[0] += Session.SAMPLE_ROUND_LIMIT
+        session.renew()
+        return 42
+
+    HireFire.configuration.dyno("worker", worker)
+
+    job_queue_pass(session)
+    session.report()
+
+    assert "The lease is released" not in caplog.text
+    entry = next(entry for entry in bodies[0] if entry["name"] == "worker")
+    assert list(entry["metrics"]["jql"].values()) == [42]
+
+
+@mocketize
+def test_sample_trace_absent_without_grant_trace(session):
     stub_lease(granted=True, trace=False)
     bodies = capture_ingest_bodies()
 
-    dispatcher = configure_workers_only()
-    dispatcher._job_queue_tick()
-    dispatcher._tick()
+    configure_workers_only()
+    job_queue_pass(session)
+    session.report()
 
     assert bodies
     for entry in bodies[0]:
@@ -631,32 +931,32 @@ def test_sample_trace_absent_without_grant_trace():
 
 
 @mocketize
-def test_verbose_logs_sample_timings_without_server_trace(monkeypatch, caplog):
+def test_verbose_logs_sample_timings_without_server_trace(monkeypatch, caplog, session):
     monkeypatch.setenv("HIREFIRE_VERBOSE", "1")
     caplog.set_level(logging.INFO)
     stub_lease(granted=True, trace=False)
 
-    dispatcher = configure_workers_only()
-    dispatcher._job_queue_tick()
+    configure_workers_only()
+    job_queue_pass(session)
 
     assert "sample_job_queues wave_ms=" in caplog.text
     assert "sample adapter=" in caplog.text
 
 
 @mocketize
-def test_lease_denied_skips_worker_collection():
+def test_lease_denied_skips_worker_collection(session):
     stub_lease()
     bodies = capture_ingest_bodies()
 
-    dispatcher = configure_workers_only()
-    dispatcher._job_queue_tick()
-    dispatcher._tick()
+    configure_workers_only()
+    job_queue_pass(session)
+    session.report()
 
     assert bodies == []
 
 
 @mocketize
-def test_dispatches_cpu_samples_in_the_nested_format(monkeypatch):
+def test_dispatches_cpu_samples_in_the_nested_format(monkeypatch, session):
     bodies = capture_ingest_bodies()
     with (
         patch.object(Usage, "available_cpus", return_value=1.0),
@@ -664,11 +964,11 @@ def test_dispatches_cpu_samples_in_the_nested_format(monkeypatch):
             Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (0.5, "cgroup_v2")]
         ),
     ):
-        dispatcher = configure_cpu_only(monkeypatch, "clock")
+        configure_cpu_only(monkeypatch, "clock")
         with freeze_time(at(1000)):
-            dispatcher._tick()
+            session.report()
         with freeze_time(at(1001)):
-            dispatcher._tick()
+            session.report()
 
     assert len(bodies) == 1
     entry = bodies[0][0]
@@ -677,45 +977,36 @@ def test_dispatches_cpu_samples_in_the_nested_format(monkeypatch):
 
 
 @mocketize
-def test_dispatches_jqs_and_wrk_as_sibling_bare_numbers():
+def test_dispatches_jqs_and_wrk_as_sibling_bare_numbers(session):
     stub_lease()
     bodies = capture_ingest_bodies()
-    dispatcher = configure_workers_only()
+    configure_workers_only()
 
     with freeze_time(at(2500)):
         HireFire.configuration.buffer.sample("worker", "jqs", 12)
         HireFire.configuration.buffer.sample("worker", "wrk", 3)
-        dispatcher._dispatch()
+        session.flush()
 
-    assert len(bodies) >= 1
     entry = next(e for e in bodies[-1] if e["name"] == "worker")
-    jqs_leaf = entry["metrics"]["jqs"]["2500"]
-    wrk_leaf = entry["metrics"]["wrk"]["2500"]
-    assert jqs_leaf == 12
-    assert wrk_leaf == 3
-    assert isinstance(jqs_leaf, (int, float))
-    assert isinstance(wrk_leaf, (int, float))
-    assert not isinstance(wrk_leaf, list), (
-        "wrk must be bare number like jqs, not rqt [v,n]"
-    )
+    assert entry["metrics"] == {"jqs": {"2500": 12}, "wrk": {"2500": 3}}
 
 
 @mocketize
-def test_cpu_first_tick_seeds_baseline_without_dispatching(monkeypatch):
+def test_cpu_first_tick_seeds_baseline_without_dispatching(monkeypatch, session):
     bodies = capture_ingest_bodies()
     with (
         patch.object(Usage, "available_cpus", return_value=1.0),
         patch.object(Usage, "reading", return_value=(0.0, "cgroup_v2")),
     ):
-        dispatcher = configure_cpu_only(monkeypatch, "clock")
+        configure_cpu_only(monkeypatch, "clock")
         with freeze_time(at(1000)):
-            dispatcher._tick()
+            session.report()
 
     assert bodies == []
 
 
 @mocketize
-def test_cpu_samples_are_not_repopulated_on_dispatch_failure(monkeypatch):
+def test_cpu_samples_are_not_repopulated_on_dispatch_failure(monkeypatch, session):
     Entry.single_register(Entry.POST, INGEST_URL, status=500)
     with (
         patch.object(Usage, "available_cpus", return_value=1.0),
@@ -723,86 +1014,82 @@ def test_cpu_samples_are_not_repopulated_on_dispatch_failure(monkeypatch):
             Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (0.5, "cgroup_v2")]
         ),
     ):
-        dispatcher = configure_cpu_only(monkeypatch, "clock")
+        configure_cpu_only(monkeypatch, "clock")
         with freeze_time(at(1000)):
-            dispatcher._tick()
+            session.report()
         with freeze_time(at(1001)):
-            dispatcher._tick()
+            session.report()
 
     data = HireFire.configuration.buffer.flush()
     assert "clock" not in data or "cpu" not in data.get("clock", {})
 
 
 @mocketize
-def test_non_web_process_does_not_heartbeat_the_web_name(monkeypatch):
+def test_non_web_process_does_not_heartbeat_the_web_name(monkeypatch, session):
     stub_lease()
     bodies = capture_ingest_bodies()
     monkeypatch.setenv("DYNO", "worker.1")
     HireFire.configuration.dyno("web")
-    dispatcher = HireFire.configuration.dispatcher
 
-    dispatcher._tick()
+    session.report()
 
     assert bodies == []
 
 
 @mocketize
-def test_non_web_process_still_delivers_real_web_samples(monkeypatch):
+def test_non_web_process_still_delivers_real_web_samples(monkeypatch, session):
     stub_lease()
     bodies = capture_ingest_bodies()
     monkeypatch.setenv("DYNO", "worker.1")
     HireFire.configuration.dyno("web")
-    dispatcher = HireFire.configuration.dispatcher
 
     with freeze_time(at(1000)):
         HireFire.configuration.buffer.sample("web", "rqt", 12)
-        dispatcher._tick()
+        session.report()
 
     assert bodies[0][0]["metrics"]["rqt"] == {"1000": [12.0, 1]}
 
 
 @mocketize
-def test_matching_identity_keeps_heartbeat_and_backfill(monkeypatch):
+def test_matching_identity_keeps_heartbeat_and_backfill(monkeypatch, session):
     stub_lease()
     bodies = capture_ingest_bodies()
     monkeypatch.setenv("DYNO", "web.1")
     HireFire.configuration.dyno("web")
-    dispatcher = HireFire.configuration.dispatcher
 
     with freeze_time(at(1000)):
-        dispatcher._tick()
+        session.report()
     with freeze_time(at(1002)):
-        dispatcher._tick()
+        session.report()
 
     assert bodies[0][0]["metrics"]["rqt"] == {"1000": []}
     assert bodies[1][0]["metrics"]["rqt"] == {"1001": [], "1002": []}
 
 
 @mocketize
-def test_unresolved_identity_does_not_synthesize_liveness():
+def test_unresolved_identity_does_not_synthesize_liveness(session):
     stub_lease()
     bodies = capture_ingest_bodies()
 
     config = HireFire.configuration
     config.dyno("web")
-    dispatcher = config.dispatcher
+    config.dispatcher
     with freeze_time(at(1000)):
-        dispatcher._tick()
+        session.report()
 
     assert bodies == []
 
 
 @mocketize
-def test_always_on_cpu_uses_identity_name_through_the_tick(monkeypatch):
+def test_always_on_cpu_uses_identity_name_through_the_tick(monkeypatch, session):
     stub_lease()
     bodies = capture_ingest_bodies()
     monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "web")
-    dispatcher = HireFire.configuration.dispatcher
 
     with freeze_time(at(1000)):
-        dispatcher._tick()
+        session.report()
     with freeze_time(at(1001)):
-        dispatcher._tick()
+        session.report()
 
     names = [entry["name"] for entry in bodies[-1]]
     assert names == ["web"]
@@ -826,29 +1113,76 @@ def test_forked_child_restarts_the_dispatcher():
 
 
 @mocketize
-def test_tick_dispatches_when_the_lease_request_fails(caplog):
-    caplog.set_level(logging.ERROR)
+def test_a_dispatch_pass_goes_on_when_the_lease_request_fails(caplog, session):
     bodies = capture_ingest_bodies()
+    refused = RequestError("Network error (ConnectionRefusedError: refused).")
 
-    with freeze_time(at(1000)):
-        dispatcher = configure_web_and_workers()
-        with patch.object(
-            dispatcher._lease,
-            "request_if_due",
-            side_effect=RequestError(
-                "Network error (ConnectionRefusedError: refused)."
-            ),
-        ):
-            HireFire.configuration.buffer.sample("web", "rqt", 12)
-            dispatcher._job_queue_tick()
-            dispatcher._tick()
+    with (
+        freeze_time(at(1000)),
+        patch.object(Client, "request_lease", side_effect=refused),
+    ):
+        configure_web_and_workers()
+        HireFire.configuration.buffer.sample("web", "rqt", 12)
+        job_queue_pass(session)
+        session.report()
 
+    assert "Lease request error: RequestError: Network error" in caplog.text
     assert len(bodies) == 1
-    assert "Network error" in caplog.text
 
 
 @mocketize
-def test_tick_dispatches_when_a_sampler_raises(caplog, monkeypatch):
+def test_the_first_failed_lease_request_is_logged_and_later_ones_once_a_minute_with_their_count(
+    caplog, session
+):
+    Entry.single_register(Entry.POST, LEASE_URL, status=500)
+    configure_web_and_workers()
+
+    renew_each_second(session, range(1000, 1060))
+    assert lease_requests() == 4
+    assert caplog.text.count("Lease request error") == 1
+    assert (
+        "[HireFire] Lease request error: RequestError: "
+        "Lease request failed with 500 status." in messages(caplog)
+    )
+
+    renew_each_second(session, range(1060, 1126))
+    assert re.findall(r"\(\d+ failed attempts in a row\)", caplog.text) == [
+        "(5 failed attempts in a row)",
+        "(9 failed attempts in a row)",
+    ]
+
+
+@mocketize
+def test_a_recovery_after_several_failed_lease_requests_is_logged_once(caplog, session):
+    Entry.register(
+        Entry.POST,
+        LEASE_URL,
+        Response(status=500),
+        Response(status=500),
+        Response(status=200, headers={"HireFire-Lease-Granted": "false"}),
+    )
+    configure_web_and_workers()
+
+    renew_each_second(session, range(1000, 1051))
+
+    line = "Lease request recovered after 2 failed attempts."
+    assert caplog.text.count(line) == 1
+    assert caplog.text.count("Lease request error") == 1
+
+
+@mocketize
+def test_a_lease_request_that_is_not_due_does_not_count_as_a_recovery(caplog, session):
+    Entry.single_register(Entry.POST, LEASE_URL, status=500)
+    configure_web_and_workers()
+
+    renew_each_second(session, range(1000, 1030))
+
+    assert lease_requests() == 2
+    assert "recovered" not in caplog.text
+
+
+@mocketize
+def test_tick_dispatches_when_a_sampler_raises(caplog, monkeypatch, session):
     caplog.set_level(logging.ERROR)
     stub_lease(granted=True)
     bodies = capture_ingest_bodies()
@@ -859,9 +1193,8 @@ def test_tick_dispatches_when_a_sampler_raises(caplog, monkeypatch):
 
     with freeze_time(at(1000)):
         HireFire.configuration.dyno("worker", boom)
-        dispatcher = HireFire.configuration.dispatcher
-        dispatcher._job_queue_tick()
-        dispatcher._tick()
+        job_queue_pass(session)
+        session.report()
 
     assert len(bodies) == 1
     assert [entry["name"] for entry in bodies[0]] == ["web"]
@@ -885,58 +1218,7 @@ def test_started_thread_dispatches_until_stopped():
     assert not dispatcher.running()
 
 
-def test_stale_loop_generation_stops_after_restart():
-    dispatcher = configure_web_only()
-    ticks = {"count": 0}
-    original_tick = dispatcher._tick
-
-    def counting_tick():
-        ticks["count"] += 1
-        original_tick()
-
-    dispatcher._tick = counting_tick  # type: ignore[method-assign]
-    dispatcher._running = True
-    dispatcher._pid = os.getpid()
-    generation = 1
-    dispatcher._generation = generation
-
-    assert dispatcher._loop_active(generation)
-
-    dispatcher._running = False
-    dispatcher._pid = None
-    assert not dispatcher._loop_active(generation)
-
-    dispatcher._generation = 2
-    dispatcher._running = True
-    dispatcher._pid = os.getpid()
-    assert not dispatcher._loop_active(generation)
-    assert dispatcher._loop_active(2)
-
-
-def test_loop_until_stopped_logs_raising_tick_and_continues(caplog):
-    caplog.set_level(logging.ERROR)
-    dispatcher = Dispatcher(HireFire.configuration)
-    dispatcher._running = True
-    dispatcher._pid = os.getpid()
-    dispatcher._generation = 1
-    calls = {"n": 0}
-
-    def tick(_generation):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            raise RuntimeError("tick boom")
-        dispatcher._running = False
-
-    with patch.object(dispatcher, "_wait_loop_interval"):
-        dispatcher._loop_until_stopped(1, tick)
-
-    assert calls["n"] >= 2
-    assert "tick boom" in caplog.text
-    assert "RuntimeError" in caplog.text
-
-
 @mocketize
-@pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
 def test_a_hung_worker_sampler_does_not_stall_web_dispatch():
     stub_lease(granted=True)
     Entry.single_register(Entry.POST, INGEST_URL, status=200)
@@ -947,7 +1229,7 @@ def test_a_hung_worker_sampler_does_not_stall_web_dispatch():
 
     def hung_sampler():
         entered.set()
-        release.wait()
+        release.wait(5)
         return 1
 
     config = HireFire.configuration
@@ -959,75 +1241,70 @@ def test_a_hung_worker_sampler_does_not_stall_web_dispatch():
     try:
         assert entered.wait(timeout=5), "worker sampler never started"
         config.buffer.sample("web", "rqt", 5)
-        deadline = time.time() + 5
-        while not any(entry["name"] == "web" for body in bodies for entry in body):
-            assert time.time() < deadline, "web metrics never dispatched"
-            time.sleep(0.05)
+        wait_until(
+            lambda: any(entry["name"] == "web" for body in bodies for entry in body)
+        )
     finally:
         release.set()
         dispatcher.stop()
-        dispatcher._client.close()
 
 
 @mocketize
 def test_stop_flushes_the_buffer():
     bodies = capture_ingest_bodies()
-
     dispatcher = configure_web_only()
-    dispatcher._running = True
-    dispatcher._pid = os.getpid()
 
     with freeze_time(at(1000)):
+        assert dispatcher.start()
+        wait_until(lambda: len(bodies) == 1)
         HireFire.configuration.buffer.sample("web", "rqt", 7)
         dispatcher.stop()
 
-    assert len(bodies) == 1
-    assert bodies[0][0]["metrics"]["rqt"] == {"1000": [7.0, 1]}
+    assert len(bodies) == 2
+    assert bodies[1][0]["metrics"]["rqt"] == {"1000": [7.0, 1]}
 
 
 @mocketize
-def test_stop_closes_the_persistent_connections():
+def test_a_stop_closes_the_connection_of_each_loop(monkeypatch):
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    closed = []
+    monkeypatch.setattr(Client, "close", lambda client: closed.append(client))
     dispatcher = configure_workers_only()
-    dispatcher._running = True
-    dispatcher._pid = os.getpid()
 
-    with (
-        patch.object(dispatcher._client, "close") as client_close,
-        patch.object(dispatcher._lease, "close") as lease_close,
-    ):
-        dispatcher.stop()
+    assert dispatcher.start()
+    wait_until(lambda: loop_threads("hirefire-lease"))
+    dispatcher.stop()
 
-    client_close.assert_called_once()
-    lease_close.assert_called_once()
+    wait_until(lambda: len(closed) == 2)
+    assert closed[0] is not closed[1]
 
 
 @mocketize
-def test_web_only_dispatch_never_requests_a_lease():
+def test_web_only_dispatch_never_requests_a_lease(session):
     Entry.single_register(Entry.POST, INGEST_URL, status=200)
 
-    dispatcher = configure_web_only()
+    configure_web_only()
     with freeze_time(at(1000)):
-        dispatcher._tick()
+        session.report()
 
     assert "/metrics/lease" not in request_paths()
 
 
 @mocketize
-def test_tick_survives_a_payload_build_error(caplog):
+def test_tick_survives_a_payload_build_error(caplog, session):
     caplog.set_level(logging.ERROR)
     stub_lease()
     bodies = capture_ingest_bodies()
 
-    dispatcher = configure_web_only()
+    configure_web_only()
     with freeze_time(at(1000)):
         HireFire.configuration.buffer.sample("web", "rqt", 7)
-        with patch.object(
-            dispatcher, "_build_payload", side_effect=RuntimeError("boom")
-        ):
-            dispatcher._tick()
+        with patch.object(payload, "build", side_effect=RuntimeError("boom")):
+            session.report()
 
     assert bodies == []
-    assert "Dispatch error" in caplog.text
+    assert "Dispatch error: RuntimeError: boom" in caplog.text
     assert HireFire.configuration.buffer.flush()["web"]["rqt"][1000] == {
         "sum": 7.0,
         "count": 1,
@@ -1044,41 +1321,41 @@ def stub_ingest_with_dispatch_frequency(value):
 
 
 @mocketize
-def test_dispatch_frequency_defaults_to_one_without_the_header():
+def test_dispatch_frequency_defaults_to_one_without_the_header(session):
     stub_lease()
     bodies = capture_ingest_bodies()
 
-    dispatcher = configure_web_only()
+    configure_web_only()
     with freeze_time(at(1000)):
-        dispatcher._tick()
+        session.report()
     with freeze_time(at(1001)):
-        dispatcher._tick()
+        session.report()
 
     assert len(bodies) == 2
 
 
 @mocketize
-def test_honors_a_server_supplied_dispatch_frequency():
+def test_honors_a_server_supplied_dispatch_frequency(session):
     stub_lease()
     stub_ingest_with_dispatch_frequency(5)
     bodies = IngestBodies()
 
-    dispatcher = configure_web_only()
+    configure_web_only()
     with freeze_time(at(1000)):
-        dispatcher._tick()
+        session.report()
     with freeze_time(at(1002)):
-        dispatcher._tick()
+        session.report()
     with freeze_time(at(1004)):
-        dispatcher._tick()
+        session.report()
     with freeze_time(at(1005)):
-        dispatcher._tick()
+        session.report()
 
     assert len(bodies) == 2
 
 
 @pytest.mark.parametrize("status", [401, 413])
 @mocketize
-def test_honors_the_dispatch_frequency_of_a_rejected_request(status):
+def test_honors_the_dispatch_frequency_of_a_rejected_request(status, session):
     stub_lease()
     Entry.single_register(
         Entry.POST,
@@ -1088,182 +1365,101 @@ def test_honors_the_dispatch_frequency_of_a_rejected_request(status):
     )
     bodies = IngestBodies()
 
-    dispatcher = configure_web_only()
+    configure_web_only()
     with freeze_time(at(1000)):
-        dispatcher._tick()
+        session.report()
     with freeze_time(at(1029)):
-        dispatcher._tick()
+        session.report()
     assert len(bodies) == 1
     with freeze_time(at(1030)):
-        dispatcher._tick()
+        session.report()
 
     assert len(bodies) == 2
 
 
 @mocketize
-def test_clamps_an_over_large_dispatch_frequency_to_the_maximum():
+def test_clamps_an_over_large_dispatch_frequency_to_the_maximum(session):
     stub_lease()
-    stub_ingest_with_dispatch_frequency(Dispatcher.MAX_DISPATCH_FREQUENCY + 100)
+    stub_ingest_with_dispatch_frequency(Session.MAX_DISPATCH_FREQUENCY + 100)
 
-    dispatcher = configure_web_only()
-    with freeze_time(at(1000)):
-        dispatcher._tick()
+    configure_web_only()
 
-    assert dispatcher._dispatch_frequency == Dispatcher.MAX_DISPATCH_FREQUENCY
+    assert attempts(session, range(1000, 1061)) == [1000, 1030, 1060]
 
 
 @mocketize
-def test_ignores_a_non_positive_dispatch_frequency():
+def test_ignores_a_non_positive_dispatch_frequency(session):
+    assert Session.DEFAULT_DISPATCH_FREQUENCY == 1
     stub_lease()
     stub_ingest_with_dispatch_frequency(0)
 
-    dispatcher = configure_web_only()
-    with freeze_time(at(1000)):
-        dispatcher._tick()
+    configure_web_only()
 
-    assert dispatcher._dispatch_frequency == Dispatcher.DEFAULT_DISPATCH_FREQUENCY
+    assert attempts(session, range(1000, 1003)) == [1000, 1001, 1002]
 
 
+@pytest.mark.parametrize("value", ["10.0", "10abc", "+10", " ", "abc"])
 @mocketize
-def test_ignores_an_unparseable_dispatch_frequency():
-    stub_lease()
-    stub_ingest_with_dispatch_frequency("nonsense")
-
-    dispatcher = configure_web_only()
-    with freeze_time(at(1000)):
-        dispatcher._tick()
-
-    assert dispatcher._dispatch_frequency == Dispatcher.DEFAULT_DISPATCH_FREQUENCY
-
-
-@pytest.mark.parametrize("value", ["10.0", "10abc", "+10", " "])
-@mocketize
-def test_ignores_a_dispatch_frequency_that_is_not_a_whole_number(value):
+def test_ignores_a_dispatch_frequency_that_is_not_a_whole_number(value, session):
     stub_lease()
     stub_ingest_with_dispatch_frequency(value)
 
-    dispatcher = configure_web_only()
-    with freeze_time(at(1000)):
-        dispatcher._tick()
+    configure_web_only()
 
-    assert dispatcher._dispatch_frequency == Dispatcher.DEFAULT_DISPATCH_FREQUENCY
+    assert attempts(session, range(1000, 1003)) == [1000, 1001, 1002]
 
 
 @mocketize
-def test_dispatch_pacing_follows_the_monotonic_clock_not_the_wall_clock():
+def test_dispatch_pacing_follows_the_monotonic_clock_not_the_wall_clock(session):
     stub_lease()
     bodies = capture_ingest_bodies()
 
-    dispatcher = configure_web_only()
+    configure_web_only()
     mono = [500.0]
     with freeze_time(at(1000)), patch("time.monotonic", side_effect=lambda: mono[0]):
-        dispatcher._tick()
+        session.report()
         mono[0] = 502.0
-        dispatcher._tick()
+        session.report()
 
     assert len(bodies) == 2
 
 
 @mocketize
-def test_dispatch_failure_without_web_data_does_not_repopulate(caplog):
+def test_dispatch_failure_without_web_data_does_not_repopulate(caplog, session):
     caplog.set_level(logging.ERROR)
     stub_lease(granted=True)
     Entry.single_register(Entry.POST, INGEST_URL, status=500)
 
-    dispatcher = configure_workers_only()
-    dispatcher._job_queue_tick()
-    dispatcher._tick()
+    configure_workers_only()
+    job_queue_pass(session)
+    session.report()
 
     assert "web" not in HireFire.configuration.buffer.flush()
     assert "Dispatch error" in caplog.text
 
 
 @mocketize
-def test_413_advances_watermark_without_repopulate(caplog):
+def test_413_advances_watermark_without_repopulate(caplog, session):
     caplog.set_level(logging.ERROR)
     stub_lease()
-    Entry.single_register(
-        Entry.POST, INGEST_URL, status=413, body=b'{"error":"payload too large"}'
-    )
+    bodies = ingest_statuses(413, 200)
 
-    dispatcher = configure_web_only()
+    configure_web_only()
     with freeze_time(at(1000)):
         HireFire.configuration.buffer.sample("web", "rqt", 7)
-        dispatcher._tick()
+        session.report()
 
     assert "web" not in HireFire.configuration.buffer.flush()
-    assert dispatcher._last_rqt_second == 1000
+    assert seconds_claimed_at(session, 1002, bodies) == ["1001", "1002"]
     assert "Dropped metrics payload" in caplog.text
 
 
 @mocketize
-def test_payload_size_limit_is_131072():
-    assert Dispatcher.PAYLOAD_SIZE_LIMIT == 131_072
-
-
-def test_healthy_running_snapshots_thread_ref():
-    dispatcher = Dispatcher(HireFire.configuration)
-    dispatcher._running = True
-    dispatcher._stopping = False
-    dispatcher._pid = os.getpid()
-
-    live = threading.Thread(target=time.sleep, args=(30,), daemon=True)
-    live.start()
-
-    class RacyDispatcher(Dispatcher):
-        def __init__(self, inner, values):
-            self._running = inner._running
-            self._stopping = inner._stopping
-            self._pid = inner._pid
-            self._values = list(values)
-
-        @property
-        def _thread(self):
-            if self._values:
-                return self._values.pop(0)
-            return None
-
-    racy = RacyDispatcher(dispatcher, [live, None])
-    assert racy._healthy_running() is True
-
-
-def test_ensure_job_queue_loop_fast_path_snapshots_thread_ref():
-    dispatcher = Dispatcher(HireFire.configuration)
-    dispatcher._running = True
-    dispatcher._stopping = False
-    dispatcher._pid = os.getpid()
-
-    live = threading.Thread(target=time.sleep, args=(30,), daemon=True)
-    live.start()
-
-    class RacyDispatcher(Dispatcher):
-        def __init__(self, inner, values):
-            self._running = inner._running
-            self._stopping = inner._stopping
-            self._pid = inner._pid
-            self._mutex = threading.Lock()
-            self._generation = 0
-            self._values = list(values)
-
-        @property
-        def _job_queue_thread(self):
-            if self._values:
-                return self._values.pop(0)
-            return None
-
-        def _enter_race(self):
-            raise AssertionError("fast path should return before enter_race")
-
-    racy = RacyDispatcher(dispatcher, [live, None])
-    racy.ensure_job_queue_loop()
-
-
-@mocketize
-def test_encode_omits_non_finite_rqt_mean(caplog):
+def test_encode_omits_non_finite_rqt_mean(caplog, session):
     caplog.set_level(logging.ERROR)
     stub_lease()
     bodies = capture_ingest_bodies()
-    dispatcher = configure_web_only()
+    configure_web_only()
 
     with freeze_time(at(1000)):
         buffer = HireFire.configuration.buffer
@@ -1274,188 +1470,13 @@ def test_encode_omits_non_finite_rqt_mean(caplog):
                     999: {"sum": 10.0, "count": 1},
                 }
             }
-        dispatcher._tick()
+        session.report()
 
     assert len(bodies) >= 1
     rqt = bodies[0][0]["metrics"]["rqt"]
     assert "1000" not in rqt
     assert rqt["999"] == [10.0, 1]
     assert "Omitting rqt second" in caplog.text
-
-
-@mocketize
-def test_dispatch_with_stale_generation_does_not_post():
-    stub_lease()
-    bodies = capture_ingest_bodies()
-    dispatcher = configure_web_only()
-    HireFire.configuration.buffer.sample("web", "rqt", 10)
-    dispatcher._running = False
-    dispatcher._stopping = False
-    dispatcher._pid = os.getpid()
-    dispatcher._generation = 2
-
-    dispatcher._dispatch(1)
-
-    assert len(bodies) == 0
-    data = HireFire.configuration.buffer.flush()
-    assert "web" in data and "rqt" in data["web"]
-
-
-@mocketize
-def test_dispatch_dead_gen_after_flush_does_not_repopulate_when_not_final_flush():
-    stub_lease()
-    bodies = capture_ingest_bodies()
-    dispatcher = configure_web_only()
-    HireFire.configuration.buffer.sample("web", "rqt", 10)
-    dispatcher._running = True
-    dispatcher._stopping = False
-    dispatcher._stopping_flush = False
-    dispatcher._pid = os.getpid()
-    dispatcher._generation = 1
-
-    calls = {"n": 0}
-    original = dispatcher._loop_active
-
-    def racy(generation):
-        calls["n"] += 1
-        return calls["n"] == 1
-
-    dispatcher._loop_active = racy
-    dispatcher._dispatch(1)
-
-    assert len(bodies) == 0
-    assert HireFire.configuration.buffer.flush() == {}
-    dispatcher._loop_active = original
-
-
-@mocketize
-def test_dispatch_dead_gen_after_flush_handoffs_for_final_flush():
-    stub_lease()
-    bodies = capture_ingest_bodies()
-    dispatcher = configure_web_only()
-    HireFire.configuration.buffer.sample("web", "rqt", 10)
-    dispatcher._running = False
-    dispatcher._stopping = True
-    dispatcher._stopping_flush = True
-    dispatcher._pid = os.getpid()
-    dispatcher._generation = 1
-
-    calls = {"n": 0}
-
-    def racy(_generation):
-        calls["n"] += 1
-        return calls["n"] == 1
-
-    dispatcher._loop_active = racy
-    dispatcher._dispatch(1)
-
-    assert len(bodies) == 0
-    data = HireFire.configuration.buffer.flush()
-    assert "web" in data and "rqt" in data["web"]
-
-
-@mocketize
-def test_dispatch_dead_gen_after_successful_post_skips_watermark_and_frequency():
-    Entry.single_register(
-        Entry.POST,
-        INGEST_URL,
-        status=200,
-        headers={"HireFire-Dispatch-Frequency": "10"},
-    )
-    stub_lease()
-    dispatcher = configure_web_only()
-    HireFire.configuration.buffer.sample("web", "rqt", 10)
-    dispatcher._running = True
-    dispatcher._stopping = False
-    dispatcher._stopping_flush = False
-    dispatcher._pid = os.getpid()
-    dispatcher._generation = 1
-    dispatcher._last_rqt_second = 999
-    dispatcher._dispatch_frequency = 1
-
-    calls = {"n": 0}
-
-    def racy(_generation):
-        calls["n"] += 1
-        return calls["n"] <= 2
-
-    dispatcher._loop_active = racy
-    dispatcher._dispatch(1)
-
-    assert dispatcher._last_rqt_second == 999
-    assert dispatcher._dispatch_frequency == 1
-
-
-@mocketize
-def test_dispatch_dead_gen_on_error_does_not_repopulate_without_handoff():
-    Entry.single_register(Entry.POST, INGEST_URL, status=500)
-    stub_lease()
-    dispatcher = configure_web_only()
-    HireFire.configuration.buffer.sample("web", "rqt", 10)
-    dispatcher._running = True
-    dispatcher._stopping = False
-    dispatcher._stopping_flush = False
-    dispatcher._pid = os.getpid()
-    dispatcher._generation = 1
-
-    calls = {"n": 0}
-
-    def racy(_generation):
-        calls["n"] += 1
-        return calls["n"] <= 2
-
-    dispatcher._loop_active = racy
-
-    def boom(_body):
-        raise ConnectionRefusedError("down")
-
-    with patch.object(dispatcher._client, "submit_samples", side_effect=boom):
-        dispatcher._dispatch(1)
-
-    assert HireFire.configuration.buffer.flush() == {}
-
-
-@mocketize
-def test_dispatch_dead_gen_on_error_handoffs_for_final_flush():
-    stub_lease()
-    dispatcher = configure_web_only()
-    HireFire.configuration.buffer.sample("web", "rqt", 10)
-    dispatcher._running = False
-    dispatcher._stopping = True
-    dispatcher._stopping_flush = True
-    dispatcher._pid = os.getpid()
-    dispatcher._generation = 1
-
-    calls = {"n": 0}
-
-    def racy(_generation):
-        calls["n"] += 1
-        return calls["n"] <= 2
-
-    dispatcher._loop_active = racy
-
-    def boom(_body):
-        raise ConnectionRefusedError("down")
-
-    with patch.object(dispatcher._client, "submit_samples", side_effect=boom):
-        dispatcher._dispatch(1)
-
-    data = HireFire.configuration.buffer.flush()
-    assert "web" in data and "rqt" in data["web"]
-
-
-@mocketize
-def test_stop_without_flush_skips_final_dispatch():
-    stub_lease()
-    bodies = capture_ingest_bodies()
-    dispatcher = configure_web_only()
-    with patch.object(dispatcher, "_loop_until_stopped"):
-        assert dispatcher.start()
-        HireFire.configuration.buffer.sample("web", "rqt", 42)
-        assert dispatcher.stop(flush=False)
-    assert HireFire.configuration.buffer.flush() == {}
-    assert bodies == []
-    assert dispatcher.running() is False
 
 
 @mocketize
@@ -1467,203 +1488,6 @@ def test_stop_without_flush_discards_buffer():
     HireFire.configuration.buffer.sample("web", "rqt", 42)
     dispatcher.stop(flush=False)
     assert HireFire.configuration.buffer.flush() == {}
-
-
-@mocketize
-def test_dispatch_if_due_does_not_advance_pacing_on_dead_gen():
-    stub_lease()
-    capture_ingest_bodies()
-    dispatcher = configure_web_only()
-    HireFire.configuration.buffer.sample("web", "rqt", 10)
-    dispatcher._running = True
-    dispatcher._stopping = False
-    dispatcher._stopping_flush = False
-    dispatcher._pid = os.getpid()
-    dispatcher._generation = 1
-    dispatcher._next_dispatch_at = None
-
-    calls = {"n": 0}
-
-    def racy(_generation):
-        calls["n"] += 1
-        return calls["n"] == 1
-
-    dispatcher._loop_active = racy
-    dispatcher._dispatch_if_due(1)
-
-    assert dispatcher._next_dispatch_at is None
-
-
-@mocketize
-def test_stale_generation_cannot_dispatch_after_restart():
-    stub_lease()
-    capture_ingest_bodies()
-    dispatcher = configure_web_only()
-    assert dispatcher.start()
-    gen = dispatcher._generation
-    dispatcher.stop()
-    assert dispatcher.start()
-    assert dispatcher._generation != gen
-    senders = []
-
-    def record_sender(body):
-        senders.append(threading.current_thread())
-
-    with patch.object(dispatcher._client, "submit_samples", side_effect=record_sender):
-        HireFire.configuration.buffer.sample("web", "rqt", 5)
-        dispatcher._dispatch(gen)
-
-    assert threading.current_thread() not in senders
-    assert dispatcher.running()
-    dispatcher.stop()
-
-
-@mocketize
-def test_ensure_job_queue_loop_starts_when_enter_race_becomes_true():
-    stub_lease()
-    capture_ingest_bodies()
-    with patch(
-        "hirefire_resource.plan.any_library_loaded",
-        return_value=False,
-    ):
-        dispatcher = configure_web_only()
-        assert dispatcher.start()
-        assert dispatcher._job_queue_thread is None
-        HireFire.configuration.dyno("worker", lambda: 1)
-        dispatcher.ensure_job_queue_loop()
-        assert dispatcher._job_queue_thread is not None
-        assert dispatcher._job_queue_thread.is_alive()
-        dispatcher.stop()
-
-
-@mocketize
-def test_ensure_job_queue_loop_restarts_dead_job_queue_thread():
-    stub_lease()
-    capture_ingest_bodies()
-    dispatcher = configure_web_and_workers()
-    assert dispatcher.start()
-    dead = threading.Thread(target=lambda: None)
-    dead.start()
-    dead.join()
-    dispatcher._job_queue_thread = dead
-    dispatcher.ensure_job_queue_loop()
-    assert dispatcher._job_queue_thread is not dead
-    assert dispatcher._job_queue_thread.is_alive()
-    dispatcher.stop()
-
-
-@mocketize
-def test_ensure_job_queue_loop_is_noop_when_stopping():
-    stub_lease()
-    capture_ingest_bodies()
-    dispatcher = configure_web_and_workers()
-    assert dispatcher.start()
-    dead = threading.Thread(target=lambda: None)
-    dead.start()
-    dead.join()
-    dispatcher._stopping = True
-    dispatcher._job_queue_thread = dead
-    dispatcher.ensure_job_queue_loop()
-    assert dispatcher._job_queue_thread is dead
-    dispatcher._stopping = False
-    dispatcher.stop()
-
-
-@mocketize
-def test_ensure_job_queue_loop_is_noop_when_not_running():
-    dispatcher = configure_web_only()
-    dispatcher.ensure_job_queue_loop()
-    assert dispatcher._job_queue_thread is None
-
-
-@mocketize
-def test_ensure_job_queue_loop_is_noop_without_enter_race():
-    stub_lease()
-    capture_ingest_bodies()
-    with patch(
-        "hirefire_resource.plan.any_library_loaded",
-        return_value=False,
-    ):
-        dispatcher = configure_web_only()
-        assert dispatcher.start()
-        assert dispatcher._job_queue_thread is None
-        dispatcher.ensure_job_queue_loop()
-        assert dispatcher._job_queue_thread is None
-        dispatcher.stop()
-
-
-@mocketize
-def test_ensure_job_queue_loop_logs_when_thread_spawn_fails(caplog):
-    caplog.set_level(logging.ERROR)
-    stub_lease()
-    dispatcher = configure_workers_only()
-    dispatcher._running = True
-    dispatcher._stopping = False
-    dispatcher._pid = os.getpid()
-    dispatcher._generation = 1
-    with patch("threading.Thread.start", side_effect=RuntimeError("cannot spawn")):
-        dispatcher.ensure_job_queue_loop()
-    assert "Could not start job-queue loop" in caplog.text
-    dispatcher._job_queue_thread = None
-    dispatcher._running = False
-
-
-@mocketize
-def test_start_restarts_when_main_loop_thread_is_dead():
-    stub_lease()
-    Entry.single_register(Entry.POST, INGEST_URL, status=200)
-    dispatcher = configure_web_only()
-    dead = threading.Thread(target=lambda: None)
-    dead.start()
-    dead.join()
-    dispatcher._running = True
-    dispatcher._stopping = False
-    dispatcher._pid = os.getpid()
-    dispatcher._thread = dead
-    dispatcher._generation = 1
-    assert not dispatcher.running()
-    assert dispatcher.start()
-    restarted = dispatcher._thread
-    assert restarted is not dead
-    assert restarted.is_alive()
-    assert dispatcher.running()
-    dispatcher.stop()
-
-
-@mocketize
-def test_start_rejected_while_stopping():
-    stub_lease()
-    capture_ingest_bodies()
-    dispatcher = configure_web_only()
-    assert dispatcher.start()
-    dispatcher._stopping = True
-    assert dispatcher.start() is False
-    dispatcher._stopping = False
-    dispatcher.stop()
-
-
-@mocketize
-def test_stop_closes_transports_even_when_final_dispatch_raises():
-    stub_lease()
-    capture_ingest_bodies()
-    dispatcher = configure_web_only()
-    dispatcher._running = True
-    dispatcher._pid = os.getpid()
-    dispatcher._thread = None
-    dispatcher._job_queue_thread = None
-
-    with patch.object(
-        dispatcher, "_dispatch", side_effect=RuntimeError("flush failed")
-    ):
-        with patch.object(dispatcher._client, "close") as client_close:
-            with patch.object(dispatcher._lease, "demote") as demote:
-                with patch.object(dispatcher._lease, "close") as lease_close:
-                    with pytest.raises(RuntimeError):
-                        dispatcher.stop()
-                    client_close.assert_called()
-                    demote.assert_called()
-                    lease_close.assert_called()
-    assert dispatcher._stopping is False
 
 
 @mocketize
@@ -1682,7 +1506,7 @@ def test_stop_after_abandon_does_not_post_buffered_samples():
 
 
 @mocketize
-def test_unknown_plan_adapter_skips_without_local_fallback(caplog):
+def test_unknown_plan_adapter_skips_without_local_fallback(caplog, session):
     caplog.set_level(logging.ERROR)
     plan = {
         "version": 1,
@@ -1699,15 +1523,14 @@ def test_unknown_plan_adapter_skips_without_local_fallback(caplog):
     stub_lease(granted=True, plan=plan)
     bodies = capture_ingest_bodies()
     HireFire.configuration.dyno("worker", lambda: 42)
-    dispatcher = HireFire.configuration.dispatcher
-    dispatcher._job_queue_tick()
-    dispatcher._tick()
+    job_queue_pass(session)
+    session.report()
     assert len(bodies) == 0
     assert "Unknown plan adapter" in caplog.text
 
 
 @mocketize
-def test_a_full_plan_of_unknown_adapters_warns_once_per_entry(caplog):
+def test_a_full_plan_of_unknown_adapters_warns_once_per_entry(caplog, session):
     caplog.set_level(logging.ERROR)
     assert Once.LIMIT == Lease.MAX_JOB_QUEUES
     plan = {
@@ -1724,16 +1547,18 @@ def test_a_full_plan_of_unknown_adapters_warns_once_per_entry(caplog):
         ],
     }
     stub_lease(granted=True, plan=plan)
-    capture_ingest_bodies()
     HireFire.configuration.dyno("other", lambda: 0)
-    dispatcher = HireFire.configuration.dispatcher
-    dispatcher._job_queue_tick()
-    dispatcher._sample_job_queues()
+
+    with freeze_time(at(1000)):
+        job_queue_pass(session)
+    with freeze_time(at(1015)):
+        job_queue_pass(session)
+
     assert caplog.text.count("Unknown plan adapter") == Lease.MAX_JOB_QUEUES
 
 
 @mocketize
-def test_strategy_only_plan_uses_local_sampler(caplog):
+def test_strategy_only_plan_uses_local_sampler(caplog, session):
     caplog.set_level(logging.WARNING)
     plan = {
         "version": 1,
@@ -1750,9 +1575,8 @@ def test_strategy_only_plan_uses_local_sampler(caplog):
     stub_lease(granted=True, plan=plan)
     bodies = capture_ingest_bodies()
     HireFire.configuration.dyno("worker", lambda: 7)
-    dispatcher = HireFire.configuration.dispatcher
-    dispatcher._job_queue_tick()
-    dispatcher._tick()
+    job_queue_pass(session)
+    session.report()
 
     entry = next(e for e in bodies[0] if e["name"] == "worker")
     assert list(entry["metrics"]["jqs"].values())[0] == 7
@@ -1760,7 +1584,7 @@ def test_strategy_only_plan_uses_local_sampler(caplog):
 
 
 @mocketize
-def test_strategy_only_plan_awaits_an_async_local_sampler_off_the_main_thread():
+def test_strategy_only_plan_awaits_an_async_local_sampler_off_the_main_thread(session):
     plan = {
         "version": 1,
         "job_queues": [
@@ -1780,19 +1604,18 @@ def test_strategy_only_plan_awaits_an_async_local_sampler_off_the_main_thread():
         return 7
 
     HireFire.configuration.dyno("worker", sampler)
-    dispatcher = HireFire.configuration.dispatcher
-    thread = threading.Thread(target=dispatcher._job_queue_tick)
+    thread = threading.Thread(target=lambda: job_queue_pass(session))
     thread.start()
     thread.join(5)
     assert not thread.is_alive()
-    dispatcher._tick()
+    session.report()
 
     entry = next(e for e in bodies[0] if e["name"] == "worker")
     assert list(entry["metrics"]["jqs"].values())[0] == 7
 
 
 @mocketize
-def test_strategy_only_plan_reports_lease_name_not_local_dyno_spelling():
+def test_strategy_only_plan_reports_lease_name_not_local_dyno_spelling(session):
     plan = {
         "version": 1,
         "job_queues": [
@@ -1808,9 +1631,8 @@ def test_strategy_only_plan_reports_lease_name_not_local_dyno_spelling():
     stub_lease(granted=True, plan=plan)
     bodies = capture_ingest_bodies()
     HireFire.configuration.dyno("Worker", lambda: 7)
-    dispatcher = HireFire.configuration.dispatcher
-    dispatcher._job_queue_tick()
-    dispatcher._tick()
+    job_queue_pass(session)
+    session.report()
 
     names = [e["name"] for e in bodies[0]]
     assert "worker" in names
@@ -1818,7 +1640,7 @@ def test_strategy_only_plan_reports_lease_name_not_local_dyno_spelling():
 
 
 @mocketize
-def test_empty_string_adapter_uses_local_strategy_sampler():
+def test_empty_string_adapter_uses_local_strategy_sampler(session):
     plan = {
         "version": 1,
         "job_queues": [
@@ -1834,25 +1656,27 @@ def test_empty_string_adapter_uses_local_strategy_sampler():
     stub_lease(granted=True, plan=plan)
     bodies = capture_ingest_bodies()
     HireFire.configuration.dyno("worker", lambda: 11)
-    dispatcher = HireFire.configuration.dispatcher
-    dispatcher._job_queue_tick()
-    dispatcher._tick()
+    job_queue_pass(session)
+    session.report()
 
     entry = next(e for e in bodies[0] if e["name"] == "worker")
     assert list(entry["metrics"]["jqs"].values())[0] == 11
 
 
 @mocketize
-def test_empty_plan_with_local_samplers_still_holds_lease():
+def test_empty_plan_with_local_samplers_still_holds_lease(caplog, session):
     stub_lease(granted=True, plan={"version": 1, "job_queues": []})
     HireFire.configuration.dyno("worker", lambda: 5)
-    dispatcher = HireFire.configuration.dispatcher
-    dispatcher._job_queue_tick()
-    assert dispatcher._lease.granted()
+
+    job_queue_pass(session)
+
+    assert "Lease grant dropped" not in caplog.text
 
 
 @mocketize
-def test_executable_plan_without_local_dyno_holds_lease_and_samples(load_macros):
+def test_executable_plan_without_local_dyno_holds_lease_and_samples(
+    load_macros, caplog, session
+):
     load_macros(celery=fake_macro(job_queue_latency=lambda *queues, **options: 4.2))
     plan = {
         "version": 1,
@@ -1868,20 +1692,19 @@ def test_executable_plan_without_local_dyno_holds_lease_and_samples(load_macros)
     }
     stub_lease(granted=True, plan=plan)
     bodies = capture_ingest_bodies()
-    dispatcher = HireFire.configuration.dispatcher
-    with patch("hirefire_resource.plan.any_library_loaded", return_value=True):
-        assert dispatcher._enter_race()
-        assert not HireFire.configuration.job_queues.any()
-        dispatcher._job_queue_tick()
-        assert dispatcher._lease.granted()
-        dispatcher._tick()
 
+    job_queue_pass(session)
+    session.report()
+
+    assert "Lease grant dropped" not in caplog.text
     entry = next(e for e in bodies[0] if e["name"] == "worker")
     assert list(entry["metrics"]["jql"].values())[0] == 4.2
 
 
 @mocketize
-def test_always_lease_non_renew_when_no_workers_and_no_executable_plan():
+def test_a_grant_is_dropped_when_no_sampler_exists_and_the_adapter_is_unknown(
+    caplog, session
+):
     plan = {
         "version": 1,
         "job_queues": [
@@ -1895,30 +1718,15 @@ def test_always_lease_non_renew_when_no_workers_and_no_executable_plan():
         ],
     }
     stub_lease(granted=True, plan=plan)
-    dispatcher = HireFire.configuration.dispatcher
-    with patch(
-        "hirefire_resource.plan.any_library_loaded",
-        return_value=True,
-    ):
-        assert dispatcher._enter_race()
-        dispatcher._job_queue_tick()
-        assert not dispatcher._lease.granted()
+
+    job_queue_pass(session)
+
+    assert "Lease grant dropped: this process cannot sample the plan" in caplog.text
+    assert "Unknown plan adapter" not in caplog.text
 
 
 @mocketize
-def test_hold_demotion_logs_and_web_dispatch_continues(monkeypatch):
-    logs = []
-
-    class CaptureLogger:
-        def info(self, message):
-            logs.append(message)
-
-        def error(self, message):
-            logs.append(message)
-
-        def warning(self, message):
-            logs.append(message)
-
+def test_hold_demotion_logs_and_web_dispatch_continues(monkeypatch, caplog, session):
     plan = {
         "version": 1,
         "job_queues": [
@@ -1932,56 +1740,57 @@ def test_hold_demotion_logs_and_web_dispatch_continues(monkeypatch):
     }
     stub_lease(granted=True, plan=plan)
     bodies = capture_ingest_bodies()
-    monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "web")
-    HireFire.configuration.logger = CaptureLogger()
-    HireFire.configuration.mark_http_active()
-    dispatcher = HireFire.configuration.dispatcher
-    dispatcher._lease._expires_at = 0
+    monkeypatch.setenv("DYNO", "web.1")
     HireFire.configuration.buffer.sample("web", "rqt", 3)
-    dispatcher._job_queue_tick()
-    dispatcher._tick()
-    assert any("Lease grant dropped" in m for m in logs)
-    assert len(bodies) >= 1
+
+    job_queue_pass(session)
+    assert "Lease grant dropped" in caplog.text
+
+    session.report()
+    assert len(bodies) == 1
+    assert [entry["name"] for entry in bodies[0]] == ["web"]
 
 
 @mocketize
-def test_payload_size_limit_is_131072_with_strict_greater_drop(caplog):
+def test_payload_size_limit_is_131072_with_strict_greater_drop(caplog, session):
     caplog.set_level(logging.ERROR)
-    limit = Dispatcher.PAYLOAD_SIZE_LIMIT
+    limit = Session.PAYLOAD_SIZE_LIMIT
     assert limit == 131_072
     stub_lease()
-    posts = {"n": 0}
-    dispatcher = configure_web_only()
+    posted = []
+    configure_web_only()
 
     def submit(body):
-        posts["n"] += 1
-        return None
+        posted.append(body)
+        return answer()
 
-    with freeze_time(at(1000)):
-        HireFire.configuration.buffer.sample("web", "rqt", 1)
-        with patch("json.dumps", return_value="e" * limit):
-            with patch.object(dispatcher._client, "submit_samples", side_effect=submit):
-                dispatcher._tick()
-    assert posts["n"] == 1
-    assert "Dropped metrics payload" not in caplog.text
+    with ingest(submit):
+        with freeze_time(at(1000)):
+            HireFire.configuration.buffer.sample("web", "rqt", 1)
+            with patch("json.dumps", return_value="e" * limit):
+                session.report()
+        assert posted == ["e" * limit]
+        assert "Dropped metrics payload" not in caplog.text
 
-    with freeze_time(at(1001)):
-        HireFire.configuration.buffer.sample("web", "rqt", 1)
-        with patch("json.dumps", return_value="o" * (limit + 1)):
-            with patch.object(dispatcher._client, "submit_samples", side_effect=submit):
-                dispatcher._tick()
-    assert posts["n"] == 1
-    assert "Dropped metrics payload" in caplog.text
+        with freeze_time(at(1001)):
+            HireFire.configuration.buffer.sample("web", "rqt", 1)
+            with patch("json.dumps", return_value="o" * (limit + 1)):
+                session.report()
+
+    assert len(posted) == 1
+    assert (
+        f"Dropped metrics payload: {limit + 1} bytes exceeds the {limit}-byte limit."
+        in caplog.text
+    )
 
 
 @mocketize
 def test_seven_sample_waves_of_a_full_plan_with_the_longest_names_ship_in_one_payload(
-    caplog,
+    caplog, session
 ):
     caplog.set_level(logging.ERROR)
     stub_lease()
     bodies = capture_ingest_bodies()
-    dispatcher = HireFire.configuration.dispatcher
     buffer = HireFire.configuration.buffer
     names = [
         f"worker_{i:03d}".ljust(identity.MAX_NAME_BYTES, "x")
@@ -1994,7 +1803,7 @@ def test_seven_sample_waves_of_a_full_plan_with_the_longest_names_ship_in_one_pa
             for name in names:
                 buffer.sample(name, "jqs", 1234)
                 buffer.sample(name, "wrk", 12)
-        dispatcher._tick()
+        session.report()
 
     assert len(bodies) == 1
     assert [entry["name"] for entry in bodies[0]] == names
@@ -2012,11 +1821,11 @@ def test_seven_sample_waves_of_a_full_plan_with_the_longest_names_ship_in_one_pa
 
 
 @mocketize
-def test_encode_omits_invalid_non_rqt_values():
+def test_encode_omits_invalid_non_rqt_values(session):
     stub_lease(granted=True)
     bodies = capture_ingest_bodies()
     limit = payload.METRIC_VALUE_LIMIT
-    dispatcher = configure_web_only()
+    configure_web_only()
     HireFire.configuration.dyno("worker", lambda: 1)
     with freeze_time(at(1000)):
         buffer = HireFire.configuration.buffer
@@ -2032,7 +1841,7 @@ def test_encode_omits_invalid_non_rqt_values():
                 "cpu": {1000: -0.1, 999: 12.0},
             }
             buffer._metrics["web"] = {"rqt": {1000: {"sum": 1.0, "count": 1}}}
-        dispatcher._tick()
+        session.report()
     assert len(bodies) >= 1
     worker = next(e for e in bodies[0] if e["name"] == "worker")
     jql = worker["metrics"].get("jql", {})
@@ -2047,115 +1856,47 @@ def test_encode_omits_invalid_non_rqt_values():
 
 
 @mocketize
-def test_stop_returns_within_join_timeout_when_job_sampler_hangs(caplog):
-    stub_lease(granted=True)
-    Entry.single_register(Entry.POST, INGEST_URL, status=200)
-    caplog.set_level(logging.WARNING)
-
-    entered = threading.Event()
-    gate = threading.Event()
-
-    def hung_sampler():
-        entered.set()
-        gate.wait()
-        return 1
-
-    HireFire.configuration.dyno("worker", hung_sampler)
-    dispatcher = HireFire.configuration.dispatcher
-    dispatcher._join_timeout = 0.05
-    assert dispatcher.start()
-    assert entered.wait(timeout=2), "job sampler never started"
-
-    started = time.monotonic()
-    assert dispatcher.stop()
-    elapsed = time.monotonic() - started
-
-    assert elapsed < 1
-    assert "Abandoning thread" in caplog.text
-    gate.set()
-
-
-@mocketize
-def test_fork_resets_dispatch_pacing_and_watermark():
+def test_a_start_in_a_forked_child_drops_what_the_parent_buffered_and_begins_at_the_current_second(
+    monkeypatch, caplog
+):
     stub_lease()
-    Entry.single_register(Entry.POST, INGEST_URL, status=200)
-
-    dispatcher = configure_web_only()
-    assert dispatcher.start()
-    dispatcher._next_dispatch_at = 1_000_000.0
-    dispatcher._last_rqt_second = 1_700_000_000
-
-    child_pid = dispatcher._pid + 1
-    with patch("os.getpid", return_value=child_pid):
-        with (
-            patch.object(dispatcher, "_tick"),
-            patch.object(dispatcher, "_job_queue_tick"),
-        ):
-            assert dispatcher.start()
-            assert dispatcher._next_dispatch_at is None
-            assert dispatcher._last_rqt_second is None
-            dispatcher.stop()
-
-
-@mocketize
-def test_fork_resets_always_on_cpu_and_warn_maps(monkeypatch):
-    stub_lease()
-    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    bodies = capture_ingest_bodies()
     monkeypatch.setenv("DYNO", "web.1")
+    dispatcher = HireFire.configuration.dispatcher
+    parent_cpu = HireFire.configuration.active_cpu_sources()[0]
 
-    dispatcher = configure_web_only()
-    first_cpu = HireFire.configuration.active_cpu_sources()[0]
-    assert first_cpu is not None
-
-    remembered = dispatcher._sampler
-    assert dispatcher.start()
-
-    child_pid = dispatcher._pid + 1
-    with patch("os.getpid", return_value=child_pid):
+    with freeze_time(at(1000)) as clock:
         assert dispatcher.start()
-        second_cpu = HireFire.configuration.active_cpu_sources()[0]
-        assert second_cpu is not first_cpu
-        assert dispatcher._sampler is not remembered
-        dispatcher.stop()
+        wait_until(lambda: len(bodies) == 1)
+        HireFire.configuration.buffer.sample("web", "rqt", 7)
+        with patch("os.getpid", return_value=os.getpid() + 1):
+            clock.move_to(at(1030))
+            assert dispatcher.start()
+            wait_until(lambda: len(bodies) == 2)
+            dispatcher.stop(flush=False)
+
+    assert caplog.text.count("Starting dispatcher.") == 2
+    assert list(bodies[1][0]["metrics"]["rqt"]) == ["1030"]
+    assert HireFire.configuration.active_cpu_sources()[0] is not parent_cpu
 
 
 @mocketize
-def test_forked_child_start_reinitializes_buffer_mutex():
-    stub_lease()
-    Entry.single_register(Entry.POST, INGEST_URL, status=200)
-
-    dispatcher = configure_web_only()
-    assert dispatcher.start()
-    buffer = HireFire.configuration.buffer
-    buffer.sample("web", "rqt", 7)
-    old_mutex = buffer._mutex
-
-    child_pid = os.getpid() + 1
-    with patch("os.getpid", return_value=child_pid):
-        assert dispatcher.start()
-        assert buffer._mutex is not old_mutex
-        assert buffer.flush() == {}
-        dispatcher.stop()
-
-
-@mocketize
-def test_jql_not_repopulated_on_dispatch_failure(caplog):
+def test_jql_not_repopulated_on_dispatch_failure(caplog, session):
     stub_lease(granted=True)
     Entry.single_register(Entry.POST, INGEST_URL, status=500)
     caplog.set_level(logging.ERROR)
 
     with freeze_time(at(1000)):
         HireFire.configuration.dyno("worker", lambda: 3)
-        dispatcher = HireFire.configuration.dispatcher
-        dispatcher._job_queue_tick()
-        dispatcher._tick()
+        job_queue_pass(session)
+        session.report()
 
         assert HireFire.configuration.buffer.flush() == {}
         assert "Dispatch error" in caplog.text
 
 
 @mocketize
-def test_nested_payload_merges_rqt_and_cpu_under_one_name(monkeypatch):
+def test_nested_payload_merges_rqt_and_cpu_under_one_name(monkeypatch, session):
     monkeypatch.setenv("DYNO", "web.1")
     bodies = capture_ingest_bodies()
     with (
@@ -2165,13 +1906,12 @@ def test_nested_payload_merges_rqt_and_cpu_under_one_name(monkeypatch):
         ),
     ):
         HireFire.configuration.dyno("web")
-        dispatcher = HireFire.configuration.dispatcher
 
         with freeze_time(at(1000)):
-            dispatcher._tick()
+            session.report()
         with freeze_time(at(1001)):
             HireFire.configuration.buffer.sample("web", "rqt", 12)
-            dispatcher._tick()
+            session.report()
 
     entry = next(e for e in bodies[-1] if e["name"] == "web")
     assert "rqt" in entry["metrics"]
@@ -2179,7 +1919,7 @@ def test_nested_payload_merges_rqt_and_cpu_under_one_name(monkeypatch):
 
 
 @mocketize
-def test_wire_payload_nested_multi_strategy_shape(monkeypatch):
+def test_wire_payload_nested_multi_strategy_shape(monkeypatch, session):
     stub_lease(granted=True)
     bodies = capture_ingest_bodies()
     monkeypatch.setenv("DYNO", "web.1")
@@ -2187,12 +1927,11 @@ def test_wire_payload_nested_multi_strategy_shape(monkeypatch):
     with freeze_time(at(1000)):
         HireFire.configuration.dyno("web")
         HireFire.configuration.dyno("worker", lambda: 3)
-        dispatcher = HireFire.configuration.dispatcher
 
         HireFire.configuration.buffer.sample("web", "rqt", 12)
         HireFire.configuration.buffer.sample("web", "cpu", 25.0)
-        dispatcher._job_queue_tick()
-        dispatcher._tick()
+        job_queue_pass(session)
+        session.report()
 
     assert len(bodies) >= 1
     payload = bodies[0]
@@ -2208,18 +1947,15 @@ def test_wire_payload_nested_multi_strategy_shape(monkeypatch):
 
 
 @mocketize
-def test_first_start_does_not_clear_pre_start_rqt():
+def test_the_first_start_sends_what_was_buffered_before_it():
     stub_lease()
-    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    bodies = capture_ingest_bodies()
     dispatcher = configure_web_only()
     HireFire.configuration.buffer.sample("web", "rqt", 5)
-    with (
-        patch.object(dispatcher, "_tick"),
-        patch.object(dispatcher, "_job_queue_tick"),
-    ):
-        assert dispatcher.start()
-    flushed = HireFire.configuration.buffer.flush()
-    assert "web" in flushed and "rqt" in flushed["web"]
+
+    assert dispatcher.start()
+
+    wait_until(lambda: sent(bodies, "web", "rqt", [5.0, 1]))
     dispatcher.stop()
 
 
@@ -2230,20 +1966,11 @@ def test_start_after_parent_stop_reinitializes_inherited_state():
     dispatcher = configure_web_only()
     assert dispatcher.start()
     first_cpu = HireFire.configuration.active_cpu_sources()[0]
-    buffer = HireFire.configuration.buffer
-    old_mutex = buffer._mutex
 
     dispatcher.stop(flush=False)
-    parent_pid = dispatcher._pid
-    assert parent_pid is not None
 
-    with (
-        patch("os.getpid", return_value=parent_pid + 1),
-        patch.object(dispatcher, "_tick"),
-        patch.object(dispatcher, "_job_queue_tick"),
-    ):
+    with patch("os.getpid", return_value=os.getpid() + 1):
         assert dispatcher.start()
-        assert buffer._mutex is not old_mutex
         assert HireFire.configuration.active_cpu_sources()[0] is not first_cpu
         dispatcher.stop()
 
@@ -2273,18 +2000,13 @@ def test_start_after_fork_calls_reinit_macros_after_fork():
 
     dispatcher = configure_web_only()
     assert dispatcher.start()
-    child_pid = dispatcher._pid + 1
 
-    try:
-        with (
-            patch("os.getpid", return_value=child_pid),
-            patch.object(plan, "reinit_macros_after_fork") as reinit,
-            patch.object(dispatcher, "_tick"),
-            patch.object(dispatcher, "_job_queue_tick"),
-        ):
-            assert dispatcher.start()
-            reinit.assert_called_once_with(HireFire.configuration.logger)
-    finally:
+    with (
+        patch("os.getpid", return_value=os.getpid() + 1),
+        patch.object(plan, "reinit_macros_after_fork") as reinit,
+    ):
+        assert dispatcher.start()
+        reinit.assert_called_once_with(HireFire.configuration.logger)
         dispatcher.stop()
 
 
@@ -2320,3 +2042,746 @@ def test_concurrent_start_during_stop_is_rejected_then_retryable_even_if_a_start
     assert dispatcher.start()
     assert dispatcher.running()
     dispatcher.stop()
+
+
+@mocketize
+def test_a_halted_session_takes_nothing_from_the_buffer_and_posts_nothing(session):
+    stub_lease()
+    bodies = capture_ingest_bodies()
+    configure_web_only()
+    HireFire.configuration.buffer.sample("web", "rqt", 10)
+
+    session.halt()
+    session.report()
+
+    assert bodies == []
+    assert "rqt" in HireFire.configuration.buffer.flush()["web"]
+
+
+@mocketize
+def test_the_final_flush_of_a_halted_session_sends_what_is_buffered(session):
+    bodies = capture_ingest_bodies()
+    configure_web_only()
+
+    with freeze_time(at(1000)):
+        HireFire.configuration.buffer.sample("web", "rqt", 7)
+        session.halt(handoff=True)
+        session.flush()
+
+    assert len(bodies) == 1
+    assert bodies[0][0]["metrics"]["rqt"] == {"1000": [7.0, 1]}
+
+
+def test_a_dispatch_that_fails_after_a_halt_for_a_final_flush_keeps_its_samples_for_that_flush(
+    session,
+):
+    bodies = []
+
+    def submit(body):
+        bodies.append(json.loads(body))
+        session.halt(handoff=True)
+        if len(bodies) == 1:
+            raise RequestError("Ingest request failed with 500 status.")
+        return answer()
+
+    configure_web_only()
+    with ingest(submit), freeze_time(at(1000)):
+        HireFire.configuration.buffer.sample("web", "rqt", 10)
+        session.report()
+        session.flush()
+
+    assert len(bodies) == 2
+    assert bodies[1][0]["metrics"]["rqt"] == {"1000": [10.0, 1]}
+
+
+def test_a_dispatch_that_fails_after_a_halt_without_a_final_flush_drops_its_samples(
+    session,
+):
+    def submit(_body):
+        session.halt()
+        raise RequestError("Ingest request failed with 500 status.")
+
+    configure_web_only()
+    with ingest(submit), freeze_time(at(1000)):
+        HireFire.configuration.buffer.sample("web", "rqt", 10)
+        session.report()
+
+    assert HireFire.configuration.buffer.flush() == {}
+
+
+@mocketize
+def test_failed_dispatches_wait_twice_as_long_each_time_up_to_the_longest_interval(
+    session,
+):
+    stub_lease()
+    ingest_statuses(500)
+    configure_web_only()
+
+    assert attempts(session, range(1000, 1126)) == [
+        1000,
+        1002,
+        1006,
+        1014,
+        1030,
+        1060,
+        1090,
+        1120,
+    ]
+    assert Session.MAX_DISPATCH_FREQUENCY == 30
+    assert Session.BACKOFF_DOUBLINGS == 5
+
+
+@mocketize
+def test_a_successful_dispatch_ends_the_longer_interval(session):
+    stub_lease()
+    ingest_statuses(500, 500, 500, 200)
+    configure_web_only()
+
+    assert attempts(session, range(1000, 1018)) == [
+        1000,
+        1002,
+        1006,
+        1014,
+        1015,
+        1016,
+        1017,
+    ]
+
+
+@mocketize
+def test_failed_dispatches_wait_from_the_interval_the_server_set(session):
+    stub_lease()
+    Entry.register(
+        Entry.POST,
+        INGEST_URL,
+        Response(status=200, headers={"HireFire-Dispatch-Frequency": "5"}),
+        Response(status=503),
+    )
+    configure_web_only()
+
+    assert attempts(session, range(1000, 1071)) == [1000, 1005, 1015, 1035, 1065]
+
+
+@mocketize
+def test_the_first_failed_dispatch_is_logged_and_later_ones_once_a_minute_with_their_count(
+    caplog, session
+):
+    stub_lease()
+    ingest_statuses(500)
+    configure_web_only()
+
+    attempts(session, range(1000, 1060))
+    assert caplog.text.count("Dispatch error") == 1
+    assert (
+        "[HireFire] Dispatch error: RequestError: "
+        "Ingest request failed with 500 status." in messages(caplog)
+    )
+
+    attempts(session, range(1060, 1126))
+    assert re.findall(r"\(\d+ failed attempts in a row\)", caplog.text) == [
+        "(6 failed attempts in a row)",
+        "(8 failed attempts in a row)",
+    ]
+
+
+@mocketize
+def test_a_recovery_after_several_failed_dispatches_is_logged_once(caplog, session):
+    stub_lease()
+    ingest_statuses(500, 500, 500, 200)
+    configure_web_only()
+
+    attempts(session, range(1000, 1021))
+
+    assert caplog.text.count("Dispatch recovered after 3 failed attempts.") == 1
+    assert caplog.text.count("Dispatch error") == 1
+
+
+@mocketize
+def test_a_payload_that_the_server_rejects_every_second_is_logged_once_a_minute_and_once_on_recovery(
+    caplog, session
+):
+    stub_lease()
+    ingest_statuses(*[413] * 61, 200)
+    configure_web_only()
+
+    attempts(session, range(1000, 1060))
+    assert caplog.text.count("Dropped metrics payload") == 1
+
+    attempts(session, range(1060, 1063))
+    assert caplog.text.count("Dropped metrics payload") == 2
+    assert (
+        "server rejected (413). Resuming from the current second. "
+        "(61 failed attempts in a row)" in caplog.text
+    )
+    line = "Metrics payload recovered after 61 failed attempts."
+    assert caplog.text.count(line) == 1
+
+
+@mocketize
+def test_a_single_failed_dispatch_logs_no_recovery_line(caplog, session):
+    stub_lease()
+    ingest_statuses(500, 200)
+    configure_web_only()
+
+    assert len(attempts(session, range(1000, 1006))) == 5
+    assert "recovered" not in caplog.text
+
+
+@mocketize
+def test_a_rejected_token_and_a_rejected_payload_do_not_lengthen_the_interval(session):
+    stub_lease()
+    ingest_statuses(401, 413, 401, 413, 401)
+    configure_web_only()
+
+    assert attempts(session, range(1000, 1005)) == [1000, 1001, 1002, 1003, 1004]
+
+
+@mocketize
+def test_a_process_without_the_lease_runs_one_dispatch_loop_one_lease_loop_and_no_sample_loop(
+    monkeypatch,
+):
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    monkeypatch.setattr(Session, "TICK", 0.01)
+    dispatcher = configure_workers_only()
+
+    with patch.object(plan, "release_macros") as release:
+        assert dispatcher.start()
+        time.sleep(0.15)
+
+        assert len(loop_threads("hirefire-dispatch")) == 1
+        assert len(loop_threads("hirefire-lease")) == 1
+        assert loop_threads("hirefire-sample") == []
+        release.assert_not_called()
+        dispatcher.stop()
+
+
+@mocketize
+def test_every_loop_is_a_named_daemon_thread(monkeypatch):
+    stub_lease(granted=True)
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    monkeypatch.setattr(Session, "TICK", 0.01)
+    dispatcher = configure_workers_only()
+    names = ["hirefire-dispatch", "hirefire-lease", "hirefire-sample"]
+
+    assert dispatcher.start()
+    wait_until(lambda: all(loop_threads(name) for name in names))
+
+    assert all(thread.daemon for name in names for thread in loop_threads(name))
+    dispatcher.stop()
+
+
+@mocketize
+def test_the_dispatch_loop_waits_a_tick_between_passes(monkeypatch):
+    assert Session.TICK == 1
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    monkeypatch.setattr(Session, "TICK", 0.05)
+    dispatcher = configure_web_only()
+    passes = []
+
+    with patch.object(CPU, "sample", side_effect=lambda: passes.append(True)):
+        assert dispatcher.start()
+        time.sleep(0.32)
+        dispatcher.stop()
+
+    assert 3 <= len(passes) <= 12
+
+
+@mocketize
+def test_the_sample_loop_waits_a_tick_between_rounds(monkeypatch):
+    stub_lease(granted=True)
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    monkeypatch.setattr(Session, "TICK", 0.05)
+    dispatcher = configure_workers_only()
+    checks = []
+
+    with patch.object(
+        Lease, "sample_if_due", side_effect=lambda _round: checks.append(True)
+    ):
+        assert dispatcher.start()
+        time.sleep(0.32)
+        dispatcher.stop()
+
+    assert 2 <= len(checks) <= 12
+
+
+def test_a_stop_without_a_flush_returns_while_the_dispatch_loop_is_in_a_request():
+    in_request = threading.Event()
+    release = threading.Event()
+
+    def submit(_body):
+        in_request.set()
+        release.wait(5)
+        return answer()
+
+    dispatcher = configure_web_only()
+
+    try:
+        with ingest(submit):
+            assert dispatcher.start()
+            assert in_request.wait(2)
+
+            assert seconds_to(lambda: dispatcher.stop(flush=False)) < 1
+            assert loop_threads("hirefire-dispatch")
+    finally:
+        release.set()
+
+
+def test_a_loop_that_finishes_a_pass_after_a_stop_does_not_wait_out_a_tick(monkeypatch):
+    in_request = threading.Event()
+    release = threading.Event()
+
+    def submit(_body):
+        in_request.set()
+        release.wait(5)
+        return answer()
+
+    monkeypatch.setattr(Session, "TICK", 3)
+    dispatcher = configure_web_only()
+    HireFire.configuration.buffer.sample("web", "rqt", 5)
+
+    with ingest(submit):
+        assert dispatcher.start()
+        assert in_request.wait(2)
+        loop = loop_threads("hirefire-dispatch")[0]
+        dispatcher.stop(flush=False)
+        release.set()
+
+        loop.join(1)
+        assert not loop.is_alive(), "the dispatch loop waited out a tick after the stop"
+
+
+@mocketize
+def test_start_replaces_a_dispatch_loop_that_ended():
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    dispatcher = configure_web_only()
+
+    with patch.object(Session, "_dispatch_loop", lambda session: None):
+        assert dispatcher.start()
+        wait_until(lambda: not loop_threads("hirefire-dispatch"))
+    assert not dispatcher.running()
+
+    assert dispatcher.start()
+    assert dispatcher.running()
+    assert len(loop_threads("hirefire-dispatch")) == 1
+    dispatcher.stop()
+
+
+@mocketize
+def test_a_start_after_a_stop_runs_one_loop_of_each_kind():
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    dispatcher = configure_workers_only()
+
+    for _ in range(3):
+        assert dispatcher.start()
+        wait_until(lambda: loop_threads("hirefire-lease"))
+        assert dispatcher.stop()
+    assert dispatcher.start()
+    wait_until(lambda: len(loop_threads("hirefire-lease")) == 1)
+
+    assert len(loop_threads("hirefire-dispatch")) == 1
+    dispatcher.stop()
+    wait_until(
+        lambda: not loop_threads("hirefire-dispatch")
+        and not loop_threads("hirefire-lease")
+    )
+
+
+@mocketize
+def test_a_process_with_no_sampler_and_no_job_library_runs_no_lease_loop(monkeypatch):
+    monkeypatch.setattr(plan, "any_library_loaded", lambda: False)
+    monkeypatch.setattr(Session, "TICK", 0.01)
+    bodies = capture_ingest_bodies()
+    dispatcher = configure_web_only()
+
+    assert dispatcher.start()
+    wait_until(lambda: len(bodies) > 0)
+    time.sleep(0.05)
+
+    assert loop_threads("hirefire-lease") == []
+    dispatcher.stop()
+
+
+@mocketize
+def test_the_lease_loop_starts_once_a_sampler_is_registered_after_the_start(
+    monkeypatch,
+):
+    monkeypatch.setattr(plan, "any_library_loaded", lambda: False)
+    monkeypatch.setattr(Session, "TICK", 0.01)
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    dispatcher = configure_web_only()
+
+    assert dispatcher.start()
+    HireFire.configuration.dyno("worker", lambda: 42)
+
+    wait_until(lambda: loop_threads("hirefire-lease"))
+    wait_until(lambda: lease_requests() > 0)
+    dispatcher.stop()
+
+
+@mocketize
+def test_the_lease_loop_starts_once_a_job_library_is_loaded_after_the_start(
+    monkeypatch,
+):
+    loaded = []
+    monkeypatch.setattr(plan, "any_library_loaded", lambda: bool(loaded))
+    monkeypatch.setattr(Session, "TICK", 0.01)
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    dispatcher = configure_web_only()
+
+    assert dispatcher.start()
+    wait_until(lambda: ingest_requests() > 0)
+    assert loop_threads("hirefire-lease") == []
+    loaded.append("rq")
+
+    wait_until(lambda: lease_requests() > 0)
+    dispatcher.stop()
+
+
+@mocketize
+def test_a_lease_loop_that_could_not_start_is_started_on_a_later_pass(
+    monkeypatch, caplog
+):
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    monkeypatch.setattr(Session, "TICK", 0.01)
+    dispatcher = configure_workers_only()
+    start = threading.Thread.start
+    failed = []
+
+    def fail_once(thread):
+        if thread.name == "hirefire-lease" and not failed:
+            failed.append(thread)
+            raise RuntimeError("can't start new thread")
+        start(thread)
+
+    monkeypatch.setattr(threading.Thread, "start", fail_once)
+    assert dispatcher.start()
+
+    wait_until(lambda: loop_threads("hirefire-lease"))
+    assert "[HireFire] RuntimeError: can't start new thread" in caplog.text
+    dispatcher.stop()
+
+
+@mocketize
+def test_the_lease_loop_replaces_a_sample_loop_that_ended(monkeypatch):
+    stub_lease(granted=True)
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    monkeypatch.setattr(Session, "TICK", 0.01)
+    dispatcher = configure_workers_only()
+    held = [True]
+    granted = Lease.granted
+    monkeypatch.setattr(Lease, "granted", lambda lease: held[0] and granted(lease))
+
+    with patch.object(plan, "release_macros") as release:
+        assert dispatcher.start()
+        wait_until(lambda: loop_threads("hirefire-sample"))
+        first = loop_threads("hirefire-sample")[0]
+        release.assert_not_called()
+        held[0] = False
+        wait_until(lambda: not first.is_alive())
+        release.assert_called_once_with(HireFire.configuration.logger)
+        held[0] = True
+
+        wait_until(lambda: loop_threads("hirefire-sample"))
+        assert loop_threads("hirefire-sample")[0] is not first
+        dispatcher.stop()
+
+
+@mocketize
+def test_an_exception_of_any_class_in_a_pass_is_logged_and_the_loop_goes_on(
+    monkeypatch, caplog
+):
+    stub_lease(granted=True)
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    monkeypatch.setattr(Session, "TICK", 0.01)
+
+    def worker():
+        raise SystemExit("outside every except")
+
+    HireFire.configuration.dyno("worker", worker)
+    dispatcher = HireFire.configuration.dispatcher
+
+    assert dispatcher.start()
+    wait_until(lambda: "[HireFire] SystemExit: outside every except" in caplog.text)
+    time.sleep(0.05)
+
+    assert len(loop_threads("hirefire-sample")) == 1
+    assert dispatcher.running()
+    dispatcher.stop()
+
+
+@mocketize
+def test_the_lease_is_renewed_while_a_sample_round_is_still_running(monkeypatch):
+    Entry.single_register(
+        Entry.POST,
+        LEASE_URL,
+        status=200,
+        headers={
+            "HireFire-Lease-Granted": "true",
+            "HireFire-Lease-TTL": "5",
+            "HireFire-Sample-Frequency": "15",
+        },
+        body=json.dumps({"job_queues": [{"name": "worker", "strategy": "jqs"}]}),
+    )
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    monkeypatch.setattr(Session, "TICK", 0.01)
+    entered = threading.Event()
+    gate = threading.Event()
+
+    def worker():
+        entered.set()
+        gate.wait(5)
+        return 7
+
+    HireFire.configuration.dyno("worker", worker)
+    dispatcher = HireFire.configuration.dispatcher
+    monotonic = time.monotonic
+    ahead = [0]
+    monkeypatch.setattr(time, "monotonic", lambda: monotonic() + ahead[0])
+
+    try:
+        assert dispatcher.start()
+        assert entered.wait(2)
+        ahead[0] = 6
+
+        wait_until(lambda: lease_requests() >= 2)
+        assert not gate.is_set()
+    finally:
+        gate.set()
+        dispatcher.stop()
+
+
+@mocketize
+def test_stop_does_not_wait_for_a_sampler_that_hangs(caplog):
+    stub_lease(granted=True)
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    entered = threading.Event()
+    gate = threading.Event()
+
+    def worker():
+        entered.set()
+        gate.wait(5)
+        return 0
+
+    HireFire.configuration.dyno("worker", worker)
+    dispatcher = HireFire.configuration.dispatcher
+
+    try:
+        assert dispatcher.start()
+        assert entered.wait(2)
+
+        assert seconds_to(dispatcher.stop) < 1
+        assert not dispatcher.running()
+        assert "final flush is skipped" not in caplog.text
+    finally:
+        gate.set()
+
+
+def test_stop_skips_the_final_flush_when_the_dispatch_loop_is_still_in_a_request(
+    monkeypatch, caplog
+):
+    assert Dispatcher.JOIN_TIMEOUT == 5
+    entered = threading.Event()
+    gate = threading.Event()
+    requests = []
+
+    def submit(body):
+        requests.append(body)
+        entered.set()
+        gate.wait(5)
+        return answer()
+
+    monkeypatch.setattr(Dispatcher, "JOIN_TIMEOUT", 0.05)
+    dispatcher = configure_web_only()
+
+    try:
+        with ingest(submit):
+            assert dispatcher.start()
+            assert entered.wait(2)
+
+            assert seconds_to(dispatcher.stop) < 1
+            assert (
+                "The dispatch loop did not stop within 0.05 seconds. "
+                "The final flush is skipped." in caplog.text
+            )
+            assert len(requests) == 1
+            assert not dispatcher.running()
+    finally:
+        gate.set()
+
+
+def test_a_stop_that_skipped_the_final_flush_leaves_no_connection_open_once_the_request_ends(
+    monkeypatch,
+):
+    entered = threading.Event()
+    gate = threading.Event()
+    closed = []
+
+    def submit(_body):
+        entered.set()
+        gate.wait(5)
+        return answer()
+
+    monkeypatch.setattr(Client, "close", lambda client: closed.append(client))
+    monkeypatch.setattr(Dispatcher, "JOIN_TIMEOUT", 0.05)
+    dispatcher = configure_web_only()
+
+    try:
+        with ingest(submit):
+            assert dispatcher.start()
+            assert entered.wait(2)
+            assert dispatcher.stop()
+            assert closed == []
+            gate.set()
+
+            wait_until(lambda: len(closed) == 1)
+    finally:
+        gate.set()
+
+
+@mocketize
+def test_a_new_session_does_not_sample_while_a_round_of_the_stopped_session_is_still_running(
+    monkeypatch,
+):
+    stub_lease(granted=True)
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    monkeypatch.setattr(Session, "TICK", 0.01)
+    entered = queue.Queue()
+    release = queue.Queue()
+    rounds = []
+
+    def worker():
+        rounds.append(True)
+        entered.put(True)
+        release.get(timeout=5)
+        return 1
+
+    HireFire.configuration.dyno("worker", worker)
+    dispatcher = HireFire.configuration.dispatcher
+
+    try:
+        assert dispatcher.start()
+        entered.get(timeout=2)
+        assert dispatcher.stop()
+        assert dispatcher.start()
+        time.sleep(0.2)
+        assert len(rounds) == 1
+
+        release.put(True)
+        entered.get(timeout=2)
+        assert len(rounds) == 2
+        release.put(True)
+        dispatcher.stop()
+    finally:
+        for _ in range(5):
+            release.put(True)
+
+
+@mocketize
+def test_stop_without_flush_discards_the_buffer_and_posts_nothing_more():
+    bodies = capture_ingest_bodies()
+    dispatcher = configure_web_only()
+
+    with freeze_time(at(1000)):
+        assert dispatcher.start()
+        wait_until(lambda: len(bodies) == 1)
+        HireFire.configuration.buffer.sample("web", "rqt", 7)
+        assert dispatcher.stop(flush=False)
+
+    assert len(bodies) == 1
+    assert HireFire.configuration.buffer.flush() == {}
+    assert not dispatcher.running()
+
+
+@mocketize
+def test_stop_leaves_the_dispatcher_ready_to_start_again_when_the_final_flush_raises():
+    stub_lease()
+    Entry.single_register(Entry.POST, INGEST_URL, status=200)
+    dispatcher = configure_web_only()
+
+    assert dispatcher.start()
+    with patch.object(Session, "flush", side_effect=RuntimeError("flush failed")):
+        with pytest.raises(RuntimeError):
+            dispatcher.stop()
+
+    assert dispatcher.start()
+    assert dispatcher.running()
+    dispatcher.stop()
+
+
+def test_a_start_while_a_stop_is_in_progress_does_nothing():
+    dispatcher = configure_web_only()
+    stopper = threading.current_thread()
+    during_stop = []
+
+    def submit(_body):
+        if threading.current_thread() is stopper:
+            during_stop.append(dispatcher.start())
+        return answer()
+
+    with ingest(submit):
+        assert dispatcher.start()
+        time.sleep(0.1)
+        HireFire.configuration.buffer.sample("web", "rqt", 5)
+        dispatcher.stop()
+
+    assert during_stop == [False]
+    assert not dispatcher.running()
+    assert loop_threads("hirefire-dispatch") == []
+
+
+@mocketize
+def test_a_start_after_a_stop_in_the_same_process_keeps_what_was_buffered_in_between():
+    stub_lease()
+    bodies = capture_ingest_bodies()
+    dispatcher = configure_web_only()
+    assert dispatcher.start()
+    dispatcher.stop()
+    HireFire.configuration.buffer.sample("web", "rqt", 7)
+
+    assert dispatcher.start()
+
+    wait_until(lambda: sent(bodies, "web", "rqt", [7.0, 1]))
+    dispatcher.stop()
+
+
+@mocketize
+def test_abandoning_inherited_state_stops_reporting_and_empties_the_buffer():
+    stub_lease()
+    bodies = capture_ingest_bodies()
+    dispatcher = configure_web_only()
+
+    with freeze_time(at(1000)):
+        assert dispatcher.start()
+        wait_until(lambda: len(bodies) == 1)
+        HireFire.configuration.buffer.sample("web", "rqt", 7)
+        dispatcher.abandon_inherited_state()
+
+    assert not dispatcher.running()
+    assert not dispatcher.stop()
+    assert HireFire.configuration.buffer.flush() == {}
+    assert len(bodies) == 1
+    assert dispatcher.start()
+    dispatcher.stop()
+
+
+def test_a_failure_while_abandoning_inherited_state_is_logged_and_does_not_raise(
+    caplog,
+):
+    dispatcher = configure_web_only()
+
+    with patch.object(
+        HireFire.configuration.buffer,
+        "reinit_after_fork",
+        side_effect=RuntimeError("reinit boom"),
+    ):
+        dispatcher.abandon_inherited_state()
+
+    line = "[HireFire] Could not abandon inherited dispatcher state: reinit boom"
+    assert line in caplog.text

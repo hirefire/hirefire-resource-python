@@ -141,7 +141,7 @@ class Client:
         with self._mutex:
             self._reset_connection()
 
-    def _reinit_after_fork(self) -> None:
+    def discard_inherited(self) -> None:
         self._mutex = threading.Lock()
         connection = self._connection
         self._connection = None

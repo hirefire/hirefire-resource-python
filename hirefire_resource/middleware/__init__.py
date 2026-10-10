@@ -43,7 +43,6 @@ def process_request_queue_time(
             if source is not None:
                 source.sample(request_queue_time)
             configuration.dispatcher.start()
-            configuration.dispatcher.ensure_job_queue_loop()
     except Exception as error:
         safe_log(
             HireFire.configuration.logger,

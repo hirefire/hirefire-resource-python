@@ -43,15 +43,11 @@ class HireFire:
     @classmethod
     def after_fork_in_child(cls) -> None:
         try:
-            cls.configuration._reinit_locks_after_fork()
-
-            if cls.configuration.prefork_web_handoff():
-                if not cls.configuration.token:
-                    return
-                cls.configuration.dispatcher.start()
-                cls.configuration.dispatcher.ensure_job_queue_loop()
-            else:
-                cls.configuration.dispatcher.abandon_inherited_state()
+            configuration = cls.configuration
+            configuration.unlock_after_fork()
+            configuration.dispatcher.abandon_inherited_state()
+            if configuration.prefork_web_handoff() and configuration.token:
+                configuration.dispatcher.start()
         except Exception as error:
             safe_log(
                 cls.configuration.logger,
@@ -64,7 +60,6 @@ class HireFire:
         if not cls.configuration.token:
             return
         cls.configuration.dispatcher.start()
-        cls.configuration.dispatcher.ensure_job_queue_loop()
 
     @classmethod
     def install_fork_hooks(cls) -> None:

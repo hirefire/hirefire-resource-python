@@ -92,10 +92,8 @@ class Lease:
     def close(self) -> None:
         self._client.close()
 
-    def _reinit_after_fork(self) -> None:
-        self._mutex = threading.Lock()
-        self._reset_after_fork()
-        self._client._reinit_after_fork()
+    def discard_inherited(self) -> None:
+        self._client.discard_inherited()
 
     def _reset_after_fork(self) -> None:
         self._apply_demote()

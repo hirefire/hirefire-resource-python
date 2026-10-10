@@ -116,9 +116,6 @@ class Configuration:
             self._always_on_http = HTTP(name, self.buffer)
         return self._always_on_http
 
-    def rqt_liveness(self) -> bool:
-        return self.rqt_enabled() and self.soft_identity() is not None
-
     def active_cpu_sources(self) -> list[CPU]:
         resolved = self.soft_identity()
         if resolved is None:
@@ -149,13 +146,9 @@ class Configuration:
         self._warn_identity_name_too_long_once(name)
         return None
 
-    def _reinit_locks_after_fork(self) -> None:
+    def unlock_after_fork(self) -> None:
         self._mutex = threading.Lock()
         self.once.unlock_after_fork()
-        if self._buffer is not None:
-            self._buffer.reinit_locks_after_fork()
-        if self._dispatcher is not None:
-            self._dispatcher._reinit_locks_after_fork()
 
     def _coerce_name(self, name: object | None) -> str:
         coerced = "" if name is None else str(name).strip()

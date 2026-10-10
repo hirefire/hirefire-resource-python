@@ -48,51 +48,47 @@ def test_pass_through_without_token(client):
 def test_samples_without_web_dyno_via_identity(client, set_HIREFIRE_TOKEN, monkeypatch):
     monkeypatch.setenv("DYNO", "web.1")
     with patch.object(Dispatcher, "start") as mock_start:
-        with patch.object(Dispatcher, "ensure_job_queue_loop") as mock_ensure:
-            response = client.get(
-                "/any", headers={"X-Request-Start": str(int(time.time() * 1000 - 5))}
-            )
-            assert response.status_code == 200
-            assert response.data.decode("utf-8") == "DEFAULT"
-            _ts = int(time.time())
-            assert HireFire.configuration.buffer.flush()["web"]["rqt"] == {
-                _ts: {"sum": float(5), "count": 1}
-            }
-            mock_start.assert_called()
-            mock_ensure.assert_called()
+        response = client.get(
+            "/any", headers={"X-Request-Start": str(int(time.time() * 1000 - 5))}
+        )
+        assert response.status_code == 200
+        assert response.data.decode("utf-8") == "DEFAULT"
+        _ts = int(time.time())
+        assert HireFire.configuration.buffer.flush()["web"]["rqt"] == {
+            _ts: {"sum": float(5), "count": 1}
+        }
+        mock_start.assert_called()
 
 
 @freeze_time("2000-01-01 00:00:00")
 def test_samples_web_and_starts_dispatcher(client, set_HIREFIRE_TOKEN, monkeypatch):
     monkeypatch.setenv("DYNO", "web.1")
     with patch.object(Dispatcher, "start") as mock_start:
-        with patch.object(Dispatcher, "ensure_job_queue_loop"):
-            response = client.get(
-                "/any", headers={"X-Request-Start": str(int(time.time() * 1000 - 5))}
-            )
-            assert response.status_code == 200
-            assert response.data.decode("utf-8") == "DEFAULT"
-            _ts = int(time.time())
-            assert HireFire.configuration.buffer.flush()["web"]["rqt"] == {
-                _ts: {"sum": float(5), "count": 1}
-            }
-            mock_start.assert_called()
+        response = client.get(
+            "/any", headers={"X-Request-Start": str(int(time.time() * 1000 - 5))}
+        )
+        assert response.status_code == 200
+        assert response.data.decode("utf-8") == "DEFAULT"
+        _ts = int(time.time())
+        assert HireFire.configuration.buffer.flush()["web"]["rqt"] == {
+            _ts: {"sum": float(5), "count": 1}
+        }
+        mock_start.assert_called()
 
 
 @freeze_time("2000-01-01 00:00:00")
 def test_falls_back_to_x_queue_start(client, set_HIREFIRE_TOKEN, monkeypatch):
     monkeypatch.setenv("DYNO", "web.1")
     with patch.object(Dispatcher, "start"):
-        with patch.object(Dispatcher, "ensure_job_queue_loop"):
-            response = client.get(
-                "/any", headers={"X-Queue-Start": str(int(time.time() * 1000 - 5))}
-            )
-            assert response.status_code == 200
-            assert response.data.decode("utf-8") == "DEFAULT"
-            _ts = int(time.time())
-            assert HireFire.configuration.buffer.flush()["web"]["rqt"] == {
-                _ts: {"sum": float(5), "count": 1}
-            }
+        response = client.get(
+            "/any", headers={"X-Queue-Start": str(int(time.time() * 1000 - 5))}
+        )
+        assert response.status_code == 200
+        assert response.data.decode("utf-8") == "DEFAULT"
+        _ts = int(time.time())
+        assert HireFire.configuration.buffer.flush()["web"]["rqt"] == {
+            _ts: {"sum": float(5), "count": 1}
+        }
 
 
 def test_info_path_is_passed_through_to_the_app(
@@ -100,8 +96,7 @@ def test_info_path_is_passed_through_to_the_app(
 ):
     monkeypatch.setenv("DYNO", "web.1")
     with patch.object(Dispatcher, "start"):
-        with patch.object(Dispatcher, "ensure_job_queue_loop"):
-            response = client.get("/hirefire/SOME_TOKEN/info")
+        response = client.get("/hirefire/SOME_TOKEN/info")
 
     assert response.status_code == 200
     assert response.data.decode("utf-8") == "DEFAULT"
@@ -113,9 +108,8 @@ def test_an_error_raised_by_the_host_app_still_propagates(
 ):
     monkeypatch.setenv("DYNO", "web.1")
     with patch.object(Dispatcher, "start"):
-        with patch.object(Dispatcher, "ensure_job_queue_loop"):
-            with pytest.raises(RuntimeError, match="boom from the app"):
-                client.get(
-                    "/boom",
-                    headers={"X-Request-Start": str(int(time.time() * 1000 - 5))},
-                )
+        with pytest.raises(RuntimeError, match="boom from the app"):
+            client.get(
+                "/boom",
+                headers={"X-Request-Start": str(int(time.time() * 1000 - 5))},
+            )

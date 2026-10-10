@@ -220,14 +220,12 @@ def test_soft_identity_over_max_bytes_disables_http_and_cpu_and_warns_once(
 def test_rqt_enabled_for_heroku_web_process_without_explicit_web(config, monkeypatch):
     monkeypatch.setenv("DYNO", "web.1")
     assert config.rqt_enabled()
-    assert config.rqt_liveness()
 
 
 def test_rqt_enabled_for_render_web_service_type(config, monkeypatch):
     monkeypatch.setenv("RENDER_SERVICE_NAME", "api")
     monkeypatch.setenv("RENDER_SERVICE_TYPE", "web")
     assert config.rqt_enabled()
-    assert config.rqt_liveness()
 
 
 def test_rqt_not_enabled_by_explicit_service_name_web_on_worker_dyno(
@@ -241,26 +239,19 @@ def test_rqt_not_enabled_by_explicit_service_name_web_on_worker_dyno(
 def test_bare_web_does_not_arm_rqt(config):
     config.dyno("web")
     assert not config.rqt_enabled()
-    assert not config.rqt_liveness()
 
 
 def test_rqt_enabled_after_middleware_marks_http_active(config, monkeypatch):
     monkeypatch.setenv("DYNO", "worker.1")
     config.mark_http_active()
     assert config.rqt_enabled()
-    assert config.rqt_liveness()
     assert config.http_name() == "worker"
 
 
-def test_rqt_liveness_when_enabled_and_identity_present(config, monkeypatch):
-    monkeypatch.setenv("DYNO", "web.1")
-    assert config.rqt_liveness()
-
-
-def test_rqt_liveness_denied_when_identity_unresolved(config):
+def test_no_http_source_when_identity_is_unresolved(config):
     config.mark_http_active()
     assert config.rqt_enabled()
-    assert not config.rqt_liveness()
+    assert config.http_name() is None
     assert config.http_source() is None
 
 
@@ -323,12 +314,6 @@ def test_stop_dispatcher_stops_memoized_dispatcher(config):
     assert called["flush"] is False
 
 
-def test_rqt_liveness_when_identity_and_traffic_match(config, monkeypatch):
-    monkeypatch.setenv("DYNO", "worker.1")
-    config.mark_http_active()
-    assert config.rqt_liveness()
-
-
 def test_canonical_name_preserves_first_seen_casing(config):
     config.dyno("Web", lambda: 1)
     assert config.job_queues.find_by_name("Web") is not None
@@ -355,5 +340,5 @@ def test_heroku_config_var_conflict_warned_only_once(config, monkeypatch, caplog
     caplog.set_level(logging.WARNING)
     config.dyno("web")
     config.active_cpu_sources()
-    config.rqt_liveness()
+    config.http_name()
     assert caplog.text.count("app-wide") == 1

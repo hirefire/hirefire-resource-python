@@ -2,6 +2,8 @@ import logging
 import os
 import socket
 import sys
+import threading
+import time
 
 import pytest
 
@@ -73,6 +75,15 @@ def reset_hirefire(request, monkeypatch):
 
     HireFire.configuration.stop_dispatcher(flush=False)
     HireFire.reset()
+    _wait_for_loops_to_end()
+
+
+def _wait_for_loops_to_end():
+    for _ in range(400):
+        names = [thread.name for thread in threading.enumerate()]
+        if not any(name.startswith("hirefire-") for name in names):
+            return
+        time.sleep(0.005)
 
 
 @pytest.fixture(autouse=True)

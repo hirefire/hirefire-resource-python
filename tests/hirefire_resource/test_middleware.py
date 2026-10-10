@@ -63,10 +63,8 @@ def test_a_raising_http_source_sample_does_not_start_the_dispatcher(
 
     with patch.object(HireFire.configuration, "http_source", return_value=Boom()):
         with patch.object(Dispatcher, "start") as start:
-            with patch.object(Dispatcher, "ensure_job_queue_loop") as ensure:
-                process_request_queue_time(recent_request_start())
-                start.assert_not_called()
-                ensure.assert_not_called()
+            process_request_queue_time(recent_request_start())
+            start.assert_not_called()
 
     assert not HireFire.configuration.dispatcher.running()
     assert "Middleware error" in caplog.text
@@ -220,17 +218,11 @@ def test_marks_http_active_for_tokened_request_without_platform_web_role(
     set_HIREFIRE_TOKEN, monkeypatch
 ):
     monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "api")
-    with (
-        patch.object(Dispatcher, "start"),
-        patch.object(Dispatcher, "ensure_job_queue_loop"),
-    ):
+    with patch.object(Dispatcher, "start"):
         HireFire.boot()
 
     assert not HireFire.configuration.rqt_enabled()
-    with (
-        patch.object(Dispatcher, "start"),
-        patch.object(Dispatcher, "ensure_job_queue_loop"),
-    ):
+    with patch.object(Dispatcher, "start"):
         process_request_queue_time(str(int(time.time() * 1000) - 1000))
 
     assert HireFire.configuration.rqt_enabled()
@@ -239,10 +231,7 @@ def test_marks_http_active_for_tokened_request_without_platform_web_role(
 
 
 def test_does_not_sample_without_identity_or_explicit_http_name(set_HIREFIRE_TOKEN):
-    with (
-        patch.object(Dispatcher, "start"),
-        patch.object(Dispatcher, "ensure_job_queue_loop"),
-    ):
+    with patch.object(Dispatcher, "start"):
         process_request_queue_time(str(int(time.time() * 1000) - 5))
     assert HireFire.configuration.buffer.flush() == {}
 
