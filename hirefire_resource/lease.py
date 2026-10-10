@@ -21,7 +21,6 @@ class Lease:
     TTL_BOUNDS = (5, 3600)
     DROP_WAIT = 60
     SAMPLE_FREQUENCY_BOUNDS = (1, 3600)
-    MAX_BODY_BYTES = 131_072
     MAX_JOB_QUEUES = 256
     MAX_NAME_BYTES = 128
 
@@ -168,15 +167,6 @@ class Lease:
 
     def _parse_grant_body(self, body: str | None) -> GrantBody:
         if body is None or body == "":
-            return self._empty_grant_body()
-
-        body_bytes = body.encode("utf-8") if isinstance(body, str) else body
-        if len(body_bytes) > self.MAX_BODY_BYTES:
-            self._log(
-                "error",
-                f"[HireFire] Lease grant body exceeded {self.MAX_BODY_BYTES} bytes. "
-                "Plan ignored.",
-            )
             return self._empty_grant_body()
 
         try:

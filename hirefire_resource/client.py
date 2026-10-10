@@ -92,6 +92,7 @@ STALE_CONNECTION_ERRORS = (
 
 class Client:
     TIMEOUT = 5
+    MAX_BODY_BYTES = 131_072
     SEND_BYTES = 16_384
     KEEP_ALIVE_TIMEOUT = 60
 
@@ -169,7 +170,7 @@ class Client:
                 self._send(connection, path, payload, headers, deadline)
                 response = connection.getresponse()
                 try:
-                    body = response.read()
+                    body = self._read_body(response)
                 finally:
                     response.close()
                 self._last_used_at = time.monotonic()
@@ -202,6 +203,20 @@ class Client:
         for start in range(0, len(payload), self.SEND_BYTES):
             deadline.apply(connection.sock)
             connection.send(payload[start : start + self.SEND_BYTES])
+
+    def _read_body(self, response: http.client.HTTPResponse) -> bytes:
+        announced = response.length or 0
+        body = b""
+        if announced <= self.MAX_BODY_BYTES:
+            body = response.read(self.MAX_BODY_BYTES + 1)
+        if announced > self.MAX_BODY_BYTES or len(body) > self.MAX_BODY_BYTES:
+            raise RequestError(
+                f"Response body exceeded {self.MAX_BODY_BYTES} bytes "
+                f"(status {response.status})."
+            )
+        if response.length:
+            raise http.client.IncompleteRead(body, response.length)
+        return body
 
     def _connection_for(
         self, uri: ParseResult, deadline: Deadline

@@ -521,9 +521,7 @@ def test_trace_false_for_string_or_missing():
 
 
 @mocketize
-def test_ignores_oversized_grant_body(caplog):
-    caplog.set_level(logging.ERROR)
-    oversized = "x" * (Lease.MAX_BODY_BYTES + 1)
+def test_a_grant_body_over_the_limit_fails_the_lease_request():
     Entry.single_register(
         Entry.POST,
         LEASE_URL,
@@ -532,19 +530,18 @@ def test_ignores_oversized_grant_body(caplog):
             "HireFire-Lease-Granted": "true",
             "HireFire-Sample-Frequency": "15",
         },
-        body=oversized,
+        body="x" * (Client.MAX_BODY_BYTES + 1),
     )
     lease = Lease()
-    lease.request_if_due(hold=lambda _plan: True)
-    assert lease.granted()
-    assert lease.job_queues == []
-    assert "exceeded" in caplog.text
+    with pytest.raises(RequestError, match="Response body exceeded 131072 bytes"):
+        lease.request_if_due(hold=lambda _plan: True)
+    assert not lease.granted()
 
 
 @mocketize
 def test_accepts_grant_body_of_exactly_max_body_bytes(caplog):
     caplog.set_level(logging.ERROR)
-    assert Lease.MAX_BODY_BYTES == 131_072
+    assert Client.MAX_BODY_BYTES == 131_072
     body = json.dumps(
         {
             "version": 1,
@@ -559,7 +556,7 @@ def test_accepts_grant_body_of_exactly_max_body_bytes(caplog):
             ],
         }
     )
-    body += " " * (Lease.MAX_BODY_BYTES - len(body))
+    body += " " * (Client.MAX_BODY_BYTES - len(body))
     Entry.single_register(
         Entry.POST,
         LEASE_URL,

@@ -283,7 +283,47 @@ def test_a_response_that_is_not_http_is_a_network_error(server, client):
     assert client._connection is None
 
 
-def test_a_chunked_body_is_returned(server, client):
+def test_a_response_that_announces_a_body_over_the_limit_fails_before_it_is_read(
+    server, client
+):
+    head = f"HTTP/1.1 200 OK\r\nContent-Length: {Client.MAX_BODY_BYTES + 1}\r\n\r\n"
+    server.handler = lambda request: {"raw": head.encode(), "after": "stall"}
+
+    elapsed = seconds_until_failure(
+        lambda: client.request_lease("abc123"),
+        "Response body exceeded 131072 bytes (status 200).",
+    )
+
+    assert elapsed < 2
+    assert client._connection is None
+
+
+def test_a_response_without_a_length_fails_once_it_passes_the_limit(server, client):
+    chunk = b"10000\r\n" + b"x" * 65_536 + b"\r\n"
+    head = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+    server.handler = lambda request: {"raw": head + chunk * 3, "after": "stall"}
+
+    elapsed = seconds_until_failure(
+        lambda: client.request_lease("abc123"),
+        "Response body exceeded 131072 bytes (status 200).",
+    )
+
+    assert elapsed < 2
+    assert client._connection is None
+
+
+def test_a_body_of_exactly_the_limit_is_returned_and_the_connection_is_kept(
+    server, client
+):
+    body = "x" * Client.MAX_BODY_BYTES
+    server.handler = lambda request: {"status": 200, "body": body}
+
+    assert client.request_lease("abc123").body == body
+    assert client.request_lease("abc123").body == body
+    assert server.accepted == 1
+
+
+def test_a_chunked_body_under_the_limit_is_returned(server, client):
     head = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
     server.handler = lambda request: {"raw": head + b"3\r\nabc\r\n0\r\n\r\n"}
 
