@@ -1,5 +1,6 @@
 import math
 
+from hirefire_resource import identity
 from hirefire_resource.errors import MissingQueueError
 
 
@@ -28,3 +29,9 @@ def normalize_queues(*queues: object, allow_empty: bool) -> set[str]:
     if allow_empty:
         return set()
     raise MissingQueueError()
+
+
+def redis_tls_options(url: str) -> dict[str, str]:
+    if url.lower().startswith("rediss://") and identity.heroku_dyno() is not None:
+        return {"ssl_cert_reqs": "none"}
+    return {}

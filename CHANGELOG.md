@@ -56,6 +56,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A Celery macro call no longer replaces the current Celery app of the thread it runs on.
 - Celery job queue latency on RabbitMQ no longer removes the oldest message of a quorum queue. Each sample returned that message with a reject, which RabbitMQ 4 counts toward the delivery limit of 20.
 - Celery Redis latency skips corrupt JSON instead of raising. Celery RabbitMQ latency always requeues the peeked message, even when the header parse fails.
+- On Heroku, RQ samples read a `rediss://` URL without verifying the certificate, which Heroku Key-Value Store signs itself. 1.x failed with a certificate error unless the URL carried `ssl_cert_reqs=none`. A URL that sets `ssl_cert_reqs` is followed.
 - RQ job queue latency skips an unreadable job timestamp instead of failing the whole sample.
 - RQ Redis samples time out after 5 seconds when the broker does not respond.
 - RQ samples with no queue names use RQ's registered queue set instead of scanning Redis with `KEYS`.

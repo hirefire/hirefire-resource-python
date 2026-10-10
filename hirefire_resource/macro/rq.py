@@ -8,7 +8,7 @@ import redis
 
 from hirefire_resource.plan import hooks as _plan_hooks
 from hirefire_resource.strategy import JQS
-from hirefire_resource.utility import normalize_queues
+from hirefire_resource.utility import normalize_queues, redis_tls_options
 
 before_sample_job_queues = _plan_hooks.before_sample_job_queues
 after_sample_job_queues = _plan_hooks.after_sample_job_queues
@@ -43,6 +43,7 @@ def _open_redis(redis_url: str) -> redis.Redis:
         redis_url,
         socket_timeout=_SAMPLE_REDIS_TIMEOUT,
         socket_connect_timeout=_SAMPLE_REDIS_TIMEOUT,
+        **redis_tls_options(redis_url),
     )
 
 

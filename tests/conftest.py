@@ -143,6 +143,15 @@ def fake_server(allow_network):
 
 
 @pytest.fixture
+def tls_redis(tmp_path):
+    from tests.tls_redis import TlsRedis
+
+    server = TlsRedis(tmp_path)
+    yield server
+    server.stop()
+
+
+@pytest.fixture
 def load_macros(monkeypatch):
     from hirefire_resource import plan
 

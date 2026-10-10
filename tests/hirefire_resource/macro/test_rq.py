@@ -5,12 +5,14 @@ from datetime import datetime, timezone
 import pytest
 from freezegun import freeze_time
 from redis import Redis
+from redis.exceptions import ConnectionError as RedisConnectionError
 from rq import Queue, SimpleWorker
 from rq.registry import StartedJobRegistry
 
 from hirefire_resource import HireFire, plan
 from hirefire_resource.macro.rq import (
     _is_due_scheduled_score,
+    _open_redis,
     _resolve_redis_url,
     async_job_queue_latency,
     async_job_queue_size,
@@ -667,3 +669,35 @@ def test_hirefire_rq_url_is_plan_only(monkeypatch):
     monkeypatch.setenv("REDIS_URL", "redis://local/0")
     assert _resolve_redis_url(None) == "redis://local/0"
     assert rq_macro.plan_connection_options() == {"redis_url": "redis://hf/1"}
+
+
+def _ping(url):
+    client = _open_redis(url)
+    try:
+        return client.ping()
+    finally:
+        client.close()
+
+
+def test_on_heroku_a_rediss_url_is_read_without_verifying_its_certificate(
+    tls_redis, monkeypatch
+):
+    monkeypatch.setenv("DYNO", "worker.1")
+
+    assert _ping(tls_redis.url) is True
+
+
+def test_off_heroku_the_certificate_of_a_rediss_url_is_verified(tls_redis, monkeypatch):
+    monkeypatch.delenv("DYNO", raising=False)
+
+    with pytest.raises(RedisConnectionError, match="CERTIFICATE_VERIFY_FAILED"):
+        _ping(tls_redis.url)
+
+
+def test_on_heroku_a_rediss_url_that_sets_ssl_cert_reqs_is_followed(
+    tls_redis, monkeypatch
+):
+    monkeypatch.setenv("DYNO", "worker.1")
+
+    with pytest.raises(RedisConnectionError, match="CERTIFICATE_VERIFY_FAILED"):
+        _ping(tls_redis.url + "?ssl_cert_reqs=required")

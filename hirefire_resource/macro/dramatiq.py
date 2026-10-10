@@ -9,7 +9,7 @@ from typing import Any
 
 from hirefire_resource.identity import presence
 from hirefire_resource.plan import hooks as _plan_hooks
-from hirefire_resource.utility import normalize_queues
+from hirefire_resource.utility import normalize_queues, redis_tls_options
 
 plan_options = _plan_hooks.plan_options
 supports_plan_strategy = _plan_hooks.supports_plan_strategy
@@ -320,6 +320,7 @@ def _resolve_connection(
             url,
             socket_timeout=_SAMPLE_REDIS_TIMEOUT,
             socket_connect_timeout=_SAMPLE_REDIS_TIMEOUT,
+            **redis_tls_options(url),
         )
         return {
             "kind": "redis",

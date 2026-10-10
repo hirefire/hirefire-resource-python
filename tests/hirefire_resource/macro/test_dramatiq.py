@@ -2054,3 +2054,41 @@ def test_rabbitmq_generic_error_with_404_in_message_raises(monkeypatch):
 
     with pytest.raises(RuntimeError, match="unrelated error"):
         job_queue_size("default", broker_url=amqp_url)
+
+
+def _ping(url):
+    client = dramatiq_macro._resolve_connection(
+        broker_url=url, broker=None, namespace=None
+    )["client"]
+    try:
+        return client.ping()
+    finally:
+        client.close()
+
+
+def test_on_heroku_a_rediss_url_is_read_without_verifying_its_certificate(
+    tls_redis, monkeypatch
+):
+    monkeypatch.setenv("DYNO", "worker.1")
+
+    assert _ping(tls_redis.url) is True
+
+
+def test_off_heroku_the_certificate_of_a_rediss_url_is_verified(tls_redis, monkeypatch):
+    monkeypatch.delenv("DYNO", raising=False)
+
+    with pytest.raises(
+        redis.exceptions.ConnectionError, match="CERTIFICATE_VERIFY_FAILED"
+    ):
+        _ping(tls_redis.url)
+
+
+def test_on_heroku_a_rediss_url_that_sets_ssl_cert_reqs_is_followed(
+    tls_redis, monkeypatch
+):
+    monkeypatch.setenv("DYNO", "worker.1")
+
+    with pytest.raises(
+        redis.exceptions.ConnectionError, match="CERTIFICATE_VERIFY_FAILED"
+    ):
+        _ping(tls_redis.url + "?ssl_cert_reqs=required")

@@ -1,7 +1,7 @@
 import pytest
 
 from hirefire_resource.errors import MissingQueueError
-from hirefire_resource.utility import normalize_queues
+from hirefire_resource.utility import normalize_queues, redis_tls_options
 
 
 def test_normalizes_none_and_numbers_to_a_string_set():
@@ -43,3 +43,22 @@ def test_empty_queues_allowed():
     assert normalize_queues(allow_empty=True) == set()
     assert normalize_queues("  ", allow_empty=True) == set()
     assert normalize_queues("  ", "", allow_empty=True) == set()
+
+
+@pytest.mark.parametrize("url", ["rediss://host:6379/0", "REDISS://host:6379/0"])
+def test_on_heroku_a_rediss_url_is_read_without_verifying_the_certificate(
+    url, monkeypatch
+):
+    monkeypatch.setenv("DYNO", "worker.1")
+
+    assert redis_tls_options(url) == {"ssl_cert_reqs": "none"}
+
+
+def test_on_heroku_a_redis_url_without_tls_gets_no_tls_option(monkeypatch):
+    monkeypatch.setenv("DYNO", "worker.1")
+
+    assert redis_tls_options("redis://host:6379/0") == {}
+
+
+def test_off_heroku_a_rediss_url_is_verified():
+    assert redis_tls_options("rediss://host:6379/0") == {}
