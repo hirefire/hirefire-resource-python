@@ -14,6 +14,10 @@ def plan_connection_options() -> dict[str, Any]:
     return {}
 
 
+def plan_source(**options: Any) -> str | None:
+    return None
+
+
 def supports_plan_strategy(strategy: object) -> bool:
     return job_queue(strategy)
 

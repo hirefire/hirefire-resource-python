@@ -8,6 +8,7 @@ import weakref
 from typing import Any
 
 from hirefire_resource.identity import presence
+from hirefire_resource.log import redact
 from hirefire_resource.plan import hooks as _plan_hooks
 from hirefire_resource.utility import normalize_queues, redis_tls_options
 
@@ -63,9 +64,13 @@ class EnqueueTime(Middleware):
             message.options[ENQUEUED_AT] = _now_ms()
 
 
+def _app_broker() -> Any:
+    return getattr(sys.modules.get("dramatiq.broker"), "global_broker", None)
+
+
 def attach() -> None:
     global _attached_broker
-    broker = getattr(sys.modules.get("dramatiq.broker"), "global_broker", None)
+    broker = _app_broker()
     if broker is None:
         return
     if _attached_broker is not None and _attached_broker() is broker:
@@ -173,12 +178,25 @@ async def async_job_queue_latency(
 def plan_connection_options() -> dict[str, Any]:
     out: dict[str, Any] = {}
     url = presence(os.environ.get("HIREFIRE_DRAMATIQ_URL"))
+    broker = _app_broker()
     if url:
         out["broker_url"] = url
+    elif _is_redis_broker(broker) or _is_rabbitmq_broker(broker):
+        out["broker"] = broker
     namespace = presence(os.environ.get("HIREFIRE_DRAMATIQ_NAMESPACE"))
     if namespace:
         out["namespace"] = namespace
     return out
+
+
+def plan_source(
+    broker_url: str | None = None,
+    broker: object | None = None,
+    namespace: str | None = None,
+) -> str:
+    if broker is not None:
+        return f"the {type(broker).__name__} of the app"
+    return redact(_resolve_broker_url(broker_url))
 
 
 def queues_required() -> bool:

@@ -1202,10 +1202,14 @@ def test_plan_skip_working_samples_the_broker_and_records_wrk_from_the_workers(
     assert list(flushed["worker"]["wrk"].values())[-1] == 0
     assert len(_held_threads()) == 1
     assert [
-        record.levelno
+        record.getMessage()
         for record in caplog.records
         if record.name == "hirefire_resource"
-    ] == [logging.INFO]
+        and "Plan samples for" not in record.getMessage()
+    ] == [
+        "[HireFire] Counting the tasks Celery workers hold. "
+        "Samples that need the count start when the first count arrives."
+    ]
 
 
 def test_plan_without_skip_working_drops_samples_until_the_workers_are_counted(
@@ -1232,6 +1236,7 @@ def test_plan_without_skip_working_drops_samples_until_the_workers_are_counted(
             (record.levelno, record.getMessage())
             for record in caplog.records
             if record.name == "hirefire_resource"
+            and "Plan samples for" not in record.getMessage()
         ]
 
     assert HireFire.configuration.buffer.flush() == {}

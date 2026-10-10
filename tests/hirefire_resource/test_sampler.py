@@ -443,6 +443,30 @@ def working_macro(
     )
 
 
+def test_the_broker_that_plan_samples_read_is_logged_once_per_adapter_and_broker(
+    config, sampler, load_macros, caplog
+):
+    caplog.set_level(logging.INFO)
+    source = ["redis://***@host:6379/0"]
+    load_macros(
+        rq=fake_macro(
+            job_queue_size=lambda *queues, **options: 7,
+            plan_connection_options=lambda: {"redis_url": "redis://u:p@host:6379/0"},
+            plan_source=lambda redis_url: source[0],
+        )
+    )
+
+    sampler.round([RQ_SIZE, {**RQ_SIZE, "name": "mailer"}], always)
+    sampler.round([RQ_SIZE], always)
+    source[0] = "redis://other:6379/0"
+    sampler.round([RQ_SIZE], always)
+
+    assert messages(caplog, logging.INFO) == [
+        "[HireFire] Plan samples for 'rq' read redis://***@host:6379/0.",
+        "[HireFire] Plan samples for 'rq' read redis://other:6379/0.",
+    ]
+
+
 def test_latency_is_sampled_with_the_working_count(config, sampler, load_macros):
     load_macros(rq=working_macro())
 

@@ -98,3 +98,12 @@ def test_the_macro_takes_the_strategies_and_options_the_server_sends():
     }
     assert celery_macro.plan_options("jqs", {}) == {}
     assert celery_macro.plan_options("jql", {"skip_working": True}) == {}
+
+
+def test_plan_source_is_the_url_a_plan_sample_reads_without_its_credentials(
+    monkeypatch,
+):
+    monkeypatch.setenv("CELERY_BROKER_URL", "amqp://user:secret@env-host:5672/vhost")
+
+    assert celery_macro.plan_source() == "amqp://***@env-host:5672/vhost"
+    assert celery_macro.plan_source(broker_url="redis://hf/1") == "redis://hf/1"

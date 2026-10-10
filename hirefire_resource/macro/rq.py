@@ -6,6 +6,7 @@ from typing import Any
 
 import redis
 
+from hirefire_resource.log import redact
 from hirefire_resource.plan import hooks as _plan_hooks
 from hirefire_resource.strategy import JQS
 from hirefire_resource.utility import normalize_queues, redis_tls_options
@@ -202,3 +203,7 @@ def plan_connection_options() -> dict[str, Any]:
 
     url = presence(os.environ.get("HIREFIRE_RQ_URL"))
     return {"redis_url": url} if url else {}
+
+
+def plan_source(redis_url: str | None = None) -> str:
+    return redact(_resolve_redis_url(redis_url))

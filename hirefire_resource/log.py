@@ -4,9 +4,12 @@ import re
 _USERINFO = re.compile(r"(://)([^/@\s]+)@")
 
 
-def format_error(error: BaseException) -> str:
-    text = f"{type(error).__name__}: {error}"
+def redact(text: str) -> str:
     return _USERINFO.sub(r"\1***@", text)
+
+
+def format_error(error: BaseException) -> str:
+    return redact(f"{type(error).__name__}: {error}")
 
 
 def verbose() -> bool:

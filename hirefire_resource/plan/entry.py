@@ -80,6 +80,9 @@ class Entry:
     def truncated(self) -> bool:
         return len(self._valid_queues) > plan.MAX_QUEUES
 
+    def source(self) -> str | None:
+        return self._macro.plan_source(**self._connection_options())
+
     def call(self) -> Any:
         sample = getattr(self._macro, self.METHODS[self.strategy])
         return sample(*self.queues(), **self._options())

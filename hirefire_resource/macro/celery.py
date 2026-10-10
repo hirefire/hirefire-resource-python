@@ -27,7 +27,7 @@ except ImportError:
     AMQP_AVAILABLE = False
 
 from hirefire_resource.errors import SampleIncompleteError, SampleNotReadyError
-from hirefire_resource.log import format_error, safe_log
+from hirefire_resource.log import format_error, redact, safe_log
 from hirefire_resource.plan import hooks as _plan_hooks
 from hirefire_resource.strategy import JQS
 from hirefire_resource.utility import normalize_queues
@@ -506,3 +506,7 @@ def plan_connection_options() -> dict[str, Any]:
 
     url = presence(os.environ.get("HIREFIRE_CELERY_BROKER_URL"))
     return {"broker_url": url} if url else {}
+
+
+def plan_source(broker_url: str | None = None) -> str:
+    return redact(_resolve_broker_url(broker_url))

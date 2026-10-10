@@ -70,3 +70,12 @@ def test_the_macro_takes_the_strategies_and_options_the_server_sends():
     }
     assert rq_macro.plan_options("jqs", {}) == {}
     assert rq_macro.plan_options("jql", {"skip_working": True}) == {}
+
+
+def test_plan_source_is_the_url_a_plan_sample_reads_without_its_credentials(
+    monkeypatch,
+):
+    monkeypatch.setenv("REDIS_URL", "redis://user:secret@env-host:6379/2")
+
+    assert rq_macro.plan_source() == "redis://***@env-host:6379/2"
+    assert rq_macro.plan_source(redis_url="redis://hf/1") == "redis://hf/1"

@@ -24,6 +24,7 @@ def fake_macro(**overrides):
     macro = SimpleNamespace(
         plan_options=hooks.plan_options,
         plan_connection_options=hooks.plan_connection_options,
+        plan_source=hooks.plan_source,
         supports_plan_strategy=hooks.supports_plan_strategy,
         queues_required=hooks.queues_required,
         before_sample_job_queues=hooks.before_sample_job_queues,

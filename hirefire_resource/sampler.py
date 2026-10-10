@@ -87,6 +87,14 @@ class Sampler:
                 ),
                 key=entry.name,
             )
+        source = entry.source()
+        if source:
+            self._once.log(
+                "info",
+                "plan_source",
+                lambda: f"[HireFire] Plan samples for {entry.adapter!r} read {source}.",
+                key=(entry.adapter, source),
+            )
         if entry.truncated():
             self._once.log(
                 "error",
