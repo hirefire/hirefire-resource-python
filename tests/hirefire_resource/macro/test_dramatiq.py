@@ -2154,6 +2154,8 @@ class ChannelsOfABrokerWithoutTheQueueGone:
             self.is_closed = False
 
         def _ask(self, queue):
+            if self.is_closed:
+                raise pika.exceptions.ChannelWrongStateError("Channel is closed.")
             self.connection.asked.append(queue)
             if queue == "gone":
                 self.is_closed = True
