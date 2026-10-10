@@ -731,6 +731,33 @@ def test_invalid_json_grant_body_is_ignored(caplog):
 
 
 @mocketize
+def test_a_grant_body_nested_too_deep_to_parse_replaces_the_plan_with_an_empty_one(
+    caplog,
+):
+    caplog.set_level(logging.ERROR)
+    grant = {"HireFire-Lease-Granted": "true", "HireFire-Lease-TTL": "5"}
+    plan = json.dumps({"job_queues": [{"name": "worker", "strategy": "jql"}]})
+    Entry.register(
+        Entry.POST,
+        LEASE_URL,
+        Response(status=200, headers=grant, body=plan),
+        Response(status=200, headers=grant, body="[" * 60_000 + "]" * 60_000),
+    )
+
+    with freeze_time(at(1000)) as frozen:
+        lease = Lease()
+        lease.request_if_due(hold=lambda _plan: True)
+        assert [entry["name"] for entry in lease.job_queues] == ["worker"]
+
+        frozen.move_to(at(1005))
+        lease.request_if_due(hold=lambda _plan: True)
+
+    assert lease.granted()
+    assert lease.job_queues == []
+    assert [record.getMessage()[-13:] for record in caplog.records] == ["Plan ignored."]
+
+
+@mocketize
 def test_sample_if_due_yields_when_granted_and_due():
     stub_lease(granted="true", **{"HireFire-Sample-Frequency": "15"})
     lease = Lease()

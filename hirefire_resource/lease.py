@@ -171,7 +171,7 @@ class Lease:
 
         try:
             payload = json.loads(body)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RecursionError):
             self._log(
                 "error",
                 "[HireFire] Lease grant body was not valid JSON. Plan ignored.",
