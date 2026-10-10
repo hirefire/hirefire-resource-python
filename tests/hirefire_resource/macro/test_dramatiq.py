@@ -146,9 +146,8 @@ def _seed_xq(client: redis.Redis, queue: str, *, namespace: str = NAMESPACE) -> 
 
 
 def test_library_loaded_is_true_when_dramatiq_package_is_imported():
-    assert plan.library_loaded("dramatiq")
-    assert plan.executable("dramatiq")
-    assert plan.any_allowlisted_job_queue_library_loaded()
+    assert plan.load_macro("dramatiq") is not None
+    assert plan.any_library_loaded()
 
 
 def test_job_queue_size_requires_queues():

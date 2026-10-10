@@ -1,6 +1,8 @@
 import re
 from typing import Any
 
+from hirefire_resource.strategy import job_queue
+
 _INT_STRING = re.compile(r"\A[+-]?\d+\Z")
 
 
@@ -13,9 +15,7 @@ def plan_connection_options() -> dict[str, Any]:
 
 
 def supports_plan_strategy(strategy: object) -> bool:
-    from hirefire_resource import plan
-
-    return plan.known_strategy(strategy)
+    return job_queue(strategy)
 
 
 def queues_required() -> bool:
@@ -31,6 +31,10 @@ def after_sample_job_queues(token: object = None) -> None:
 
 
 def reinit_after_fork() -> None:
+    pass
+
+
+def release() -> None:
     pass
 
 

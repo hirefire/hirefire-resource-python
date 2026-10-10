@@ -19,15 +19,15 @@ from hirefire_resource.macro.rq import (
     job_queue_size,
     job_queue_working,
 )
+from tests.helpers import sample_plan
 
 redis_url = f"redis://127.0.0.1:{os.environ.get('REDIS_PORT', '6379')}/0"
 queue_name = "default"
 
 
 def test_library_loaded_is_true_when_rq_package_is_imported():
-    assert plan.library_loaded("rq")
-    assert plan.executable("rq")
-    assert plan.any_allowlisted_job_queue_library_loaded()
+    assert plan.load_macro("rq") is not None
+    assert plan.any_library_loaded()
 
 
 @pytest.fixture(autouse=True)
@@ -493,7 +493,7 @@ def test_plan_execute_rq_jqs_counts_running_jobs_and_samples_no_wrk(monkeypatch)
     r.zadd("rq:wip:default", {"w1": expires_at, "w2": expires_at})
 
     HireFire.configuration.buffer.flush()
-    plan.execute(
+    sample_plan(
         {
             "name": "worker",
             "adapter": "rq",
@@ -522,7 +522,7 @@ def test_plan_execute_rq_jqs_skip_working_still_samples_wrk(monkeypatch):
     r.zadd("rq:wip:default", {"w1": expires_at, "w2": expires_at})
 
     HireFire.configuration.buffer.flush()
-    plan.execute(
+    sample_plan(
         {
             "name": "worker",
             "adapter": "rq",
@@ -544,7 +544,7 @@ def test_plan_execute_rq_jql_also_samples_wrk(monkeypatch):
     r.zadd("rq:wip:default", {"w1": int(time.time()) + 90})
 
     HireFire.configuration.buffer.flush()
-    plan.execute(
+    sample_plan(
         {
             "name": "worker",
             "adapter": "rq",
@@ -568,7 +568,7 @@ def test_plan_execute_rq_empty_queues_samples_all_wrk(monkeypatch):
     r.zadd("rq:wip:mailer", {"w2": expires_at})
 
     HireFire.configuration.buffer.flush()
-    plan.execute(
+    sample_plan(
         {
             "name": "worker",
             "adapter": "rq",

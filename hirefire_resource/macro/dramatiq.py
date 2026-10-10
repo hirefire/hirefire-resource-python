@@ -11,6 +11,7 @@ from hirefire_resource.utility import normalize_queues
 
 plan_options = _plan_hooks.plan_options
 supports_plan_strategy = _plan_hooks.supports_plan_strategy
+release = _plan_hooks.release
 
 _HMGET_BATCH = 200
 _DEFAULT_NAMESPACE = "dramatiq"

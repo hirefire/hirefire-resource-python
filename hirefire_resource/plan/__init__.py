@@ -4,345 +4,72 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from hirefire_resource.errors import SampleNotReadyError
 from hirefire_resource.log import format_error, safe_log
-from hirefire_resource.sample import coerce_sample, format_sample_value, valid_sample
-from hirefire_resource.strategy import JQL, JQS, WRK
 
-ADAPTER_MODULES = {
+ADAPTERS = {
     "celery": "hirefire_resource.macro.celery",
     "rq": "hirefire_resource.macro.rq",
     "dramatiq": "hirefire_resource.macro.dramatiq",
 }
 
-LIBRARY_CHECKS = {
-    "celery": "celery",
-    "rq": "rq",
-    "dramatiq": "dramatiq",
-}
-
-STRATEGIES = {
-    JQL: "job_queue_latency",
-    JQS: "job_queue_size",
-}
-
 MAX_QUEUES = 64
 MAX_QUEUE_NAME_BYTES = 128
 
-
-def any_allowlisted_job_queue_library_loaded() -> bool:
-    return any(name in sys.modules for name in LIBRARY_CHECKS.values())
+_import_errors: dict[str, ImportError] = {}
 
 
-def known_adapter(adapter: object) -> bool:
-    return str(adapter) in ADAPTER_MODULES
+def any_library_loaded() -> bool:
+    return any(adapter in sys.modules for adapter in ADAPTERS)
 
 
-def library_loaded(adapter: object) -> bool:
-    key = LIBRARY_CHECKS.get(str(adapter))
-    if key is None:
-        return False
-    return key in sys.modules
-
-
-def executable(adapter: object) -> bool:
-    return known_adapter(adapter) and library_loaded(adapter)
-
-
-def known_strategy(strategy: object) -> bool:
-    return str(strategy) in STRATEGIES
-
-
-def supports_strategy(adapter: object, strategy: object) -> bool:
-    if not known_strategy(strategy):
-        return False
-    macro = _load_macro(adapter)
-    if macro is None:
-        return False
-    supports = getattr(macro, "supports_plan_strategy", None)
-    if supports is None:
-        return known_strategy(strategy)
-    return bool(supports(strategy))
-
-
-def queues_required(adapter: object) -> bool:
-    macro = _load_macro(adapter)
-    if macro is None:
-        return False
-    hook = getattr(macro, "queues_required", None)
-    if hook is None:
-        return False
-    return bool(hook())
-
-
-def named_plan_queues(queues: object) -> bool:
-    if not isinstance(queues, list):
-        return False
-    for queue in queues:
-        name = "" if queue is None else str(queue).strip()
-        if name and len(name.encode("utf-8")) <= MAX_QUEUE_NAME_BYTES:
-            return True
-    return False
-
-
-def sampleable_entry(entry: dict[str, Any]) -> bool:
-    adapter = entry.get("adapter")
-    strategy = entry.get("strategy")
-    if not executable(adapter) or not supports_strategy(adapter, strategy):
-        return False
-    if not queues_required(adapter):
-        return True
-    return named_plan_queues(entry.get("queues"))
+def load_macro(adapter: str) -> Any:
+    if adapter not in sys.modules:
+        return None
+    if adapter not in _import_errors:
+        try:
+            return importlib.import_module(ADAPTERS[adapter])
+        except ImportError as error:
+            _import_errors[adapter] = error
+    return _import_errors[adapter]
 
 
 @contextmanager
-def around_job_queue_sample() -> Iterator[None]:
+def around_job_queue_sample(logger: object) -> Iterator[None]:
     tokens: dict[str, object] = {}
-    for name in ADAPTER_MODULES:
-        try:
-            macro = _load_macro(name)
-            if macro is None:
-                continue
-            before = getattr(macro, "before_sample_job_queues", None)
-            tokens[name] = before() if callable(before) else None
-        except Exception as error:
-            _log(
-                "error",
-                f"[HireFire] before_sample_job_queues for {name!r} raised "
-                f"{format_error(error)}",
-            )
 
+    def before(name: str, macro: Any) -> None:
+        tokens[name] = macro.before_sample_job_queues()
+
+    def after(name: str, macro: Any) -> None:
+        if name in tokens:
+            macro.after_sample_job_queues(tokens[name])
+
+    _each_macro(logger, "before_sample_job_queues", before)
     try:
         yield
     finally:
-        for name, token in tokens.items():
-            try:
-                macro = _load_macro(name)
-                if macro is None:
-                    continue
-                after = getattr(macro, "after_sample_job_queues", None)
-                if callable(after):
-                    after(token)
-            except Exception as error:
-                _log(
-                    "error",
-                    f"[HireFire] after_sample_job_queues for {name!r} raised "
-                    f"{format_error(error)}",
-                )
+        _each_macro(logger, "after_sample_job_queues", after)
 
 
-def reinit_macros_after_fork() -> None:
-    for name in ADAPTER_MODULES:
+def reinit_macros_after_fork(logger: object) -> None:
+    _each_macro(
+        logger, "reinit_after_fork", lambda _name, macro: macro.reinit_after_fork()
+    )
+
+
+def release_macros(logger: object) -> None:
+    _each_macro(logger, "release", lambda _name, macro: macro.release())
+
+
+def _each_macro(logger: object, hook: str, call: Callable[[str, Any], None]) -> None:
+    for name in ADAPTERS:
         try:
-            macro = _load_macro(name)
-            if macro is None:
-                continue
-            reinit = getattr(macro, "reinit_after_fork", None)
-            if callable(reinit):
-                reinit()
+            macro = load_macro(name)
+            if macro is not None and not isinstance(macro, ImportError):
+                call(name, macro)
         except Exception as error:
-            _log(
+            safe_log(
+                logger,
                 "error",
-                f"[HireFire] reinit_after_fork for {name!r} raised "
-                f"{format_error(error)}",
+                f"[HireFire] {hook} for {name!r} raised {format_error(error)}",
             )
-
-
-def execute(entry: dict[str, Any], live: Callable[[], bool] | None = None) -> None:
-    adapter = str(entry.get("adapter", "")).strip()
-    strategy = str(entry.get("strategy", "")).strip()
-    name = str(entry.get("name", "")).strip()
-    method_name = STRATEGIES.get(strategy)
-
-    if method_name is None:
-        _log(
-            "error",
-            f"[HireFire] Unknown plan strategy {strategy!r} for {name!r}. Entry skipped.",
-        )
-        return
-
-    if not known_adapter(adapter):
-        _log(
-            "error",
-            f"[HireFire] Unknown plan adapter {adapter!r} for {name!r}. Entry skipped.",
-        )
-        return
-
-    macro = _load_macro(adapter)
-    if macro is None:
-        _log(
-            "error",
-            f"[HireFire] Plan adapter {adapter!r} could not be loaded for "
-            f"{name!r}. Entry skipped.",
-        )
-        return
-
-    supports = getattr(macro, "supports_plan_strategy", None)
-    if supports is not None and not supports(strategy):
-        _log(
-            "error",
-            f"[HireFire] Plan adapter {adapter!r} does not support strategy "
-            f"{strategy!r} for {name!r}. Entry skipped.",
-        )
-        return
-
-    queues = normalize_queues(entry.get("queues"), name=name)
-    if queues is None:
-        return
-
-    if queues_required(adapter) and queues == []:
-        _log(
-            "error",
-            f"[HireFire] Plan adapter {adapter!r} for {name!r} "
-            "requires named queues. Entry skipped.",
-        )
-        return
-
-    try:
-        connection_options = macro.plan_connection_options()
-        options = {
-            **macro.plan_options(strategy, entry.get("options")),
-            **connection_options,
-        }
-        _sample_job_strategy(
-            macro, name, strategy, method_name, queues, options, live=live
-        )
-        if _samples_working(macro, strategy, options):
-            _sample_working(macro, name, queues, connection_options, live=live)
-    except Exception as error:
-        _log(
-            "error",
-            f"[HireFire] Plan sampler for {name!r} raised {format_error(error)}",
-        )
-
-
-def _samples_working(macro: Any, strategy: str, options: dict[str, Any]) -> bool:
-    if not hasattr(macro, "job_queue_working"):
-        return False
-    return strategy == JQL or options.get("skip_working") is True
-
-
-def _sample_job_strategy(
-    macro: Any,
-    name: str,
-    strategy: str,
-    method_name: str,
-    queues: list[str],
-    options: dict[str, Any],
-    live: Callable[[], bool] | None = None,
-) -> bool:
-    try:
-        method = getattr(macro, method_name)
-        value = method(*queues, **options)
-        if live is not None and not live():
-            return False
-
-        if not valid_sample(value):
-            _log(
-                "error",
-                f"[HireFire] Plan sampler for {name!r} returned "
-                f"{format_sample_value(value)}, expected a non-negative number. "
-                "Sample dropped.",
-            )
-            return False
-
-        _record_sample(name, strategy, coerce_sample(value))
-        return True
-    except SampleNotReadyError:
-        return False
-    except Exception as error:
-        _log(
-            "error",
-            f"[HireFire] Plan sampler for {name!r} raised {format_error(error)}",
-        )
-        return False
-
-
-def _sample_working(
-    macro: Any,
-    name: str,
-    queues: list[str],
-    options: dict[str, Any],
-    live: Callable[[], bool] | None = None,
-) -> None:
-    try:
-        method = getattr(macro, "job_queue_working")
-        wrk = method(*queues, **options)
-        if live is not None and not live():
-            return
-        if not valid_sample(wrk):
-            _log(
-                "error",
-                f"[HireFire] Plan working sampler for {name!r} returned "
-                f"{format_sample_value(wrk)}, expected a non-negative number. "
-                "wrk sample dropped.",
-            )
-            return
-        _record_sample(name, WRK, coerce_sample(wrk))
-    except SampleNotReadyError:
-        return
-    except Exception as error:
-        _log(
-            "error",
-            f"[HireFire] Plan working sampler for {name!r} raised "
-            f"{format_error(error)}",
-        )
-
-
-def _record_sample(name: str, strategy: str, value: int | float) -> None:
-    from hirefire_resource.hirefire import HireFire
-
-    HireFire.configuration.buffer.sample(name, strategy, value)
-
-
-def normalize_queues(queues: object, name: str) -> list[str] | None:
-    if queues is None:
-        return []
-
-    if not isinstance(queues, list):
-        _log(
-            "error",
-            f"[HireFire] Plan queues for {name!r} must be an array. Entry skipped.",
-        )
-        return None
-
-    result: list[str] = []
-    for queue in queues:
-        qname = "" if queue is None else str(queue).strip()
-        if not qname or len(qname.encode("utf-8")) > MAX_QUEUE_NAME_BYTES:
-            continue
-        result.append(qname)
-
-    if not result and queues:
-        _log(
-            "error",
-            f"[HireFire] Plan queue list for {name!r} had no valid names. Entry skipped.",
-        )
-        return None
-
-    if len(result) > MAX_QUEUES:
-        _log(
-            "error",
-            f"[HireFire] Plan queue list truncated to {MAX_QUEUES} names.",
-        )
-        result = result[:MAX_QUEUES]
-
-    return result
-
-
-def _load_macro(adapter: object) -> Any | None:
-    if not library_loaded(adapter):
-        return None
-    module_name = ADAPTER_MODULES.get(str(adapter))
-    if module_name is None:
-        return None
-    try:
-        return importlib.import_module(module_name)
-    except ImportError:
-        return None
-
-
-def _log(level: str, message: str) -> None:
-    from hirefire_resource.hirefire import HireFire
-
-    safe_log(HireFire.configuration.logger, level, message)

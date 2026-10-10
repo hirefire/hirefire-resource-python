@@ -8,9 +8,8 @@ from typing import TYPE_CHECKING, Any, Callable
 from hirefire_resource.buffer import Buffer
 from hirefire_resource.client import Client, Response
 from hirefire_resource.lease import Lease
-from hirefire_resource.log import format_error, safe_log
-from hirefire_resource.once import Once
-from hirefire_resource.probe import Probe
+from hirefire_resource.log import format_error, safe_log, verbose
+from hirefire_resource.sampler import Sampler
 from hirefire_resource.strategy import RQT, rqt
 
 if TYPE_CHECKING:
@@ -49,7 +48,7 @@ class Dispatcher:
         self._dispatch_frequency = self.DEFAULT_DISPATCH_FREQUENCY
         self._next_dispatch_at: float | None = None
         self._pending_sample_trace: dict[str, Any] | None = None
-        self._once = Once(self._configuration())
+        self._sampler = Sampler(self._configuration())
 
     def start(self) -> bool:
         if self._healthy_running():
@@ -81,7 +80,7 @@ class Dispatcher:
                 after_fork = self._pid is not None and self._pid != os.getpid()
                 if after_fork:
                     self._buffer().reinit_after_fork()
-                    _plan().reinit_macros_after_fork()
+                    _plan().reinit_macros_after_fork(self._logger())
                     self._reset_dispatch_state_after_fork()
                 else:
                     self._reset_dispatch_state_for_restart()
@@ -231,7 +230,7 @@ class Dispatcher:
                 self._generation += 1
                 self._loop_wait.notify_all()
             self._buffer().reinit_after_fork()
-            _plan().reinit_macros_after_fork()
+            _plan().reinit_macros_after_fork(self._logger())
             self._configuration().reset_after_fork()
             self._lease.demote()
             self._client.close()
@@ -323,7 +322,7 @@ class Dispatcher:
         if not live():
             return
 
-        self._guard(lambda: self._lease.request_if_due(hold=self._hold_lease))
+        self._guard(lambda: self._lease.request_if_due(hold=self._sampler.can_sample))
         if not live():
             return
         self._guard(
@@ -341,178 +340,15 @@ class Dispatcher:
         self._last_rqt_second = None
         self._dispatch_frequency = self.DEFAULT_DISPATCH_FREQUENCY
         self._pending_sample_trace = None
-        self._once = Once(self._configuration())
+        self._sampler = Sampler(self._configuration())
 
     def _enter_race(self) -> bool:
-        return (
-            self._configuration().job_queues.any()
-            or _plan().any_allowlisted_job_queue_library_loaded()
-        )
-
-    def _hold_lease(self, plan_job_queues: list[dict[str, Any]]) -> bool:
-        if self._configuration().job_queues.any():
-            return True
-
-        for entry in plan_job_queues:
-            if self._adapter_present(entry) and _plan().sampleable_entry(entry):
-                return True
-        return False
+        return self._configuration().job_queues.any() or _plan().any_library_loaded()
 
     def _sample_job_queues(self, live: Callable[[], bool] | None = None) -> None:
-        probe = Probe.start()
-        with _plan().around_job_queue_sample():
-            local_job_queues = self._configuration().job_queues
-            for entry in self._lease.job_queues:
-                if live is not None and not live():
-                    break
-
-                def _sample(entry: dict[str, Any] = entry) -> None:
-                    if self._adapter_present(entry):
-                        self._sample_plan_adapter(entry, local_job_queues, live=live)
-                    else:
-                        self._sample_strategy_only(entry, local_job_queues, live=live)
-
-                probe.measure(entry, _sample)
-        payload = probe.finish()
-        if self._verbose():
-            probe.log_to(self._logger())
+        payload = self._sampler.round(self._lease.job_queues, live or (lambda: True))
         if self._lease.trace():
             self._pending_sample_trace = payload
-
-    def _verbose(self) -> bool:
-        value = os.environ.get("HIREFIRE_VERBOSE", "")
-        if not value:
-            return False
-        return value.lower() not in ("0", "false", "no")
-
-    def _sample_plan_adapter(
-        self,
-        entry: dict[str, Any],
-        local_job_queues: Any,
-        live: Callable[[], bool] | None = None,
-    ) -> None:
-        if live is not None and not live():
-            return
-
-        name = str(entry.get("name", ""))
-        adapter = entry.get("adapter")
-        strategy = entry.get("strategy")
-        plan = _plan()
-
-        if plan.executable(adapter):
-            if not plan.supports_strategy(adapter, strategy):
-                self._warn_unsupported_strategy_once(name, adapter, strategy)
-                return
-            if plan.queues_required(adapter) and not plan.named_plan_queues(
-                entry.get("queues")
-            ):
-                self._warn_empty_queues_once(name, adapter)
-                return
-            if local_job_queues.find_by_name(name) is not None:
-                self._warn_plan_override_once(name)
-            if live is not None and not live():
-                return
-            plan.execute(entry, live)
-        elif plan.known_adapter(adapter):
-            self._warn_unloaded_adapter_once(name, adapter)
-        else:
-            self._warn_unknown_adapter_once(name, adapter)
-
-    def _sample_strategy_only(
-        self,
-        entry: dict[str, Any],
-        local_job_queues: Any,
-        live: Callable[[], bool] | None = None,
-    ) -> None:
-        if live is not None and not live():
-            return
-
-        name = str(entry.get("name", ""))
-        strategy = str(entry.get("strategy", ""))
-
-        if not _plan().known_strategy(strategy):
-            self._warn_unknown_strategy_once(name, strategy)
-            return
-
-        job_queue = local_job_queues.find_by_name(name)
-        if job_queue is not None:
-            local_job_queues.sample_job_queue(
-                job_queue, strategy, live=live, name=name.strip()
-            )
-
-    def _warn_unloaded_adapter_once(self, name: str, adapter: object) -> None:
-        self._once.log(
-            "error",
-            "unloaded_adapter",
-            lambda: (
-                f"[HireFire] Plan adapter {adapter!r} for {name!r} "
-                "is not loaded in this process. Entry skipped."
-            ),
-            key=name,
-        )
-
-    def _warn_plan_override_once(self, name: str) -> None:
-        self._once.log(
-            "warning",
-            "plan_override",
-            lambda: (
-                f"[HireFire] A HireFire UI adapter is configured for {name!r}, so "
-                f"config.dyno({name!r}) with a local sampler is ignored. You can "
-                "remove that local configuration. The UI adapter is used instead."
-            ),
-            key=name,
-        )
-
-    def _warn_unknown_adapter_once(self, name: str, adapter: object) -> None:
-        self._once.log(
-            "error",
-            "unknown_adapter",
-            lambda: (
-                f"[HireFire] Unknown plan adapter {adapter!r} for {name!r}. "
-                "Entry skipped."
-            ),
-            key=name,
-        )
-
-    def _warn_unsupported_strategy_once(
-        self, name: str, adapter: object, strategy: object
-    ) -> None:
-        self._once.log(
-            "error",
-            "unsupported_strategy",
-            lambda: (
-                f"[HireFire] Plan adapter {adapter!r} does not support "
-                f"strategy {strategy!r} for {name!r}. Entry skipped."
-            ),
-            key=(name, adapter, strategy),
-        )
-
-    def _warn_unknown_strategy_once(self, name: str, strategy: object) -> None:
-        self._once.log(
-            "error",
-            "unknown_strategy",
-            lambda: (
-                f"[HireFire] Unknown plan strategy {strategy!r} for "
-                f"{name!r}. Entry skipped."
-            ),
-            key=(name, strategy),
-        )
-
-    def _warn_empty_queues_once(self, name: str, adapter: object) -> None:
-        self._once.log(
-            "error",
-            "queues_required",
-            lambda: (
-                f"[HireFire] Plan adapter {adapter!r} for {name!r} "
-                "requires named queues. Entry skipped."
-            ),
-            key=(name, adapter),
-        )
-
-    @staticmethod
-    def _adapter_present(entry: dict[str, Any]) -> bool:
-        adapter = entry.get("adapter")
-        return not (adapter is None or adapter == "")
 
     def _dispatch_if_due(self, generation: int | None = None) -> None:
         if (
@@ -568,7 +404,7 @@ class Dispatcher:
                     self._repopulate_rqt(data)
                 return
 
-            if self._verbose():
+            if verbose():
                 safe_log(
                     self._logger(),
                     "info",

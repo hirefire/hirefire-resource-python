@@ -24,7 +24,7 @@ __all__ = [
 class Configuration:
     def __init__(self) -> None:
         self.http: HTTP | None = None
-        self.job_queues = JobQueues(self)
+        self.job_queues = JobQueues()
         self.logger = self._init_logger()
         self.once = Once(self)
         self._sources_by_name: dict[str, list[str]] = {}

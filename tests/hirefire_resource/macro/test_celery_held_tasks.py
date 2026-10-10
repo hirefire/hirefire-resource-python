@@ -10,7 +10,7 @@ import pytest
 from freezegun import freeze_time
 from kombu.exceptions import OperationalError
 
-from hirefire_resource import plan
+from hirefire_resource import HireFire, plan
 from hirefire_resource.errors import (
     MissingQueueError,
     SampleIncompleteError,
@@ -525,7 +525,7 @@ def test_the_plan_fork_hook_clears_the_counts():
     _count_when_ready(app, None, {"celery"})
     (thread,) = _held_threads()
 
-    plan.reinit_macros_after_fork()
+    plan.reinit_macros_after_fork(HireFire.configuration.logger)
 
     assert celery_macro._held_tasks == {}
     thread.join(_WAIT_S)

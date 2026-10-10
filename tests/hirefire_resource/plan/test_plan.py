@@ -1,1470 +1,249 @@
+import importlib
+import logging
 import sys
 from unittest.mock import patch
 
+import pytest
+
 from hirefire_resource import HireFire, plan
-from hirefire_resource.errors import SampleIncompleteError, SampleNotReadyError
+from tests.helpers import fake_macro
+
+HOSTS = ("celery", "rq", "dramatiq")
 
 
-def test_queues_required_calls_loaded_macro_hook():
-    class Required:
-        @staticmethod
-        def queues_required():
-            return True
-
-    class Optional:
-        @staticmethod
-        def queues_required():
-            return False
-
-    def load(adapter):
-        if adapter == "celery":
-            return Required
-        if adapter == "rq":
-            return Optional
-        return None
-
-    with patch("hirefire_resource.plan._load_macro", side_effect=load):
-        assert plan.queues_required("celery") is True
-        assert plan.queues_required("rq") is False
-        assert plan.queues_required("missing") is False
+def logger():
+    return HireFire.configuration.logger
 
 
-def test_execute_skips_queues_required_adapter_with_empty_queues():
-    calls = []
-
-    class Macro:
-        @staticmethod
-        def queues_required():
-            return True
-
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def job_queue_size(*_args, **_kwargs):
-            calls.append("size")
-            return 4
-
-        @staticmethod
-        def job_queue_working(*_args, **_kwargs):
-            calls.append("wrk")
-            return 1
-
-        @staticmethod
-        def plan_options(_strategy, _options):
-            return {}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-    with (
-        patch("hirefire_resource.plan.known_adapter", return_value=True),
-        patch("hirefire_resource.plan._load_macro", return_value=Macro),
-        patch("hirefire_resource.plan.queues_required", return_value=True),
-    ):
-        plan.execute(
-            {
-                "name": "mail",
-                "adapter": "celery",
-                "strategy": "jqs",
-                "queues": [],
-                "options": {},
-            }
-        )
-
-    assert calls == []
-    assert HireFire.configuration.buffer.flush() == {}
+def messages(caplog):
+    return [record.getMessage() for record in caplog.records]
 
 
-def test_known_adapters():
-    assert plan.known_adapter("celery")
-    assert plan.known_adapter("rq")
-    assert plan.known_adapter("dramatiq")
-    assert not plan.known_adapter("sidekiq")
+def test_lists_one_macro_module_per_adapter():
+    assert plan.ADAPTERS == {
+        "celery": "hirefire_resource.macro.celery",
+        "rq": "hirefire_resource.macro.rq",
+        "dramatiq": "hirefire_resource.macro.dramatiq",
+    }
 
 
-def test_known_strategy():
-    assert plan.known_strategy("jql")
-    assert plan.known_strategy("jqs")
-    assert not plan.known_strategy("cpu")
+def test_limits_the_queues_of_an_entry():
+    assert plan.MAX_QUEUES == 64
+    assert plan.MAX_QUEUE_NAME_BYTES == 128
 
 
-def test_library_loaded_uses_sys_modules_only():
-    assert not plan.library_loaded("celery") or "celery" in sys.modules
-    with patch.dict(sys.modules, {"celery": object()}, clear=False):
-        assert plan.library_loaded("celery")
-        assert plan.any_allowlisted_job_queue_library_loaded()
+@pytest.mark.parametrize("library", HOSTS)
+def test_a_library_counts_as_loaded_once_its_module_is_imported(library):
+    without = {key: value for key, value in sys.modules.items() if key not in HOSTS}
+    with patch.dict(sys.modules, without, clear=True):
+        assert not plan.any_library_loaded()
+        sys.modules[library] = object()
+        assert plan.any_library_loaded()
 
 
-def test_load_macro_does_not_import_unloaded_host_library():
-    hosts = ("celery", "rq", "dramatiq")
-    adapter_modules = {f"hirefire_resource.macro.{name}" for name in hosts}
-    removed = {}
-    keys = [
-        k
-        for k in list(sys.modules)
-        if k in hosts
-        or any(k.startswith(f"{name}.") for name in hosts)
-        or k in adapter_modules
-    ]
-    for key in keys:
-        removed[key] = sys.modules.pop(key)
+def test_a_module_outside_the_adapter_list_does_not_count_as_a_loaded_library():
+    without = {key: value for key, value in sys.modules.items() if key not in HOSTS}
+    with patch.dict(sys.modules, without, clear=True):
+        sys.modules["huey"] = object()
+        assert not plan.any_library_loaded()
+
+
+def test_importing_the_plan_does_not_import_a_job_library():
+    before = set(sys.modules)
+
+    importlib.reload(plan)
+
+    assert {name for name in HOSTS if name in sys.modules} <= before
+
+
+def test_nothing_imports_a_library_that_the_host_has_not_loaded():
+    macros = {f"hirefire_resource.macro.{name}" for name in HOSTS}
+    removed = {
+        key: sys.modules.pop(key)
+        for key in list(sys.modules)
+        if key.split(".")[0] in HOSTS or key in macros
+    }
     try:
-        for name in hosts:
-            assert plan._load_macro(name) is None
-        with plan.around_job_queue_sample():
+        for name in HOSTS:
+            assert plan.load_macro(name) is None
+        with plan.around_job_queue_sample(logger()):
             pass
-        plan.reinit_macros_after_fork()
-        for name in hosts:
+        plan.reinit_macros_after_fork(logger())
+        plan.release_macros(logger())
+        for name in HOSTS:
             assert name not in sys.modules
             assert f"hirefire_resource.macro.{name}" not in sys.modules
     finally:
         sys.modules.update(removed)
 
 
-def test_library_loaded_detects_dramatiq_from_sys_modules():
-    with patch.dict(sys.modules, {"dramatiq": object()}, clear=False):
-        assert plan.library_loaded("dramatiq")
-        assert plan.executable("dramatiq")
-    without = {k: v for k, v in sys.modules.items() if k != "dramatiq"}
-    with patch.dict(sys.modules, without, clear=True):
-        assert plan.known_adapter("dramatiq")
-        assert not plan.library_loaded("dramatiq")
-
-
-def test_normalize_queues_truncates_and_strips():
-    queues = [f" q{i} " for i in range(plan.MAX_QUEUES + 2)]
-    queues.append("")
-    queues.append("x" * (plan.MAX_QUEUE_NAME_BYTES + 1))
-    normalized = plan.normalize_queues(queues, name="worker")
-    assert len(normalized) == plan.MAX_QUEUES
-    assert normalized[0] == "q0"
-    assert plan.normalize_queues(["a", "b"], name="worker") == ["a", "b"]
-    assert plan.normalize_queues([None, "ok", None], name="worker") == ["ok"]
-
-
-def test_normalize_queues_skips_when_all_names_invalid():
-    assert plan.normalize_queues(["", "  "], name="worker") is None
-    assert plan.normalize_queues([None, None], name="worker") is None
-
-
-def test_normalize_queues_skips_non_array():
-    assert plan.normalize_queues("nope", name="worker") is None
-
-
-def test_normalize_queues_none_means_all_queues():
-    assert plan.normalize_queues(None, name="worker") == []
-
-
-def test_execute_calls_macro_and_buffers_nested_metric():
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_latency(*queues, **options):
-            return 12.5
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "celery",
-                "strategy": "jql",
-                "queues": ["default"],
-            }
-        )
-
-    data = HireFire.configuration.buffer.flush()
-    assert list(data["worker"]["jql"].values())[0] == 12.5
-
-
-def test_execute_live_gate_drops_a_sample_that_returns_after_stop():
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {"skip_working": True}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_size(*queues, **options):
-            return 11
-
-        @staticmethod
-        def job_queue_working(*queues, **options):
-            return 3
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "rq",
-                "strategy": "jqs",
-                "queues": ["default"],
-            },
-            lambda: False,
-        )
-
-    assert HireFire.configuration.buffer.flush() == {}
-
-
-def test_execute_rejects_bool_sample(caplog):
-    import logging
-
-    caplog.set_level(logging.ERROR)
-
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_size(*queues, **options):
-            return True
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "rq",
-                "strategy": "jqs",
-                "queues": ["default"],
-            }
-        )
-
-    assert HireFire.configuration.buffer.flush() == {}
-    assert "expected a non-negative number" in caplog.text
-
-
-def test_plan_import_does_not_load_celery_rq_dramatiq():
-    mods = set(sys.modules)
-    import importlib
-
-    importlib.reload(plan)
-    assert "celery" not in sys.modules or "celery" in mods
-    assert "rq" not in sys.modules or "rq" in mods
-    assert "dramatiq" not in sys.modules or "dramatiq" in mods
-
-
-def test_execute_skips_unsupported_strategy_without_calling_macro(caplog):
-    import logging
-
-    caplog.set_level(logging.ERROR)
-    called = {"n": 0}
-
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return strategy != "jql"
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_size(*queues, **options):
-            called["n"] += 1
-            return 1
-
-        @staticmethod
-        def job_queue_latency(*queues, **options):
-            called["n"] += 1
-            return 1
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "celery",
-                "strategy": "jql",
-                "queues": ["default"],
-            }
-        )
-
-    assert called["n"] == 0
-    assert HireFire.configuration.buffer.flush() == {}
-    assert "does not support" in caplog.text
-
-
-def test_execute_rescues_macro_errors_and_logs(caplog):
-    import logging
-
-    caplog.set_level(logging.ERROR)
-
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_latency(*queues, **options):
-            raise RuntimeError("broker down")
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "celery",
-                "strategy": "jql",
-                "queues": ["default"],
-            }
-        )
-
-    assert HireFire.configuration.buffer.flush() == {}
-    assert "broker down" in caplog.text
-
-
-def test_execute_drops_invalid_samples(caplog):
-    import logging
-
-    caplog.set_level(logging.ERROR)
-
-    for bad in (float("nan"), float("inf"), -1, None, "x"):
-
-        class Macro:
-            @staticmethod
-            def supports_plan_strategy(strategy):
-                return True
-
-            @staticmethod
-            def plan_options(strategy, options):
-                return {}
-
-            @staticmethod
-            def plan_connection_options():
-                return {}
-
-            @staticmethod
-            def job_queue_size(*queues, **options):
-                return bad
-
-        with patch.object(plan, "_load_macro", return_value=Macro):
-            plan.execute(
-                {
-                    "name": "worker",
-                    "adapter": "rq",
-                    "strategy": "jqs",
-                    "queues": ["default"],
-                }
-            )
-        assert HireFire.configuration.buffer.flush() == {}
-
-    assert "str('x')" in caplog.text
-    assert "int('-1')" in caplog.text
-
-    recorded = []
-    for good in (7, 1.5):
-
-        class GoodMacro:
-            @staticmethod
-            def supports_plan_strategy(strategy):
-                return True
-
-            @staticmethod
-            def plan_options(strategy, options):
-                return {}
-
-            @staticmethod
-            def plan_connection_options():
-                return {}
-
-            @staticmethod
-            def job_queue_size(*queues, **options):
-                return good
-
-        with patch.object(plan, "_load_macro", return_value=GoodMacro):
-            plan.execute(
-                {
-                    "name": "worker",
-                    "adapter": "rq",
-                    "strategy": "jqs",
-                    "queues": ["default"],
-                }
-            )
-        recorded.extend(HireFire.configuration.buffer.flush()["worker"]["jqs"].values())
-
-    assert 7 in recorded
-    assert any(abs(value - 1.5) < 0.0001 for value in recorded)
-
-
-def test_execute_merges_adapter_plan_connection_options():
-    captured = {}
-
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {}
-
-        @staticmethod
-        def plan_connection_options():
-            return {"url": "redis://plan"}
-
-        @staticmethod
-        def job_queue_latency(*queues, **options):
-            captured.update(options)
-            return 1.0
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "celery",
-                "strategy": "jql",
-                "queues": ["default"],
-            }
-        )
-    assert captured.get("url") == "redis://plan"
-
-
-def test_execute_merges_adapter_plan_options():
-    captured = {}
-
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {"skip_working": True}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_size(*queues, **options):
-            captured.update(options)
-            return 3
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "rq",
-                "strategy": "jqs",
-                "queues": ["default"],
-                "options": {"skip_working": True, "not_allowed": True},
-            }
-        )
-    assert captured == {"skip_working": True}
-
-
-def test_supports_strategy_rejects_unknown_strategy_with_known_adapter():
-    with patch.dict(sys.modules, {"celery": object()}, clear=False):
-        assert not plan.supports_strategy("celery", "rpm")
-        assert not plan.supports_strategy("celery", "unknown")
-
-
-def test_execute_skips_dramatiq_empty_queues(caplog):
-    import logging
-
-    caplog.set_level(logging.ERROR)
-    called = {"n": 0}
-
-    class Macro:
-        @staticmethod
-        def queues_required():
-            return True
-
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_size(*queues, **options):
-            called["n"] += 1
-            return 1
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "dramatiq",
-                "strategy": "jqs",
-                "queues": [],
-            }
-        )
-
-    assert called["n"] == 0
-    assert HireFire.configuration.buffer.flush() == {}
-    assert "requires named queues" in caplog.text
-
-
-def test_execute_skips_celery_empty_queues(caplog):
-    import logging
-
-    caplog.set_level(logging.ERROR)
-    called = {"n": 0}
-
-    class Macro:
-        @staticmethod
-        def queues_required():
-            return True
-
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_size(*queues, **options):
-            called["n"] += 1
-            return 1
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "celery",
-                "strategy": "jqs",
-                "queues": [],
-            }
-        )
-
-    assert called["n"] == 0
-    assert HireFire.configuration.buffer.flush() == {}
-    assert "requires named queues" in caplog.text
-
-
-def test_execute_dramatiq_passes_plan_connection_options():
-    captured = {}
-
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return strategy in ("jql", "jqs")
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {}
-
-        @staticmethod
-        def plan_connection_options():
-            return {
-                "broker_url": "redis://from-hirefire/0",
-                "namespace": "appns",
-            }
-
-        @staticmethod
-        def job_queue_size(*queues, **options):
-            captured["queues"] = queues
-            captured["options"] = options
-            return 4
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "dramatiq",
-                "strategy": "jqs",
-                "queues": ["default", "mailer"],
-            }
-        )
-
-    assert captured["queues"] == ("default", "mailer")
-    assert captured["options"] == {
-        "broker_url": "redis://from-hirefire/0",
-        "namespace": "appns",
-    }
-    data = HireFire.configuration.buffer.flush()
-    assert list(data["worker"]["jqs"].values())[0] == 4
-
-
-def test_supports_strategy_dramatiq_jql_and_jqs():
-    with patch.dict(sys.modules, {"dramatiq": object()}, clear=False):
-        assert plan.supports_strategy("dramatiq", "jql")
-        assert plan.supports_strategy("dramatiq", "jqs")
-        assert not plan.supports_strategy("dramatiq", "cpu")
-
-
-def test_execute_dramatiq_jql_passes_connection_options():
-    captured = {}
-
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return strategy in ("jql", "jqs")
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {}
-
-        @staticmethod
-        def plan_connection_options():
-            return {"broker_url": "redis://hf-jql/0", "namespace": "ns"}
-
-        @staticmethod
-        def job_queue_latency(*queues, **options):
-            captured["queues"] = queues
-            captured["options"] = options
-            return 12.5
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "dramatiq",
-                "strategy": "jql",
-                "queues": ["default"],
-            }
-        )
-
-    assert captured["queues"] == ("default",)
-    assert captured["options"] == {
-        "broker_url": "redis://hf-jql/0",
-        "namespace": "ns",
-    }
-    data = HireFire.configuration.buffer.flush()
-    assert list(data["worker"]["jql"].values())[0] == 12.5
-
-
-def test_around_job_queue_sample_calls_before_and_after_on_every_adapter():
-    events: list[object] = []
-
-    class MacroA:
-        @staticmethod
-        def before_sample_job_queues():
-            events.append(("before", "a"))
-            return "token_a"
-
-        @staticmethod
-        def after_sample_job_queues(token):
-            events.append(("after", "a", token))
-
-    class MacroB:
-        @staticmethod
-        def before_sample_job_queues():
-            events.append(("before", "b"))
-            return "token_b"
-
-        @staticmethod
-        def after_sample_job_queues(token):
-            events.append(("after", "b", token))
-
-    macros = {"a": MacroA, "b": MacroB}
-
-    def load(name):
-        return macros.get(str(name))
-
-    with (
-        patch.object(plan, "ADAPTER_MODULES", {"a": "mod.a", "b": "mod.b"}),
-        patch.object(plan, "_load_macro", side_effect=load),
-    ):
-        with plan.around_job_queue_sample():
-            events.append("body")
-
-    assert events == [
-        ("before", "a"),
-        ("before", "b"),
-        "body",
-        ("after", "a", "token_a"),
-        ("after", "b", "token_b"),
-    ]
-
-
-def test_around_job_queue_sample_runs_after_when_body_raises():
-    after_tokens: list[object] = []
-
-    class Macro:
-        @staticmethod
-        def before_sample_job_queues():
-            return "wave"
-
-        @staticmethod
-        def after_sample_job_queues(token):
-            after_tokens.append(token)
-
-    with (
-        patch.object(plan, "ADAPTER_MODULES", {"x": "mod.x"}),
-        patch.object(plan, "_load_macro", return_value=Macro),
-    ):
-        try:
-            with plan.around_job_queue_sample():
-                raise RuntimeError("boom")
-        except RuntimeError as error:
-            assert str(error) == "boom"
-
-    assert after_tokens == ["wave"]
-
-
-def test_reinit_macros_after_fork_notifies_every_adapter():
-    called: list[str] = []
-
-    class MacroA:
-        @staticmethod
-        def reinit_after_fork():
-            called.append("a")
-
-    class MacroB:
-        @staticmethod
-        def reinit_after_fork():
-            called.append("b")
-
-    macros = {"a": MacroA, "b": MacroB}
-
-    def load(name):
-        return macros.get(str(name))
-
-    with (
-        patch.object(plan, "ADAPTER_MODULES", {"a": "mod.a", "b": "mod.b"}),
-        patch.object(plan, "_load_macro", side_effect=load),
-    ):
-        plan.reinit_macros_after_fork()
-
-    assert called == ["a", "b"]
-
-
-def test_around_job_queue_sample_rescues_raising_before_hook_and_still_runs_body_and_after(
-    caplog,
+def test_a_macro_that_fails_to_import_is_returned_as_its_error_and_not_imported_again(
+    monkeypatch,
 ):
-    import logging
+    monkeypatch.setattr(plan, "_import_errors", {})
+    attempts = []
 
-    caplog.set_level(logging.ERROR)
-    events: list[object] = []
-
-    class MacroA:
-        @staticmethod
-        def before_sample_job_queues():
-            events.append(("before", "a"))
-            raise RuntimeError("before-a")
-
-        @staticmethod
-        def after_sample_job_queues(token):
-            events.append(("after", "a", token))
-
-    class MacroB:
-        @staticmethod
-        def before_sample_job_queues():
-            events.append(("before", "b"))
-            return "token_b"
-
-        @staticmethod
-        def after_sample_job_queues(token):
-            events.append(("after", "b", token))
-
-    macros = {"a": MacroA, "b": MacroB}
-
-    def load(name):
-        return macros.get(str(name))
+    def failing(name):
+        attempts.append(name)
+        raise ImportError("No module named 'dateutil'")
 
     with (
-        patch.object(plan, "ADAPTER_MODULES", {"a": "mod.a", "b": "mod.b"}),
-        patch.object(plan, "_load_macro", side_effect=load),
-    ):
-        with plan.around_job_queue_sample():
-            events.append("body")
-
-    assert events == [
-        ("before", "a"),
-        ("before", "b"),
-        "body",
-        ("after", "b", "token_b"),
-    ]
-    assert "before_sample_job_queues for 'a' raised" in caplog.text
-    assert "before-a" in caplog.text
-
-
-def test_around_job_queue_sample_rescues_raising_after_hook_and_still_runs_other_afters(
-    caplog,
-):
-    import logging
-
-    caplog.set_level(logging.ERROR)
-    events: list[object] = []
-
-    class MacroA:
-        @staticmethod
-        def before_sample_job_queues():
-            return "token_a"
-
-        @staticmethod
-        def after_sample_job_queues(token):
-            events.append(("after", "a"))
-            raise RuntimeError("after-a")
-
-    class MacroB:
-        @staticmethod
-        def before_sample_job_queues():
-            return "token_b"
-
-        @staticmethod
-        def after_sample_job_queues(token):
-            events.append(("after", "b", token))
-
-    macros = {"a": MacroA, "b": MacroB}
-
-    def load(name):
-        return macros.get(str(name))
-
-    with (
-        patch.object(plan, "ADAPTER_MODULES", {"a": "mod.a", "b": "mod.b"}),
-        patch.object(plan, "_load_macro", side_effect=load),
-    ):
-        with plan.around_job_queue_sample():
-            events.append("body")
-
-    assert events == [
-        "body",
-        ("after", "a"),
-        ("after", "b", "token_b"),
-    ]
-    assert "after_sample_job_queues for 'a' raised" in caplog.text
-    assert "after-a" in caplog.text
-
-
-def test_reinit_macros_after_fork_rescues_raising_adapter_and_continues(caplog):
-    import logging
-
-    caplog.set_level(logging.ERROR)
-    called: list[str] = []
-
-    class MacroA:
-        @staticmethod
-        def reinit_after_fork():
-            called.append("a")
-            raise RuntimeError("reinit-a")
-
-    class MacroB:
-        @staticmethod
-        def reinit_after_fork():
-            called.append("b")
-
-    macros = {"a": MacroA, "b": MacroB}
-
-    def load(name):
-        return macros.get(str(name))
-
-    with (
-        patch.object(plan, "ADAPTER_MODULES", {"a": "mod.a", "b": "mod.b"}),
-        patch.object(plan, "_load_macro", side_effect=load),
-    ):
-        plan.reinit_macros_after_fork()
-
-    assert called == ["a", "b"]
-    assert "reinit_after_fork for 'a' raised" in caplog.text
-    assert "reinit-a" in caplog.text
-
-
-def test_around_job_queue_sample_soft_skips_missing_macro_without_logging(caplog):
-    import logging
-
-    caplog.set_level(logging.ERROR)
-    events: list[object] = []
-
-    class MacroPresent:
-        @staticmethod
-        def before_sample_job_queues():
-            events.append("before-present")
-            return "tok"
-
-        @staticmethod
-        def after_sample_job_queues(token):
-            events.append(("after-present", token))
-
-    def load(name):
-        if str(name) == "missing":
-            return None
-        return MacroPresent
-
-    with (
-        patch.object(
-            plan, "ADAPTER_MODULES", {"missing": "mod.missing", "present": "mod.p"}
-        ),
-        patch.object(plan, "_load_macro", side_effect=load),
-    ):
-        with plan.around_job_queue_sample():
-            events.append("body")
-
-    assert events == ["before-present", "body", ("after-present", "tok")]
-    assert "before_sample_job_queues" not in caplog.text
-    assert "after_sample_job_queues" not in caplog.text
-
-
-def test_load_macro_import_error_returns_none_without_raising():
-    with (
-        patch.object(
-            plan,
-            "ADAPTER_MODULES",
-            {"celery": "hirefire_resource.macro.no_such_module"},
-        ),
         patch.dict(sys.modules, {"celery": object()}),
+        patch.object(importlib, "import_module", side_effect=failing),
     ):
-        assert plan._load_macro("celery") is None
-        assert plan._load_macro("unknown") is None
+        first = plan.load_macro("celery")
+        second = plan.load_macro("celery")
+
+    assert isinstance(first, ImportError)
+    assert str(first) == "No module named 'dateutil'"
+    assert second is first
+    assert attempts == ["hirefire_resource.macro.celery"]
 
 
-def test_allowlisted_macros_reexport_sample_wave_hooks_as_noops():
-    import importlib
+def test_a_sample_round_runs_between_the_begin_and_the_end_hook_of_every_macro(
+    load_macros,
+):
+    calls = []
 
-    from hirefire_resource.plan import hooks
-
-    results: dict[str, str] = {}
-    for name, module_name in plan.ADAPTER_MODULES.items():
-        try:
-            macro = importlib.import_module(module_name)
-        except ImportError:
-            results[name] = "skip"
-            continue
-        if name == "dramatiq":
-            assert macro.before_sample_job_queues is not hooks.before_sample_job_queues
-            token = macro.before_sample_job_queues()
-            macro.after_sample_job_queues(token)
-            macro.reinit_after_fork()
-            results[name] = "ok"
-            continue
-        assert macro.before_sample_job_queues is hooks.before_sample_job_queues
-        assert macro.after_sample_job_queues is hooks.after_sample_job_queues
-        if name != "celery":
-            assert macro.reinit_after_fork is hooks.reinit_after_fork
-        assert macro.before_sample_job_queues() is None
-        assert macro.after_sample_job_queues("token") is None
-        assert macro.reinit_after_fork() is None
-        results[name] = "ok"
-
-    assert results.get("dramatiq") == "ok"
-    for name, status in results.items():
-        assert status in ("ok", "skip"), name
-
-
-def test_around_job_queue_sample_calls_after_with_successful_none_token():
-    after_tokens: list[object] = []
-
-    class Macro:
-        @staticmethod
-        def before_sample_job_queues():
-            return None
-
-        @staticmethod
-        def after_sample_job_queues(token):
-            after_tokens.append(token)
-
-    with (
-        patch.object(plan, "ADAPTER_MODULES", {"x": "mod.x"}),
-        patch.object(plan, "_load_macro", return_value=Macro),
-    ):
-        with plan.around_job_queue_sample():
-            pass
-
-    assert after_tokens == [None]
-
-
-def test_around_job_queue_sample_with_empty_adapters_still_runs_body():
-    events: list[object] = []
-
-    with patch.object(plan, "ADAPTER_MODULES", {}):
-        with plan.around_job_queue_sample():
-            events.append("body")
-
-    assert events == ["body"]
-
-
-def test_execute_known_adapter_unloadable_logs_distinct_from_unknown(caplog):
-    import logging
-
-    caplog.set_level(logging.ERROR)
-
-    with patch.object(plan, "_load_macro", return_value=None):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "celery",
-                "strategy": "jql",
-                "queues": ["default"],
-            }
-        )
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "nope",
-                "strategy": "jql",
-                "queues": ["default"],
-            }
+    def macro(name):
+        return fake_macro(
+            before_sample_job_queues=lambda: calls.append(f"before {name}") or name,
+            after_sample_job_queues=lambda token: calls.append(f"after {token}"),
         )
 
-    assert "could not be loaded" in caplog.text
-    assert "Unknown plan adapter" in caplog.text
-    assert HireFire.configuration.buffer.flush() == {}
+    load_macros(celery=macro("celery"), rq=macro("rq"), dramatiq=macro("dramatiq"))
+
+    with plan.around_job_queue_sample(logger()):
+        calls.append("round")
+
+    assert calls == [
+        "before celery",
+        "before rq",
+        "before dramatiq",
+        "round",
+        "after celery",
+        "after rq",
+        "after dramatiq",
+    ]
 
 
-def _execute_with_a_working_macro(strategy, options):
-    from hirefire_resource.plan import hooks
+def test_the_end_hook_runs_when_the_round_raises(load_macros):
+    ended = []
+    load_macros(rq=fake_macro(after_sample_job_queues=ended.append))
 
-    working_calls = []
+    with pytest.raises(RuntimeError):
+        with plan.around_job_queue_sample(logger()):
+            raise RuntimeError("round failed")
 
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return hooks.extract_plan_options(
-                strategy, options, {"jqs": {"skip_working": "boolean"}}
-            )
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_size(*queues, **options):
-            return 7
-
-        @staticmethod
-        def job_queue_latency(*queues, **options):
-            return 1.5
-
-        @staticmethod
-        def job_queue_working(*queues, **options):
-            working_calls.append(queues)
-            return 3
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "rq",
-                "strategy": strategy,
-                "queues": ["default"],
-                "options": options,
-            }
-        )
-
-    return HireFire.configuration.buffer.flush(), working_calls
+    assert ended == [None]
 
 
-def test_execute_samples_no_wrk_for_jqs_without_skip_working():
-    for options in (None, {}, {"skip_working": False}, {"skip_working": "true"}):
-        data, working_calls = _execute_with_a_working_macro("jqs", options)
+def test_a_begin_hook_that_raises_is_logged_and_its_end_hook_is_skipped(
+    load_macros, caplog
+):
+    calls = []
 
-        assert list(data["worker"]["jqs"].values())[0] == 7
-        assert "wrk" not in data["worker"]
-        assert working_calls == []
+    def boom():
+        raise RuntimeError("redis://user:secret@host/0 is down")
 
+    load_macros(
+        celery=fake_macro(
+            before_sample_job_queues=boom,
+            after_sample_job_queues=lambda token: calls.append("after celery"),
+        ),
+        rq=fake_macro(
+            before_sample_job_queues=lambda: calls.append("before rq"),
+            after_sample_job_queues=lambda token: calls.append("after rq"),
+        ),
+    )
 
-def test_execute_samples_wrk_for_jqs_with_skip_working():
-    data, working_calls = _execute_with_a_working_macro("jqs", {"skip_working": True})
+    with plan.around_job_queue_sample(logger()):
+        calls.append("round")
 
-    assert list(data["worker"]["jqs"].values())[0] == 7
-    assert list(data["worker"]["wrk"].values())[0] == 3
-    assert working_calls == [("default",)]
-
-
-def test_execute_samples_wrk_for_every_jql_entry():
-    for options in (None, {}, {"skip_working": False}):
-        data, working_calls = _execute_with_a_working_macro("jql", options)
-
-        assert list(data["worker"]["jql"].values())[0] == 1.5
-        assert list(data["worker"]["wrk"].values())[0] == 3
-        assert working_calls == [("default",)]
-
-
-def test_execute_passes_only_connection_options_to_job_queue_working():
-    captured = {}
-
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {"skip_working": True}
-
-        @staticmethod
-        def plan_connection_options():
-            return {"redis_url": "redis://plan"}
-
-        @staticmethod
-        def job_queue_size(*queues, **options):
-            captured["size"] = options
-            return 7
-
-        @staticmethod
-        def job_queue_working(*queues, redis_url=None):
-            captured["working"] = {"redis_url": redis_url}
-            return 3
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "rq",
-                "strategy": "jqs",
-                "queues": ["default"],
-                "options": {"skip_working": True},
-            }
-        )
-
-    assert captured["size"] == {"skip_working": True, "redis_url": "redis://plan"}
-    assert captured["working"] == {"redis_url": "redis://plan"}
-    data = HireFire.configuration.buffer.flush()
-    assert list(data["worker"]["jqs"].values())[0] == 7
-    assert list(data["worker"]["wrk"].values())[0] == 3
+    assert calls == ["before rq", "round", "after rq"]
+    assert messages(caplog) == [
+        "[HireFire] before_sample_job_queues for 'celery' raised "
+        "RuntimeError: redis://***@host/0 is down"
+    ]
 
 
-def test_execute_still_samples_wrk_when_job_strategy_sample_invalid():
-    working_called = False
+def test_an_end_hook_that_raises_is_logged_and_the_others_still_run(
+    load_macros, caplog
+):
+    calls = []
 
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
+    def boom(token):
+        raise RuntimeError("cache gone")
 
-        @staticmethod
-        def plan_options(strategy, options):
-            return {"skip_working": True}
+    load_macros(
+        celery=fake_macro(after_sample_job_queues=boom),
+        rq=fake_macro(after_sample_job_queues=lambda token: calls.append("after rq")),
+    )
 
-        @staticmethod
-        def plan_connection_options():
-            return {}
+    with plan.around_job_queue_sample(logger()):
+        pass
 
-        @staticmethod
-        def job_queue_size(*queues, **options):
-            return -1
-
-        @staticmethod
-        def job_queue_working(*queues, **options):
-            nonlocal working_called
-            working_called = True
-            return 3
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "rq",
-                "strategy": "jqs",
-                "queues": ["default"],
-            }
-        )
-
-    data = HireFire.configuration.buffer.flush()
-    assert data.get("worker", {}).get("jqs") is None
-    assert list(data["worker"]["wrk"].values())[0] == 3
-    assert working_called is True
+    assert calls == ["after rq"]
+    assert messages(caplog) == [
+        "[HireFire] after_sample_job_queues for 'celery' raised RuntimeError: cache gone"
+    ]
 
 
-def test_execute_still_samples_wrk_when_job_strategy_raises(caplog):
-    import logging
-
-    caplog.set_level(logging.ERROR)
-    working_called = False
-
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {"skip_working": True}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_size(*queues, **options):
-            raise RuntimeError("jqs boom")
-
-        @staticmethod
-        def job_queue_working(*queues, **options):
-            nonlocal working_called
-            working_called = True
-            return 3
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "rq",
-                "strategy": "jqs",
-                "queues": ["default"],
-            }
-        )
-
-    data = HireFire.configuration.buffer.flush()
-    assert data.get("worker", {}).get("jqs") is None
-    assert list(data["worker"]["wrk"].values())[0] == 3
-    assert working_called is True
-    assert "Plan sampler for" in caplog.text
-    assert "raised" in caplog.text
-    assert "jqs boom" in caplog.text
-
-
-def _execute_with_a_size_that_raises(error):
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {"skip_working": True}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_size(*queues, **options):
-            raise error
-
-        @staticmethod
-        def job_queue_working(*queues, **options):
-            return 3
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "rq",
-                "strategy": "jqs",
-                "queues": ["default"],
-            }
-        )
-
-    return HireFire.configuration.buffer.flush()
-
-
-def test_execute_drops_a_sample_that_is_not_ready_without_a_log(caplog):
-    import logging
-
+def test_a_macro_that_is_not_loaded_or_failed_to_import_gets_no_hook(
+    load_macros, caplog
+):
     caplog.set_level(logging.DEBUG)
+    load_macros(celery=ImportError("broken"), rq=None)
+    ran = []
 
-    data = _execute_with_a_size_that_raises(SampleNotReadyError("still counting"))
+    with plan.around_job_queue_sample(logger()):
+        ran.append(True)
+    plan.reinit_macros_after_fork(logger())
+    plan.release_macros(logger())
 
-    assert data["worker"].get("jqs") is None
-    assert list(data["worker"]["wrk"].values())[0] == 3
-    assert caplog.text == ""
-
-
-def test_execute_logs_a_sample_that_is_incomplete(caplog):
-    import logging
-
-    caplog.set_level(logging.DEBUG)
-
-    data = _execute_with_a_size_that_raises(SampleIncompleteError("counts are stale"))
-
-    assert data["worker"].get("jqs") is None
-    assert "Plan sampler for 'worker' raised SampleIncompleteError" in caplog.text
-    assert "counts are stale" in caplog.text
+    assert ran == [True]
+    assert messages(caplog) == []
 
 
-def test_execute_skips_wrk_when_macro_lacks_job_queue_working():
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
+@pytest.mark.parametrize(
+    ("fan_out", "hook"),
+    [
+        (plan.reinit_macros_after_fork, "reinit_after_fork"),
+        (plan.release_macros, "release"),
+    ],
+)
+def test_a_hook_is_fanned_out_to_every_macro_and_one_that_raises_is_logged(
+    load_macros, caplog, fan_out, hook
+):
+    called = []
 
-        @staticmethod
-        def plan_options(strategy, options):
-            return {"skip_working": True}
+    def boom():
+        raise RuntimeError("no connection")
 
-        @staticmethod
-        def plan_connection_options():
-            return {}
+    load_macros(
+        celery=fake_macro(**{hook: boom}),
+        rq=fake_macro(**{hook: lambda: called.append("rq")}),
+        dramatiq=fake_macro(**{hook: lambda: called.append("dramatiq")}),
+    )
 
-        @staticmethod
-        def job_queue_size(*queues, **options):
-            return 5
+    fan_out(logger())
 
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "celery",
-                "strategy": "jqs",
-                "queues": ["default"],
-            }
-        )
-
-    data = HireFire.configuration.buffer.flush()
-    assert list(data["worker"]["jqs"].values())[0] == 5
-    assert "wrk" not in data["worker"]
+    assert called == ["rq", "dramatiq"]
+    assert messages(caplog) == [
+        f"[HireFire] {hook} for 'celery' raised RuntimeError: no connection"
+    ]
 
 
-def test_execute_keeps_jqs_when_job_queue_working_raises(caplog):
-    import logging
+def test_the_default_hooks_of_a_macro_do_nothing():
+    macro = fake_macro()
 
-    caplog.set_level(logging.ERROR)
-
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {"skip_working": True}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_size(*queues, **options):
-            return 9
-
-        @staticmethod
-        def job_queue_working(*queues, **options):
-            raise RuntimeError("wrk boom")
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "rq",
-                "strategy": "jqs",
-                "queues": ["default"],
-            }
-        )
-
-    data = HireFire.configuration.buffer.flush()
-    assert list(data["worker"]["jqs"].values())[0] == 9
-    assert "wrk" not in data.get("worker", {})
-    assert "Plan working sampler" in caplog.text
-    assert "wrk boom" in caplog.text
-
-
-def test_execute_drops_a_wrk_sample_that_is_not_ready_without_a_log(caplog):
-    import logging
-
-    caplog.set_level(logging.DEBUG)
-
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {"skip_working": True}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_size(*queues, **options):
-            return 9
-
-        @staticmethod
-        def job_queue_working(*queues, **options):
-            raise SampleNotReadyError("still counting")
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "rq",
-                "strategy": "jqs",
-                "queues": ["default"],
-            }
-        )
-
-    data = HireFire.configuration.buffer.flush()
-    assert list(data["worker"]["jqs"].values())[0] == 9
-    assert "wrk" not in data["worker"]
-    assert caplog.text == ""
-
-
-def test_execute_drops_invalid_wrk_without_clearing_jqs(caplog):
-    import logging
-
-    caplog.set_level(logging.ERROR)
-
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {"skip_working": True}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_size(*queues, **options):
-            return 4
-
-        @staticmethod
-        def job_queue_working(*queues, **options):
-            return -2
-
-    with patch.object(plan, "_load_macro", return_value=Macro):
-        plan.execute(
-            {
-                "name": "worker",
-                "adapter": "rq",
-                "strategy": "jqs",
-                "queues": ["default"],
-            }
-        )
-
-    data = HireFire.configuration.buffer.flush()
-    assert list(data["worker"]["jqs"].values())[0] == 4
-    assert "wrk" not in data.get("worker", {})
-    assert "wrk sample dropped" in caplog.text
+    assert macro.plan_options("jqs", {"skip_working": True}) == {}
+    assert macro.plan_connection_options() == {}
+    assert macro.supports_plan_strategy("jql") is True
+    assert macro.supports_plan_strategy("jqs") is True
+    assert macro.supports_plan_strategy("rqt") is False
+    assert macro.queues_required() is False
+    assert macro.before_sample_job_queues() is None
+    assert macro.after_sample_job_queues("token") is None
+    assert macro.reinit_after_fork() is None
+    assert macro.release() is None

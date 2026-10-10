@@ -13,6 +13,7 @@ from hirefire_resource.macro.dramatiq import (
     job_queue_latency,
     job_queue_size,
 )
+from tests.helpers import sample_plan
 
 
 def _blackhole_port():
@@ -169,8 +170,8 @@ def test_plan_drops_sample_when_dramatiq_amqp_handshake_times_out(monkeypatch, c
     try:
         url = f"amqp://guest:guest@127.0.0.1:{port}//"
         monkeypatch.setenv("HIREFIRE_DRAMATIQ_URL", url)
-        with patch.object(plan, "_load_macro", return_value=dramatiq_macro):
-            plan.execute(
+        with patch.object(plan, "load_macro", return_value=dramatiq_macro):
+            sample_plan(
                 {
                     "name": "worker",
                     "adapter": "dramatiq",

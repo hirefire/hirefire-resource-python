@@ -119,6 +119,16 @@ def fake_server(allow_network):
     server.stop()
 
 
+@pytest.fixture
+def load_macros(monkeypatch):
+    from hirefire_resource import plan
+
+    def load(**macros):
+        monkeypatch.setattr(plan, "load_macro", macros.get)
+
+    return load
+
+
 @pytest.fixture(autouse=True)
 def capture_hirefire_logs(request, caplog):
     if "macro" in request.node.path.parts:

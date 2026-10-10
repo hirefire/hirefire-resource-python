@@ -16,6 +16,7 @@ from hirefire_resource.client import Response as ClientResponse
 from hirefire_resource.errors import RequestError
 from hirefire_resource.identity import MAX_NAME_BYTES
 from hirefire_resource.lease import Lease
+from hirefire_resource.plan.entry import Entry as PlanEntry
 from tests.helpers import at, set_HIREFIRE_TOKEN  # noqa: F401
 
 LEASE_URL = "https://data.hirefire.io/metrics/lease"
@@ -1210,9 +1211,7 @@ def test_json_null_adapter_is_strategy_only():
     assert entry["name"] == "worker"
     assert entry["strategy"] == "jql"
     assert entry.get("adapter") == ""
-    from hirefire_resource.dispatcher import Dispatcher
-
-    assert not Dispatcher._adapter_present(entry)
+    assert PlanEntry(entry).local()
 
 
 def test_parse_grant_body_preserves_trace_for_non_array_job_queues():

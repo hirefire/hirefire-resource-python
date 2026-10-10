@@ -3,7 +3,6 @@ import logging
 import os
 import threading
 import time
-from contextlib import contextmanager
 from unittest.mock import patch
 
 import pytest
@@ -17,7 +16,7 @@ from hirefire_resource.errors import RequestError
 from hirefire_resource.lease import Lease
 from hirefire_resource.once import Once
 from hirefire_resource.source.cpu.usage import Usage
-from tests.helpers import at, set_HIREFIRE_TOKEN  # noqa: F401
+from tests.helpers import at, fake_macro, set_HIREFIRE_TOKEN  # noqa: F401
 
 INGEST_URL = "https://data.hirefire.io/metrics/ingest"
 LEASE_URL = "https://data.hirefire.io/metrics/lease"
@@ -1550,7 +1549,7 @@ def test_ensure_job_queue_loop_starts_when_enter_race_becomes_true():
     stub_lease()
     capture_ingest_bodies()
     with patch(
-        "hirefire_resource.plan.any_allowlisted_job_queue_library_loaded",
+        "hirefire_resource.plan.any_library_loaded",
         return_value=False,
     ):
         dispatcher = configure_web_only()
@@ -1608,7 +1607,7 @@ def test_ensure_job_queue_loop_is_noop_without_enter_race():
     stub_lease()
     capture_ingest_bodies()
     with patch(
-        "hirefire_resource.plan.any_allowlisted_job_queue_library_loaded",
+        "hirefire_resource.plan.any_library_loaded",
         return_value=False,
     ):
         dispatcher = configure_web_only()
@@ -1709,54 +1708,6 @@ def test_stop_after_abandon_does_not_post_buffered_samples():
 
 
 @mocketize
-def test_plan_adapter_overrides_local_sampler():
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_latency(*queues, **options):
-            return 9.9
-
-    plan = {
-        "version": 1,
-        "job_queues": [
-            {
-                "name": "worker",
-                "strategy": "jql",
-                "adapter": "celery",
-                "queues": ["default"],
-                "options": {},
-            }
-        ],
-    }
-    stub_lease(granted=True, plan=plan)
-    bodies = capture_ingest_bodies()
-    HireFire.configuration.dyno("worker", lambda: 1)
-    dispatcher = HireFire.configuration.dispatcher
-
-    with (
-        patch("hirefire_resource.plan.executable", return_value=True),
-        patch("hirefire_resource.plan.supports_strategy", return_value=True),
-        patch("hirefire_resource.plan._load_macro", return_value=Macro),
-    ):
-        dispatcher._job_queue_tick()
-        dispatcher._tick()
-
-    entry = next(e for e in bodies[0] if e["name"] == "worker")
-    assert list(entry["metrics"]["jql"].values())[0] == 9.9
-
-
-@mocketize
 def test_unknown_plan_adapter_skips_without_local_fallback(caplog):
     caplog.set_level(logging.ERROR)
     plan = {
@@ -1805,117 +1756,6 @@ def test_a_full_plan_of_unknown_adapters_warns_once_per_entry(caplog):
     dispatcher._job_queue_tick()
     dispatcher._sample_job_queues()
     assert caplog.text.count("Unknown plan adapter") == Lease.MAX_JOB_QUEUES
-
-
-@mocketize
-def test_known_unloaded_adapter_skips_without_local_fallback(caplog):
-    caplog.set_level(logging.ERROR)
-    plan = {
-        "version": 1,
-        "job_queues": [
-            {
-                "name": "worker",
-                "strategy": "jql",
-                "adapter": "celery",
-                "queues": [],
-                "options": {},
-            }
-        ],
-    }
-    stub_lease(granted=True, plan=plan)
-    bodies = capture_ingest_bodies()
-    HireFire.configuration.dyno("worker", lambda: 42)
-    dispatcher = HireFire.configuration.dispatcher
-    with (
-        patch("hirefire_resource.plan.executable", return_value=False),
-        patch("hirefire_resource.plan.known_adapter", return_value=True),
-    ):
-        dispatcher._job_queue_tick()
-        dispatcher._job_queue_tick()
-        dispatcher._tick()
-    assert len(bodies) == 0
-    assert caplog.text.count("is not loaded in this process") == 1
-
-
-@mocketize
-def test_executable_plan_without_local_dyno_holds_lease_and_samples():
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_latency(*queues, **options):
-            return 4.2
-
-    plan = {
-        "version": 1,
-        "job_queues": [
-            {
-                "name": "worker",
-                "strategy": "jql",
-                "adapter": "celery",
-                "queues": ["default"],
-                "options": {},
-            }
-        ],
-    }
-    stub_lease(granted=True, plan=plan)
-    bodies = capture_ingest_bodies()
-    dispatcher = HireFire.configuration.dispatcher
-    with (
-        patch(
-            "hirefire_resource.plan.any_allowlisted_job_queue_library_loaded",
-            return_value=True,
-        ),
-        patch("hirefire_resource.plan.executable", return_value=True),
-        patch("hirefire_resource.plan.supports_strategy", return_value=True),
-        patch("hirefire_resource.plan._load_macro", return_value=Macro),
-    ):
-        assert dispatcher._enter_race()
-        assert not HireFire.configuration.job_queues.any()
-        dispatcher._job_queue_tick()
-        assert dispatcher._lease.granted()
-        dispatcher._tick()
-
-    entry = next(e for e in bodies[0] if e["name"] == "worker")
-    assert list(entry["metrics"]["jql"].values())[0] == 4.2
-
-
-@mocketize
-def test_plan_override_warns_once(caplog):
-    with HireFire.configure() as config:
-        config.dyno("worker", lambda: 99)
-    dispatcher = HireFire.configuration.dispatcher
-    dispatcher._lease.job_queues = [
-        {
-            "name": "worker",
-            "adapter": "celery",
-            "strategy": "jql",
-            "queues": [],
-            "options": {},
-        }
-    ]
-    caplog.set_level(logging.WARNING)
-    with (
-        patch.object(plan, "executable", return_value=True),
-        patch.object(plan, "supports_strategy", return_value=True),
-        patch.object(plan, "execute", return_value=None),
-    ):
-        dispatcher._sample_job_queues()
-        dispatcher._sample_job_queues()
-
-    assert caplog.text.count("UI adapter is configured") == 1
-    assert "config.dyno" in caplog.text
-    assert "You can remove" in caplog.text
 
 
 @mocketize
@@ -2038,127 +1878,8 @@ def test_empty_plan_with_local_samplers_still_holds_lease():
 
 
 @mocketize
-def test_hold_lease_false_when_queue_required_entry_has_no_queues():
-    plan = {
-        "version": 1,
-        "job_queues": [
-            {
-                "name": "worker",
-                "strategy": "jqs",
-                "adapter": "celery",
-                "queues": [],
-                "options": {},
-            }
-        ],
-    }
-    stub_lease(granted=True, plan=plan)
-    dispatcher = HireFire.configuration.dispatcher
-    with (
-        patch(
-            "hirefire_resource.plan.any_allowlisted_job_queue_library_loaded",
-            return_value=True,
-        ),
-        patch("hirefire_resource.plan.executable", return_value=True),
-        patch("hirefire_resource.plan.supports_strategy", return_value=True),
-        patch(
-            "hirefire_resource.plan.queues_required",
-            side_effect=lambda adapter: str(adapter) == "celery",
-        ),
-    ):
-        assert dispatcher._enter_race()
-        assert not dispatcher._hold_lease(
-            [
-                {
-                    "name": "worker",
-                    "strategy": "jqs",
-                    "adapter": "celery",
-                    "queues": [],
-                }
-            ]
-        )
-        dispatcher._job_queue_tick()
-        assert not dispatcher._lease.granted()
-
-
-@mocketize
-def test_mixed_plan_skips_empty_queues_required_entry_without_invoking_adapter():
-    executed = []
-    plan = {
-        "version": 1,
-        "job_queues": [
-            {
-                "name": "worker",
-                "strategy": "jqs",
-                "adapter": "rq",
-                "queues": [],
-                "options": {},
-            },
-            {
-                "name": "mail",
-                "strategy": "jqs",
-                "adapter": "celery",
-                "queues": [],
-                "options": {},
-            },
-        ],
-    }
-    stub_lease(granted=True, plan=plan)
-    dispatcher = HireFire.configuration.dispatcher
-
-    def execute(entry, live=None):
-        executed.append(entry.get("adapter"))
-
-    with (
-        patch("hirefire_resource.plan.executable", return_value=True),
-        patch("hirefire_resource.plan.supports_strategy", return_value=True),
-        patch(
-            "hirefire_resource.plan.queues_required",
-            side_effect=lambda adapter: str(adapter) == "celery",
-        ),
-        patch("hirefire_resource.plan.execute", side_effect=execute),
-    ):
-        mixed = [
-            {
-                "name": "worker",
-                "strategy": "jqs",
-                "adapter": "rq",
-                "queues": [],
-            },
-            {
-                "name": "mail",
-                "strategy": "jqs",
-                "adapter": "celery",
-                "queues": [],
-            },
-        ]
-        assert dispatcher._hold_lease(mixed)
-        dispatcher._job_queue_tick()
-
-    assert executed == ["rq"]
-
-
-@mocketize
-def test_hold_lease_true_when_enumerating_adapter_has_empty_queue_list():
-    dispatcher = HireFire.configuration.dispatcher
-    with (
-        patch("hirefire_resource.plan.executable", return_value=True),
-        patch("hirefire_resource.plan.supports_strategy", return_value=True),
-        patch("hirefire_resource.plan.queues_required", return_value=False),
-    ):
-        assert dispatcher._hold_lease(
-            [
-                {
-                    "name": "worker",
-                    "strategy": "jqs",
-                    "adapter": "rq",
-                    "queues": [],
-                }
-            ]
-        )
-
-
-@mocketize
-def test_hold_lease_false_when_only_unsupported_strategy_entries():
+def test_executable_plan_without_local_dyno_holds_lease_and_samples(load_macros):
+    load_macros(celery=fake_macro(job_queue_latency=lambda *queues, **options: 4.2))
     plan = {
         "version": 1,
         "job_queues": [
@@ -2172,37 +1893,17 @@ def test_hold_lease_false_when_only_unsupported_strategy_entries():
         ],
     }
     stub_lease(granted=True, plan=plan)
+    bodies = capture_ingest_bodies()
     dispatcher = HireFire.configuration.dispatcher
-    with (
-        patch(
-            "hirefire_resource.plan.any_allowlisted_job_queue_library_loaded",
-            return_value=True,
-        ),
-        patch("hirefire_resource.plan.executable", return_value=True),
-        patch("hirefire_resource.plan.supports_strategy", return_value=False),
-    ):
+    with patch("hirefire_resource.plan.any_library_loaded", return_value=True):
         assert dispatcher._enter_race()
+        assert not HireFire.configuration.job_queues.any()
         dispatcher._job_queue_tick()
-        assert not dispatcher._lease.granted()
+        assert dispatcher._lease.granted()
+        dispatcher._tick()
 
-
-@mocketize
-def test_hold_lease_true_when_only_supported_plan_entries_without_local_dynos():
-    dispatcher = HireFire.configuration.dispatcher
-    with (
-        patch("hirefire_resource.plan.executable", return_value=True),
-        patch("hirefire_resource.plan.supports_strategy", return_value=True),
-    ):
-        assert dispatcher._hold_lease(
-            [
-                {
-                    "name": "worker",
-                    "strategy": "jql",
-                    "adapter": "celery",
-                    "queues": ["default"],
-                }
-            ]
-        )
+    entry = next(e for e in bodies[0] if e["name"] == "worker")
+    assert list(entry["metrics"]["jql"].values())[0] == 4.2
 
 
 @mocketize
@@ -2222,7 +1923,7 @@ def test_always_lease_non_renew_when_no_workers_and_no_executable_plan():
     stub_lease(granted=True, plan=plan)
     dispatcher = HireFire.configuration.dispatcher
     with patch(
-        "hirefire_resource.plan.any_allowlisted_job_queue_library_loaded",
+        "hirefire_resource.plan.any_library_loaded",
         return_value=True,
     ):
         assert dispatcher._enter_race()
@@ -2267,196 +1968,6 @@ def test_hold_demotion_logs_and_web_dispatch_continues(monkeypatch):
     dispatcher._tick()
     assert any("Lease grant dropped" in m for m in logs)
     assert len(bodies) >= 1
-
-
-@mocketize
-def test_unsupported_plan_strategy_logs_once_and_skips_macro(caplog):
-    caplog.set_level(logging.ERROR)
-    calls = {"n": 0}
-
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return strategy != "jql"
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_size(*queues, **options):
-            return 1
-
-        @staticmethod
-        def job_queue_latency(*queues, **options):
-            calls["n"] += 1
-            raise AssertionError("should not be called")
-
-    plan = {
-        "version": 1,
-        "job_queues": [
-            {
-                "name": "worker",
-                "strategy": "jql",
-                "adapter": "celery",
-                "queues": ["default"],
-                "options": {},
-            }
-        ],
-    }
-    stub_lease(granted=True, plan=plan)
-    bodies = capture_ingest_bodies()
-    HireFire.configuration.dyno("other", lambda: 0)
-    dispatcher = HireFire.configuration.dispatcher
-    with (
-        patch("hirefire_resource.plan.executable", return_value=True),
-        patch("hirefire_resource.plan.supports_strategy", return_value=False),
-        patch("hirefire_resource.plan._load_macro", return_value=Macro),
-    ):
-        dispatcher._job_queue_tick()
-        dispatcher._job_queue_tick()
-        dispatcher._tick()
-    assert calls["n"] == 0
-    assert caplog.text.count("does not support") == 1
-    assert not any(e["name"] == "worker" for body in bodies for e in body)
-
-
-@mocketize
-def test_partial_plan_holds_and_samples_only_executable_entries(caplog):
-    caplog.set_level(logging.ERROR)
-
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return True
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_latency(*queues, **options):
-            return 2.5
-
-    plan = {
-        "version": 1,
-        "job_queues": [
-            {
-                "name": "worker",
-                "strategy": "jql",
-                "adapter": "celery",
-                "queues": ["default"],
-            },
-            {
-                "name": "mailer",
-                "strategy": "jql",
-                "adapter": "rq",
-                "queues": ["mail"],
-            },
-        ],
-    }
-    stub_lease(granted=True, plan=plan)
-    bodies = capture_ingest_bodies()
-    dispatcher = HireFire.configuration.dispatcher
-
-    def executable(adapter):
-        return adapter == "celery"
-
-    def known(adapter):
-        return adapter in ("celery", "rq")
-
-    with (
-        patch(
-            "hirefire_resource.plan.any_allowlisted_job_queue_library_loaded",
-            return_value=True,
-        ),
-        patch("hirefire_resource.plan.executable", side_effect=executable),
-        patch("hirefire_resource.plan.known_adapter", side_effect=known),
-        patch("hirefire_resource.plan.supports_strategy", return_value=True),
-        patch("hirefire_resource.plan._load_macro", return_value=Macro),
-    ):
-        dispatcher._job_queue_tick()
-        assert dispatcher._lease.granted()
-        dispatcher._job_queue_tick()
-        dispatcher._tick()
-
-    names = {e["name"] for e in bodies[0]}
-    assert "worker" in names
-    assert "mailer" not in names
-    assert caplog.text.count("is not loaded in this process") == 1
-
-
-@mocketize
-def test_partial_plan_unsupported_jql_and_supported_jqs_holds_and_samples_size():
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return strategy == "jqs"
-
-        @staticmethod
-        def plan_options(strategy, options):
-            return {}
-
-        @staticmethod
-        def plan_connection_options():
-            return {}
-
-        @staticmethod
-        def job_queue_size(*queues, **options):
-            return 7
-
-        @staticmethod
-        def job_queue_latency(*queues, **options):
-            raise AssertionError("jql must not run")
-
-    plan = {
-        "version": 1,
-        "job_queues": [
-            {
-                "name": "worker",
-                "strategy": "jql",
-                "adapter": "celery",
-                "queues": ["default"],
-            },
-            {
-                "name": "worker",
-                "strategy": "jqs",
-                "adapter": "celery",
-                "queues": ["default"],
-            },
-        ],
-    }
-    stub_lease(granted=True, plan=plan)
-    bodies = capture_ingest_bodies()
-    dispatcher = HireFire.configuration.dispatcher
-
-    def supports(adapter, strategy):
-        return strategy == "jqs"
-
-    with (
-        patch(
-            "hirefire_resource.plan.any_allowlisted_job_queue_library_loaded",
-            return_value=True,
-        ),
-        patch("hirefire_resource.plan.executable", return_value=True),
-        patch("hirefire_resource.plan.supports_strategy", side_effect=supports),
-        patch("hirefire_resource.plan._load_macro", return_value=Macro),
-    ):
-        dispatcher._job_queue_tick()
-        assert dispatcher._lease.granted()
-        dispatcher._tick()
-
-    entry = next(e for e in bodies[0] if e["name"] == "worker")
-    assert "jqs" in entry["metrics"]
-    assert "jql" not in entry["metrics"]
 
 
 @mocketize
@@ -2640,7 +2151,7 @@ def test_fork_resets_always_on_cpu_and_warn_maps(monkeypatch):
     first_cpu = HireFire.configuration.active_cpu_sources()[0]
     assert first_cpu is not None
 
-    remembered = dispatcher._once
+    remembered = dispatcher._sampler
     assert dispatcher.start()
 
     child_pid = dispatcher._pid + 1
@@ -2648,7 +2159,7 @@ def test_fork_resets_always_on_cpu_and_warn_maps(monkeypatch):
         assert dispatcher.start()
         second_cpu = HireFire.configuration.active_cpu_sources()[0]
         assert second_cpu is not first_cpu
-        assert dispatcher._once is not remembered
+        assert dispatcher._sampler is not remembered
         dispatcher.stop()
 
 
@@ -2741,51 +2252,6 @@ def test_wire_payload_nested_multi_strategy_shape(monkeypatch):
 
 
 @mocketize
-def test_sample_job_queues_runs_plan_inside_around_job_queue_sample():
-    order: list[str] = []
-    executed: list[str] = []
-
-    @contextmanager
-    def fake_around():
-        order.append("around-enter")
-        yield
-        order.append("around-exit")
-
-    def fake_execute(entry, live=None):
-        order.append("execute")
-        executed.append(entry["adapter"])
-        assert entry["strategy"] in ("jql", "jqs")
-
-    dispatcher = configure_web_only()
-    dispatcher._lease.job_queues = [
-        {
-            "name": "worker",
-            "adapter": "celery",
-            "strategy": "jql",
-            "queues": ["default"],
-        },
-        {
-            "name": "mailer",
-            "adapter": "rq",
-            "strategy": "jqs",
-            "queues": ["mail"],
-        },
-    ]
-
-    with (
-        patch.object(plan, "around_job_queue_sample", fake_around),
-        patch.object(plan, "execute", side_effect=fake_execute),
-        patch.object(plan, "executable", return_value=True),
-        patch.object(plan, "supports_strategy", return_value=True),
-        patch.object(plan, "known_adapter", return_value=True),
-    ):
-        dispatcher._sample_job_queues()
-
-    assert order == ["around-enter", "execute", "execute", "around-exit"]
-    assert executed == ["celery", "rq"]
-
-
-@mocketize
 def test_first_start_does_not_clear_pre_start_rqt():
     stub_lease()
     Entry.single_register(Entry.POST, INGEST_URL, status=200)
@@ -2841,7 +2307,7 @@ def test_abandon_inherited_state_calls_reinit_macros_after_fork():
     dispatcher = configure_web_only()
     with patch.object(plan, "reinit_macros_after_fork") as reinit:
         dispatcher.abandon_inherited_state()
-        reinit.assert_called_once_with()
+        reinit.assert_called_once_with(HireFire.configuration.logger)
 
 
 @mocketize
@@ -2861,7 +2327,7 @@ def test_start_after_fork_calls_reinit_macros_after_fork():
             patch.object(dispatcher, "_job_queue_tick"),
         ):
             assert dispatcher.start()
-            reinit.assert_called_once_with()
+            reinit.assert_called_once_with(HireFire.configuration.logger)
     finally:
         dispatcher.stop()
 
@@ -2906,66 +2372,3 @@ def test_concurrent_start_during_stop_is_rejected_then_retryable_even_if_a_start
     assert dispatcher.start()
     assert dispatcher.running()
     dispatcher.stop()
-
-
-@mocketize
-def test_unsupported_strategy_once_log_is_isolated_per_name_adapter_strategy(caplog):
-    class Macro:
-        @staticmethod
-        def supports_plan_strategy(strategy):
-            return False
-
-        @staticmethod
-        def job_queue_size(*_a, **_k):
-            return 1
-
-    plan = {
-        "version": 1,
-        "job_queues": [
-            {
-                "name": "worker",
-                "strategy": "jql",
-                "adapter": "celery",
-                "queues": ["default"],
-                "options": {},
-            },
-            {
-                "name": "mailer",
-                "strategy": "jql",
-                "adapter": "celery",
-                "queues": ["default"],
-                "options": {},
-            },
-            {
-                "name": "worker",
-                "strategy": "jql",
-                "adapter": "dramatiq",
-                "queues": ["default"],
-                "options": {},
-            },
-        ],
-    }
-    stub_lease(granted=True, plan=plan)
-    dispatcher = HireFire.configuration.dispatcher
-    HireFire.configuration.dyno("other", lambda: 0)
-    with (
-        caplog.at_level(logging.ERROR),
-        patch("hirefire_resource.plan.executable", return_value=True),
-        patch("hirefire_resource.plan._load_macro", return_value=Macro),
-        patch("hirefire_resource.plan.supports_strategy", return_value=False),
-    ):
-        dispatcher._job_queue_tick()
-        dispatcher._job_queue_tick()
-
-    assert sorted(
-        record.getMessage()[11:]
-        for record in caplog.records
-        if "does not support" in record.getMessage()
-    ) == [
-        "Plan adapter 'celery' does not support strategy 'jql' for 'mailer'. "
-        "Entry skipped.",
-        "Plan adapter 'celery' does not support strategy 'jql' for 'worker'. "
-        "Entry skipped.",
-        "Plan adapter 'dramatiq' does not support strategy 'jql' for 'worker'. "
-        "Entry skipped.",
-    ]

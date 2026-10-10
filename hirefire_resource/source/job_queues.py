@@ -1,22 +1,10 @@
-from collections.abc import Callable, Iterator
-from typing import TYPE_CHECKING
+from collections.abc import Iterator
 
-from hirefire_resource.errors import SampleNotReadyError
-from hirefire_resource.log import format_error, safe_log
-from hirefire_resource.sample import coerce_sample, format_sample_value, valid_sample
 from hirefire_resource.source.job_queue import JobQueue
-from hirefire_resource.strategy import JOB_QUEUE
-
-if TYPE_CHECKING:
-    import logging
-
-    from hirefire_resource.buffer import Buffer
-    from hirefire_resource.configuration import Configuration
 
 
 class JobQueues:
-    def __init__(self, configuration: "Configuration | None" = None) -> None:
-        self._configuration = configuration
+    def __init__(self) -> None:
         self._job_queues: list[JobQueue] = []
 
     def append(self, job_queue: JobQueue) -> None:
@@ -37,67 +25,3 @@ class JobQueues:
             if job_queue.name.lower() == needle:
                 return job_queue
         return None
-
-    def sample_job_queue(
-        self,
-        job_queue: JobQueue | None,
-        strategy: str,
-        live: Callable[[], bool] | None = None,
-        name: str | None = None,
-    ) -> None:
-        if job_queue is None:
-            return
-
-        report_name = (
-            job_queue.name
-            if name is None or not str(name).strip()
-            else str(name).strip()
-        )
-        strategy = str(strategy)
-        if strategy not in JOB_QUEUE:
-            safe_log(
-                self._logger(),
-                "error",
-                f"[HireFire] Unknown job-queue strategy {strategy!r} for "
-                f"{report_name!r}. Sample dropped.",
-            )
-            return
-
-        try:
-            value = job_queue.sample()
-            if live is not None and not live():
-                return
-
-            if not valid_sample(value):
-                safe_log(
-                    self._logger(),
-                    "error",
-                    f"[HireFire] The sampler for {report_name!r} returned "
-                    f"{format_sample_value(value)}, expected a non-negative "
-                    "number. Sample dropped.",
-                )
-                return
-
-            self._buffer().sample(report_name, strategy, coerce_sample(value))
-        except SampleNotReadyError:
-            return
-        except Exception as error:
-            safe_log(
-                self._logger(),
-                "error",
-                f"[HireFire] The sampler for {report_name!r} raised "
-                f"{format_error(error)}",
-            )
-
-    def _buffer(self) -> "Buffer":
-        return self._config().buffer
-
-    def _logger(self) -> "logging.Logger":
-        return self._config().logger
-
-    def _config(self) -> "Configuration":
-        if self._configuration is not None:
-            return self._configuration
-        from hirefire_resource.hirefire import HireFire
-
-        return HireFire.configuration

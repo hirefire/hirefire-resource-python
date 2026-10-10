@@ -15,6 +15,7 @@ after_sample_job_queues = _plan_hooks.after_sample_job_queues
 reinit_after_fork = _plan_hooks.reinit_after_fork
 supports_plan_strategy = _plan_hooks.supports_plan_strategy
 queues_required = _plan_hooks.queues_required
+release = _plan_hooks.release
 
 _SAMPLE_REDIS_TIMEOUT = 5.0
 _PLAN_OPTION_SCHEMA = {JQS: {"skip_working": "boolean"}}

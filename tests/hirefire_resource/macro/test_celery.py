@@ -31,6 +31,7 @@ from hirefire_resource.macro.celery import (
     job_queue_size,
     job_queue_working,
 )
+from tests.helpers import sample_plan
 
 redis_url = f"redis://127.0.0.1:{os.environ.get('REDIS_PORT', '6379')}/0"
 amqp_url = f"amqp://guest:guest@127.0.0.1:{os.environ.get('RABBITMQ_PORT', '5672')}"
@@ -135,9 +136,8 @@ def clear_broker(celery_app):
 
 
 def test_library_loaded_is_true_when_celery_package_is_imported():
-    assert plan.library_loaded("celery")
-    assert plan.executable("celery")
-    assert plan.any_allowlisted_job_queue_library_loaded()
+    assert plan.load_macro("celery") is not None
+    assert plan.any_library_loaded()
 
 
 def test_plan_does_not_import_celery_when_host_is_unloaded():
@@ -154,10 +154,10 @@ def test_plan_does_not_import_celery_when_host_is_unloaded():
     for key in keys:
         removed[key] = sys.modules.pop(key)
     try:
-        assert plan._load_macro("celery") is None
-        with plan.around_job_queue_sample():
+        assert plan.load_macro("celery") is None
+        with plan.around_job_queue_sample(HireFire.configuration.logger):
             pass
-        plan.reinit_macros_after_fork()
+        plan.reinit_macros_after_fork(HireFire.configuration.logger)
         assert "celery" not in sys.modules
         assert "hirefire_resource.macro.celery" not in sys.modules
     finally:
@@ -359,8 +359,8 @@ def test_plan_drops_sample_when_celery_raises_operational_error(monkeypatch, cap
         yield None
 
     monkeypatch.setattr(celery_macro, "_sample_connection", boom)
-    with patch.object(plan, "_load_macro", return_value=celery_macro):
-        plan.execute(
+    with patch.object(plan, "load_macro", return_value=celery_macro):
+        sample_plan(
             {
                 "name": "worker",
                 "adapter": "celery",
@@ -1014,7 +1014,7 @@ def _execute_until_recorded(entry, series):
     flushed = {}
     while series not in flushed.get("worker", {}) and time.monotonic() < deadline:
         time.sleep(_SIZE_POLL_S)
-        plan.execute(entry)
+        sample_plan(entry)
         flushed = HireFire.configuration.buffer.flush()
     return flushed
 
@@ -1038,7 +1038,7 @@ def test_plan_skip_working_samples_the_broker_and_records_wrk_from_the_workers(
     }
 
     HireFire.configuration.buffer.flush()
-    plan.execute(entry)
+    sample_plan(entry)
 
     flushed = HireFire.configuration.buffer.flush()
     assert list(flushed["worker"]["jqs"].values())[-1] == 2
@@ -1073,7 +1073,7 @@ def test_plan_without_skip_working_drops_samples_until_the_workers_are_counted(
     }
 
     HireFire.configuration.buffer.flush()
-    plan.execute(entry)
+    sample_plan(entry)
 
     def logged():
         return [
@@ -1095,7 +1095,7 @@ def test_plan_without_skip_working_drops_samples_until_the_workers_are_counted(
     flushed = {}
     while "jqs" not in flushed.get("worker", {}) and time.monotonic() < deadline:
         time.sleep(_SIZE_POLL_S)
-        plan.execute(entry)
+        sample_plan(entry)
         flushed = HireFire.configuration.buffer.flush()
 
     assert list(flushed["worker"]["jqs"].values())[-1] == 1
@@ -1114,7 +1114,7 @@ def test_plan_jql_records_wrk_once_the_workers_are_counted(celery_app, monkeypat
     }
 
     HireFire.configuration.buffer.flush()
-    plan.execute(entry)
+    sample_plan(entry)
 
     flushed = HireFire.configuration.buffer.flush()
     assert list(flushed["worker"]["jql"].values())[-1] == 0
@@ -1302,7 +1302,7 @@ def test_a_plan_broker_url_wins_over_celery_broker_url(celery_app, monkeypatch):
     }
 
     HireFire.configuration.buffer.flush()
-    plan.execute(entry)
+    sample_plan(entry)
 
     flushed = HireFire.configuration.buffer.flush()
     assert list(flushed["worker"]["jqs"].values())[-1] == 1
