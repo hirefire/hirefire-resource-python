@@ -345,7 +345,7 @@ class Client:
         token = self._configuration.token
         if not token:
             raise RequestError(
-                "HireFire token is not set.\n"
+                "HireFire token is not set. "
                 "Set HIREFIRE_TOKEN or config.token to enable metric dispatch."
             )
         if not (token.isascii() and token.isprintable()):

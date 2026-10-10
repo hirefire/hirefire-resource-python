@@ -4,19 +4,13 @@ import time
 from collections.abc import Callable
 
 from hirefire_resource import HireFire
+from hirefire_resource.identity import presence
 from hirefire_resource.log import format_error
 from hirefire_resource.utility import round_half_up
 
 REQUEST_QUEUE_TIME_LIMIT = 60_000
 
 _LEADING_NUMBER = re.compile(r"\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)")
-
-
-def present_header(value: object | None) -> str | None:
-    if value is None:
-        return None
-    stripped = str(value).strip()
-    return stripped if stripped else None
 
 
 def process_request_queue_time(
@@ -31,7 +25,7 @@ def process_request_queue_time(
 
         if extract is not None:
             request_start = extract()  # type: ignore[assignment]
-        request_start = present_header(request_start)
+        request_start = presence(request_start)
         if not request_start:
             return
 

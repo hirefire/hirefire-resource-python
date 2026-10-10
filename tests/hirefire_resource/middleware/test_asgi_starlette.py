@@ -113,7 +113,7 @@ async def test_non_http_scopes_pass_through_without_sampling(scope_type):
 
     middleware = HireFireMiddleware(inner)
     with patch(
-        "hirefire_resource.middleware.asgi.starlette.process_request_queue_time"
+        "hirefire_resource.middleware.asgi.process_request_queue_time"
     ) as process:
         await middleware({"type": scope_type, "headers": []}, receive, send)
 

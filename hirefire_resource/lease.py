@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 from hirefire_resource.client import Client, Response
 from hirefire_resource.errors import RequestError
 from hirefire_resource.failure_log import FailureLog
-from hirefire_resource.identity import MAX_NAME_BYTES
+from hirefire_resource.identity import MAX_NAME_BYTES, presence
 
 if TYPE_CHECKING:
     from hirefire_resource.configuration import Configuration
@@ -232,21 +232,15 @@ class Lease:
         if not isinstance(entry, dict):
             return None
 
-        name = self._wire_string(entry.get("name"))
-        strategy = self._wire_string(entry.get("strategy"))
+        name = presence(entry.get("name"))
+        strategy = presence(entry.get("strategy"))
         if not name or not strategy or len(name.encode("utf-8")) > MAX_NAME_BYTES:
             return None
 
         normalized = {**entry, "name": name, "strategy": strategy}
         if "adapter" in entry:
-            normalized["adapter"] = self._wire_string(entry["adapter"])
+            normalized["adapter"] = presence(entry["adapter"]) or ""
         return normalized
-
-    @staticmethod
-    def _wire_string(value: object | None) -> str:
-        if value is None:
-            return ""
-        return str(value).strip()
 
     @staticmethod
     def _clamp(value: int, bounds: tuple[int, int]) -> int:
