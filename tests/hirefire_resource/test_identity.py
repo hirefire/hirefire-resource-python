@@ -1,3 +1,5 @@
+import pytest
+
 from hirefire_resource import identity
 
 
@@ -214,3 +216,35 @@ def test_render_service_type_blank_is_not_web_role(monkeypatch):
     monkeypatch.setenv("RENDER_SERVICE_TYPE", "   ")
     assert not identity.render_web_service()
     assert not identity.platform_http_role()
+
+
+@pytest.mark.parametrize(
+    "dyno", ["run.4821", "release.7310", "RUN.12", "run-a1b2c3d4-xyz12"]
+)
+def test_one_off_is_true_for_the_heroku_run_and_release_dynos(dyno, monkeypatch):
+    monkeypatch.setenv("DYNO", dyno)
+
+    assert identity.one_off()
+
+
+def test_one_off_is_false_without_a_dyno():
+    assert identity.ONE_OFF_DYNOS == ("run", "release")
+    assert not identity.one_off()
+
+
+@pytest.mark.parametrize(
+    "dyno", ["web.1", "worker.2", "scheduler.5512", "runner.1", "released.1"]
+)
+def test_one_off_is_false_for_formation_dynos(dyno, monkeypatch):
+    monkeypatch.setenv("DYNO", dyno)
+
+    assert not identity.one_off()
+
+
+def test_one_off_reads_the_dyno_and_not_the_explicit_service_name(monkeypatch):
+    monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "run")
+    assert not identity.one_off()
+
+    monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "web")
+    monkeypatch.setenv("DYNO", "release.7310")
+    assert identity.one_off()

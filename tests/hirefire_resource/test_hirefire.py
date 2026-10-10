@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+import pytest
+
 from hirefire_resource import HireFire
 from hirefire_resource.configuration import Configuration
 from hirefire_resource.dispatcher import Dispatcher
@@ -78,3 +80,38 @@ def test_configure_token_assignment_starts_dispatcher():
             config.token = "inline-token"
             config.dyno("worker", lambda: 1)
         mock_start.assert_called_once()
+
+
+@pytest.mark.parametrize("dyno", ["run.4821", "release.7310", "RUN.1"])
+def test_configure_does_not_start_the_dispatcher_in_a_one_off_dyno(
+    dyno, monkeypatch, set_HIREFIRE_TOKEN
+):
+    monkeypatch.setenv("DYNO", dyno)
+
+    with patch.object(Dispatcher, "start") as start:
+        with HireFire.configure() as config:
+            config.dyno(dyno, lambda: 1)
+        HireFire.boot()
+        start.assert_not_called()
+
+
+def test_configure_does_not_start_in_a_one_off_dyno_that_carries_an_app_wide_service_name(
+    monkeypatch, set_HIREFIRE_TOKEN
+):
+    monkeypatch.setenv("HIREFIRE_SERVICE_NAME", "web")
+    monkeypatch.setenv("DYNO", "run.4821")
+
+    with patch.object(Dispatcher, "start") as start:
+        HireFire.boot()
+        start.assert_not_called()
+
+
+@pytest.mark.parametrize("dyno", ["web.1", "worker.3", "scheduler.5512", "runner.1"])
+def test_configure_starts_the_dispatcher_in_every_other_dyno(
+    dyno, monkeypatch, set_HIREFIRE_TOKEN
+):
+    monkeypatch.setenv("DYNO", dyno)
+
+    with patch.object(Dispatcher, "start") as start:
+        HireFire.boot()
+        start.assert_called_once()

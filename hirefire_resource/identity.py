@@ -2,6 +2,7 @@ import os
 import re
 
 MAX_NAME_BYTES = 128
+ONE_OFF_DYNOS = ("run", "release")
 
 
 def resolve() -> str | None:
@@ -34,6 +35,11 @@ def heroku_conflict() -> bool:
     return bool(
         explicit_name and dyno_name and explicit_name.lower() != dyno_name.lower()
     )
+
+
+def one_off() -> bool:
+    name = heroku_dyno()
+    return name is not None and name.lower() in ONE_OFF_DYNOS
 
 
 def platform_http_role() -> bool:

@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
+from hirefire_resource import identity
 from hirefire_resource.configuration import Configuration
 from hirefire_resource.dispatcher.session import Session
 from hirefire_resource.log import safe_log
@@ -87,6 +88,8 @@ class HireFire:
     @classmethod
     def _start_if_token(cls) -> None:
         if not cls.configuration.token:
+            return
+        if identity.one_off():
             return
         cls.configuration.dispatcher.start()
 
