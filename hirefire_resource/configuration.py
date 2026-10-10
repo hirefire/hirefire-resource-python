@@ -8,7 +8,7 @@ from hirefire_resource._types import Sampler
 from hirefire_resource.buffer import Buffer
 from hirefire_resource.dispatcher import Dispatcher
 from hirefire_resource.errors import DuplicateDynoError, MissingSamplerError
-from hirefire_resource.log import safe_log
+from hirefire_resource.once import Once
 from hirefire_resource.source.cpu import CPU
 from hirefire_resource.source.http import HTTP
 from hirefire_resource.source.job_queue import JobQueue
@@ -26,6 +26,7 @@ class Configuration:
         self.http: HTTP | None = None
         self.job_queues = JobQueues(self)
         self.logger = self._init_logger()
+        self.once = Once(self)
         self._sources_by_name: dict[str, list[str]] = {}
         self._buffer: Buffer | None = None
         self._dispatcher: Dispatcher | None = None
@@ -34,11 +35,6 @@ class Configuration:
         self._always_on_cpu: CPU | None = None
         self._always_on_http: HTTP | None = None
         self._http_active = False
-        self._heroku_conflict_warned = False
-        self._identity_name_too_long_warned = False
-        self._rqt_unresolved_warned = False
-        self._cpu_unresolved_warned = False
-        self._bare_web_dyno_warned = False
 
     @property
     def token(self) -> str | None:
@@ -155,6 +151,7 @@ class Configuration:
 
     def _reinit_locks_after_fork(self) -> None:
         self._mutex = threading.Lock()
+        self.once.unlock_after_fork()
         if self._buffer is not None:
             self._buffer.reinit_locks_after_fork()
         if self._dispatcher is not None:
@@ -196,66 +193,60 @@ class Configuration:
         self._sources_by_name[key] = kinds + [source]
 
     def _warn_identity_name_too_long_once(self, name: str) -> None:
-        if self._identity_name_too_long_warned:
-            return
-        self._identity_name_too_long_warned = True
-        byte_len = len(name.encode("utf-8"))
-        safe_log(
-            self.logger,
+        self.once.log(
             "error",
-            f"[HireFire] Process identity exceeds {identity.MAX_NAME_BYTES} bytes "
-            f"({byte_len}). Metrics under this identity are disabled until the "
-            "name is shortened.",
+            "identity_name_too_long",
+            lambda: (
+                f"[HireFire] Process identity exceeds {identity.MAX_NAME_BYTES} bytes "
+                f"({len(name.encode('utf-8'))}). Metrics under this identity are "
+                "disabled until the name is shortened."
+            ),
         )
 
     def _warn_bare_web_dyno_once(self) -> None:
-        if self._bare_web_dyno_warned:
-            return
-        self._bare_web_dyno_warned = True
-        safe_log(
-            self.logger,
+        self.once.log(
             "warning",
-            '[HireFire] config.dyno("web") is deprecated. It does nothing. '
-            "Request queue time is sampled automatically from HTTP traffic. "
-            "You can remove this line. Leaving it does not break anything.",
+            "bare_web_dyno",
+            lambda: (
+                '[HireFire] config.dyno("web") is deprecated. It does nothing. '
+                "Request queue time is sampled automatically from HTTP traffic. "
+                "You can remove this line. Leaving it does not break anything."
+            ),
         )
 
     def _warn_rqt_unresolved_once(self) -> None:
-        if self._rqt_unresolved_warned:
-            return
-        self._rqt_unresolved_warned = True
-        safe_log(
-            self.logger,
+        self.once.log(
             "warning",
-            "[HireFire] Request queue time samples dropped: process identity "
-            "is unresolved. Set HIREFIRE_SERVICE_NAME or DYNO.",
+            "rqt_unresolved",
+            lambda: (
+                "[HireFire] Request queue time samples dropped: process identity "
+                "is unresolved. Set HIREFIRE_SERVICE_NAME or DYNO."
+            ),
         )
 
     def _warn_heroku_conflict_once(self) -> None:
-        if self._heroku_conflict_warned:
-            return
         if not identity.heroku_conflict():
             return
-        self._heroku_conflict_warned = True
-        safe_log(
-            self.logger,
+        self.once.log(
             "warning",
-            f"[HireFire] HIREFIRE_SERVICE_NAME ({identity.explicit()}) does not "
-            f"match the Heroku DYNO prefix ({identity.heroku_dyno()}). Heroku config "
-            "vars are app-wide, so this makes every dyno identify as the same name. "
-            "Set it inline per process in the Procfile, or unset it to use automatic "
-            "detection.",
+            "heroku_conflict",
+            lambda: (
+                f"[HireFire] HIREFIRE_SERVICE_NAME ({identity.explicit()}) does not "
+                f"match the Heroku DYNO prefix ({identity.heroku_dyno()}). Heroku "
+                "config vars are app-wide, so this makes every dyno identify as the "
+                "same name. Set it inline per process in the Procfile, or unset it "
+                "to use automatic detection."
+            ),
         )
 
     def _warn_cpu_unresolved_once(self) -> None:
-        if self._cpu_unresolved_warned:
-            return
-        self._cpu_unresolved_warned = True
-        safe_log(
-            self.logger,
+        self.once.log(
             "warning",
-            "[HireFire] CPU metrics disabled: process identity is unresolved. "
-            "Set HIREFIRE_SERVICE_NAME or DYNO.",
+            "cpu_unresolved",
+            lambda: (
+                "[HireFire] CPU metrics disabled: process identity is unresolved. "
+                "Set HIREFIRE_SERVICE_NAME or DYNO."
+            ),
         )
 
     def _init_logger(self) -> logging.Logger:

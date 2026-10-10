@@ -15,6 +15,7 @@ from hirefire_resource import HireFire, identity, plan
 from hirefire_resource.dispatcher import Dispatcher
 from hirefire_resource.errors import RequestError
 from hirefire_resource.lease import Lease
+from hirefire_resource.once import Once
 from hirefire_resource.source.cpu.usage import Usage
 from tests.helpers import at, set_HIREFIRE_TOKEN  # noqa: F401
 
@@ -1783,7 +1784,7 @@ def test_unknown_plan_adapter_skips_without_local_fallback(caplog):
 @mocketize
 def test_a_full_plan_of_unknown_adapters_warns_once_per_entry(caplog):
     caplog.set_level(logging.ERROR)
-    assert Dispatcher.WARN_MAP_LIMIT == Lease.MAX_JOB_QUEUES
+    assert Once.LIMIT == Lease.MAX_JOB_QUEUES
     plan = {
         "version": 1,
         "job_queues": [
@@ -2639,10 +2640,7 @@ def test_fork_resets_always_on_cpu_and_warn_maps(monkeypatch):
     first_cpu = HireFire.configuration.active_cpu_sources()[0]
     assert first_cpu is not None
 
-    dispatcher._unloaded_adapter_warned = {"worker": True}
-    dispatcher._plan_override_warned = {"worker": True}
-    dispatcher._unknown_adapter_warned = {"worker": True}
-    dispatcher._unsupported_strategy_warned = {"worker\0bunny\0jql": True}
+    remembered = dispatcher._once
     assert dispatcher.start()
 
     child_pid = dispatcher._pid + 1
@@ -2650,10 +2648,7 @@ def test_fork_resets_always_on_cpu_and_warn_maps(monkeypatch):
         assert dispatcher.start()
         second_cpu = HireFire.configuration.active_cpu_sources()[0]
         assert second_cpu is not first_cpu
-        assert dispatcher._unloaded_adapter_warned == {}
-        assert dispatcher._plan_override_warned == {}
-        assert dispatcher._unknown_adapter_warned == {}
-        assert dispatcher._unsupported_strategy_warned == {}
+        assert dispatcher._once is not remembered
         dispatcher.stop()
 
 
@@ -2962,8 +2957,15 @@ def test_unsupported_strategy_once_log_is_isolated_per_name_adapter_strategy(cap
         dispatcher._job_queue_tick()
         dispatcher._job_queue_tick()
 
-    assert caplog.text.count("does not support") == 3
-    warned = dispatcher._unsupported_strategy_warned
-    assert "worker\0celery\0jql" in warned
-    assert "mailer\0celery\0jql" in warned
-    assert "worker\0dramatiq\0jql" in warned
+    assert sorted(
+        record.getMessage()[11:]
+        for record in caplog.records
+        if "does not support" in record.getMessage()
+    ) == [
+        "Plan adapter 'celery' does not support strategy 'jql' for 'mailer'. "
+        "Entry skipped.",
+        "Plan adapter 'celery' does not support strategy 'jql' for 'worker'. "
+        "Entry skipped.",
+        "Plan adapter 'dramatiq' does not support strategy 'jql' for 'worker'. "
+        "Entry skipped.",
+    ]

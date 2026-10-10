@@ -9,6 +9,7 @@ from hirefire_resource.buffer import Buffer
 from hirefire_resource.client import Client, Response
 from hirefire_resource.lease import Lease
 from hirefire_resource.log import format_error, safe_log
+from hirefire_resource.once import Once
 from hirefire_resource.probe import Probe
 from hirefire_resource.strategy import RQT, rqt
 
@@ -25,7 +26,6 @@ def _plan() -> Any:
 class Dispatcher:
     RQT_BACKFILL_LIMIT = 60
     PAYLOAD_SIZE_LIMIT = 131_072
-    WARN_MAP_LIMIT = 256
     SAMPLE_COUNT_LIMIT = Buffer.SAMPLE_COUNT_LIMIT
     METRIC_VALUE_LIMIT = 1e15
     DEFAULT_DISPATCH_FREQUENCY = 1
@@ -49,12 +49,7 @@ class Dispatcher:
         self._dispatch_frequency = self.DEFAULT_DISPATCH_FREQUENCY
         self._next_dispatch_at: float | None = None
         self._pending_sample_trace: dict[str, Any] | None = None
-        self._unloaded_adapter_warned: dict[str, bool] = {}
-        self._plan_override_warned: dict[str, bool] = {}
-        self._unknown_adapter_warned: dict[str, bool] = {}
-        self._unsupported_strategy_warned: dict[str, bool] = {}
-        self._unknown_strategy_warned: dict[str, bool] = {}
-        self._empty_queues_warned: dict[str, bool] = {}
+        self._once = Once(self._configuration())
 
     def start(self) -> bool:
         if self._healthy_running():
@@ -346,12 +341,7 @@ class Dispatcher:
         self._last_rqt_second = None
         self._dispatch_frequency = self.DEFAULT_DISPATCH_FREQUENCY
         self._pending_sample_trace = None
-        self._unloaded_adapter_warned = {}
-        self._plan_override_warned = {}
-        self._unknown_adapter_warned = {}
-        self._unsupported_strategy_warned = {}
-        self._unknown_strategy_warned = {}
-        self._empty_queues_warned = {}
+        self._once = Once(self._configuration())
 
     def _enter_race(self) -> bool:
         return (
@@ -450,77 +440,73 @@ class Dispatcher:
                 job_queue, strategy, live=live, name=name.strip()
             )
 
-    def _remember_warn(self, store: dict[str, bool], key: str) -> bool:
-        if key in store:
-            return True
-        while len(store) >= self.WARN_MAP_LIMIT:
-            store.pop(next(iter(store)))
-        store[key] = True
-        return False
-
     def _warn_unloaded_adapter_once(self, name: str, adapter: object) -> None:
-        if self._remember_warn(self._unloaded_adapter_warned, name):
-            return
-        safe_log(
-            self._logger(),
+        self._once.log(
             "error",
-            f"[HireFire] Plan adapter {adapter!r} for {name!r} "
-            "is not loaded in this process. Entry skipped.",
+            "unloaded_adapter",
+            lambda: (
+                f"[HireFire] Plan adapter {adapter!r} for {name!r} "
+                "is not loaded in this process. Entry skipped."
+            ),
+            key=name,
         )
 
     def _warn_plan_override_once(self, name: str) -> None:
-        if self._remember_warn(self._plan_override_warned, name):
-            return
-        safe_log(
-            self._logger(),
+        self._once.log(
             "warning",
-            f"[HireFire] A HireFire UI adapter is configured for {name!r}, so "
-            f"config.dyno({name!r}) with a local sampler is ignored. You can remove "
-            "that local configuration. The UI adapter is used instead.",
+            "plan_override",
+            lambda: (
+                f"[HireFire] A HireFire UI adapter is configured for {name!r}, so "
+                f"config.dyno({name!r}) with a local sampler is ignored. You can "
+                "remove that local configuration. The UI adapter is used instead."
+            ),
+            key=name,
         )
 
     def _warn_unknown_adapter_once(self, name: str, adapter: object) -> None:
-        if self._remember_warn(self._unknown_adapter_warned, name):
-            return
-        safe_log(
-            self._logger(),
+        self._once.log(
             "error",
-            f"[HireFire] Unknown plan adapter {adapter!r} for {name!r}. Entry skipped.",
+            "unknown_adapter",
+            lambda: (
+                f"[HireFire] Unknown plan adapter {adapter!r} for {name!r}. "
+                "Entry skipped."
+            ),
+            key=name,
         )
 
     def _warn_unsupported_strategy_once(
         self, name: str, adapter: object, strategy: object
     ) -> None:
-        key = f"{name}\0{adapter}\0{strategy}"
-        if self._remember_warn(self._unsupported_strategy_warned, key):
-            return
-        safe_log(
-            self._logger(),
+        self._once.log(
             "error",
-            f"[HireFire] Plan adapter {adapter!r} does not support "
-            f"strategy {strategy!r} for {name!r}. Entry skipped.",
+            "unsupported_strategy",
+            lambda: (
+                f"[HireFire] Plan adapter {adapter!r} does not support "
+                f"strategy {strategy!r} for {name!r}. Entry skipped."
+            ),
+            key=(name, adapter, strategy),
         )
 
     def _warn_unknown_strategy_once(self, name: str, strategy: object) -> None:
-        key = f"{name}\0{strategy}"
-        if self._remember_warn(self._unknown_strategy_warned, key):
-            return
-        safe_log(
-            self._logger(),
+        self._once.log(
             "error",
-            f"[HireFire] Unknown plan strategy {strategy!r} for "
-            f"{name!r}. Entry skipped.",
+            "unknown_strategy",
+            lambda: (
+                f"[HireFire] Unknown plan strategy {strategy!r} for "
+                f"{name!r}. Entry skipped."
+            ),
+            key=(name, strategy),
         )
 
     def _warn_empty_queues_once(self, name: str, adapter: object) -> None:
-        key = f"{name}\0{adapter}"
-        if self._remember_warn(self._empty_queues_warned, key):
-            return
-        safe_log(
-            self._logger(),
+        self._once.log(
             "error",
-            f"[HireFire] Plan adapter {adapter!r} for {name!r} "
-            "requires named queues. Entry skipped.",
+            "queues_required",
+            lambda: (
+                f"[HireFire] Plan adapter {adapter!r} for {name!r} "
+                "requires named queues. Entry skipped."
+            ),
+            key=(name, adapter),
         )
 
     @staticmethod
