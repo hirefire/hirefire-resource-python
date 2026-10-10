@@ -2008,7 +2008,7 @@ def test_rabbitmq_channel_404_recovers_for_next_queue(monkeypatch):
             state["declares"].append(queue)
             if queue == "gone":
                 self.is_closed = True
-                raise dramatiq_macro.AMQPChannelError("404 NOT_FOUND")
+                raise pika.exceptions.ChannelClosedByBroker(404, "NOT_FOUND")
             return Result()
 
     class Connection:
@@ -2030,6 +2030,32 @@ def test_rabbitmq_channel_404_recovers_for_next_queue(monkeypatch):
     assert "gone" in state["declares"]
     assert "alive" in state["declares"]
     assert state["channels"] >= 2
+
+
+def test_rabbitmq_channel_error_other_than_a_missing_queue_raises(monkeypatch):
+    class Channel:
+        is_closed = False
+
+        def queue_declare(self, queue, passive=False):
+            self.is_closed = True
+            raise pika.exceptions.ChannelClosedByBroker(403, "ACCESS_REFUSED 404")
+
+    class Connection:
+        is_open = True
+
+        def channel(self):
+            return Channel()
+
+        def close(self):
+            self.is_open = False
+
+    monkeypatch.setattr(
+        dramatiq_macro.pika, "BlockingConnection", lambda *a, **k: Connection()
+    )
+    monkeypatch.setattr(dramatiq_macro.pika, "URLParameters", lambda url: {"url": url})
+
+    with pytest.raises(pika.exceptions.ChannelClosedByBroker):
+        job_queue_size("default", broker_url=amqp_url)
 
 
 def test_rabbitmq_generic_error_with_404_in_message_raises(monkeypatch):

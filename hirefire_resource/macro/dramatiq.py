@@ -526,6 +526,10 @@ def _redis_dq_stats(
     return stats
 
 
+def _queue_missing(error: Exception) -> bool:
+    return getattr(error, "reply_code", None) == 404
+
+
 def _rabbitmq_job_queue_size(connection: Any, queues: set[str]) -> int:
     channel = connection.channel()
     total = 0
@@ -542,11 +546,7 @@ def _rabbitmq_ready_count(connection: Any, channel: Any, queue: str) -> tuple[in
         result = channel.queue_declare(queue=queue, passive=True)
         return int(result.method.message_count), channel
     except AMQPChannelError as error:
-        if (
-            "404" in str(error)
-            or "NOT_FOUND" in str(error)
-            or getattr(channel, "is_closed", False)
-        ):
+        if _queue_missing(error):
             try:
                 channel = connection.channel()
             except Exception:
@@ -573,11 +573,7 @@ def _rabbitmq_queue_latency(
     try:
         method, _properties, body = channel.basic_get(queue, auto_ack=False)
     except AMQPChannelError as error:
-        if (
-            "404" in str(error)
-            or "NOT_FOUND" in str(error)
-            or getattr(channel, "is_closed", False)
-        ):
+        if _queue_missing(error):
             try:
                 channel = connection.channel()
             except Exception:
