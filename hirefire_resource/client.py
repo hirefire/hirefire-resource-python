@@ -8,11 +8,14 @@ import time
 from dataclasses import dataclass
 from email.message import Message
 from functools import partial
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import ParseResult, urlparse
 
 from hirefire_resource.errors import RequestError
 from hirefire_resource.version import VERSION
+
+if TYPE_CHECKING:
+    from hirefire_resource.configuration import Configuration
 
 _DEFAULT_BASE_URL = "https://data.hirefire.io"
 
@@ -96,7 +99,10 @@ class Client:
     SEND_BYTES = 16_384
     KEEP_ALIVE_TIMEOUT = 60
 
-    def __init__(self, timeout: float = TIMEOUT) -> None:
+    def __init__(
+        self, configuration: "Configuration", timeout: float = TIMEOUT
+    ) -> None:
+        self._configuration = configuration
         self._timeout = timeout
         self._mutex = threading.Lock()
         self._connection: http.client.HTTPConnection | None = None
@@ -323,13 +329,8 @@ class Client:
             return _DEFAULT_BASE_URL
         return stripped
 
-    def _token(self) -> str | None:
-        from hirefire_resource.hirefire import HireFire
-
-        return HireFire.configuration.token
-
     def _require_token(self) -> str:
-        token = self._token()
+        token = self._configuration.token
         if token:
             return token
 

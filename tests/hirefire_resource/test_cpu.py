@@ -4,6 +4,7 @@ from unittest.mock import patch
 from freezegun import freeze_time
 
 from hirefire_resource import HireFire
+from hirefire_resource.buffer import Buffer
 from hirefire_resource.source.cpu import CPU
 from hirefire_resource.source.cpu.usage import Usage
 from tests.helpers import at
@@ -22,10 +23,28 @@ def test_first_sample_only_seeds_the_baseline():
         patch.object(Usage, "reading", return_value=(10.0, "cgroup_v2")),
         patch.object(Usage, "available_cpus", return_value=1.0),
     ):
-        collector = CPU("clock")
+        collector = CPU("clock", HireFire.configuration.buffer)
         with freeze_time(at(1000)):
             assert collector.sample() is None
         assert buffer().flush() == {}
+
+
+def test_samples_go_to_the_buffer_it_was_given():
+    own = Buffer()
+    with (
+        patch.object(
+            Usage, "reading", side_effect=[(0.0, "cgroup_v2"), (0.5, "cgroup_v2")]
+        ),
+        patch.object(Usage, "available_cpus", return_value=1.0),
+    ):
+        collector = CPU("clock", own)
+        with freeze_time(at(1000)):
+            collector.sample()
+        with freeze_time(at(1001)):
+            collector.sample()
+
+    assert buffer().flush() == {}
+    assert own.flush() == {"clock": {"cpu": {1001: 50.0}}}
 
 
 def test_normalizes_by_fractional_available_cpus():
@@ -35,7 +54,7 @@ def test_normalizes_by_fractional_available_cpus():
         ),
         patch.object(Usage, "available_cpus", return_value=0.5),
     ):
-        collector = CPU("clock")
+        collector = CPU("clock", HireFire.configuration.buffer)
         with freeze_time(at(1000)):
             collector.sample()
         with freeze_time(at(1001)):
@@ -51,7 +70,7 @@ def test_second_sample_buffers_normalized_percentage():
         ),
         patch.object(Usage, "available_cpus", return_value=1.0),
     ):
-        collector = CPU("clock")
+        collector = CPU("clock", HireFire.configuration.buffer)
         with freeze_time(at(1000)):
             collector.sample()
         with freeze_time(at(1001)):
@@ -67,7 +86,7 @@ def test_sample_rounds_percentage_to_two_decimal_places():
         ),
         patch.object(Usage, "available_cpus", return_value=1.0),
     ):
-        collector = CPU("clock")
+        collector = CPU("clock", HireFire.configuration.buffer)
         with freeze_time(at(1000)):
             collector.sample()
         with freeze_time(at(1001)):
@@ -83,7 +102,7 @@ def test_sample_rounds_exact_half_up_to_two_decimal_places():
         ),
         patch.object(Usage, "available_cpus", return_value=1.0),
     ):
-        collector = CPU("clock")
+        collector = CPU("clock", HireFire.configuration.buffer)
         with freeze_time(at(1000)):
             collector.sample()
         with freeze_time(at(1001)):
@@ -99,7 +118,7 @@ def test_zero_utilization_buffers_zero():
         ),
         patch.object(Usage, "available_cpus", return_value=1.0),
     ):
-        collector = CPU("clock")
+        collector = CPU("clock", HireFire.configuration.buffer)
         with freeze_time(at(1000)):
             collector.sample()
         with freeze_time(at(1001)):
@@ -115,7 +134,7 @@ def test_normalizes_by_available_cpus():
         ),
         patch.object(Usage, "available_cpus", return_value=4.0),
     ):
-        collector = CPU("worker")
+        collector = CPU("worker", HireFire.configuration.buffer)
         with freeze_time(at(1000)):
             collector.sample()
         with freeze_time(at(1001)):
@@ -131,7 +150,7 @@ def test_clamps_to_100_percent():
         ),
         patch.object(Usage, "available_cpus", return_value=1.0),
     ):
-        collector = CPU("clock")
+        collector = CPU("clock", HireFire.configuration.buffer)
         with freeze_time(at(1000)):
             collector.sample()
         with freeze_time(at(1001)):
@@ -149,7 +168,7 @@ def test_negative_usage_delta_skips_and_reseeds_the_baseline():
         ),
         patch.object(Usage, "available_cpus", return_value=1.0),
     ):
-        collector = CPU("clock")
+        collector = CPU("clock", HireFire.configuration.buffer)
         with freeze_time(at(1000)):
             collector.sample()
         with freeze_time(at(1001)):
@@ -169,7 +188,7 @@ def test_source_change_skips_and_reseeds_the_baseline():
         ),
         patch.object(Usage, "available_cpus", return_value=1.0),
     ):
-        collector = CPU("clock")
+        collector = CPU("clock", HireFire.configuration.buffer)
         with freeze_time(at(1000)):
             collector.sample()
         with freeze_time(at(1001)):
@@ -185,7 +204,7 @@ def test_skips_sample_when_usage_unavailable():
         patch.object(Usage, "reading", return_value=(None, None)),
         patch.object(Usage, "available_cpus", return_value=1.0),
     ):
-        collector = CPU("clock")
+        collector = CPU("clock", HireFire.configuration.buffer)
         with freeze_time(at(1000)):
             collector.sample()
         with freeze_time(at(1001)):
@@ -200,7 +219,7 @@ def test_non_positive_elapsed_delta_skips_the_sample():
         ),
         patch.object(Usage, "available_cpus", return_value=1.0),
     ):
-        collector = CPU("clock")
+        collector = CPU("clock", HireFire.configuration.buffer)
         with freeze_time(at(1000)):
             collector.sample()
             assert collector.sample() is None
@@ -214,7 +233,7 @@ def test_elapsed_delta_uses_the_monotonic_clock_not_wall_time():
         ),
         patch.object(Usage, "available_cpus", return_value=1.0),
     ):
-        collector = CPU("clock")
+        collector = CPU("clock", HireFire.configuration.buffer)
         with freeze_time(at(1000)), patch("time.monotonic", side_effect=[100.0, 101.0]):
             collector.sample()
             collector.sample()
@@ -229,7 +248,7 @@ def test_skips_sample_when_available_cpus_is_none():
         ),
         patch.object(Usage, "available_cpus", return_value=None),
     ):
-        collector = CPU("clock")
+        collector = CPU("clock", HireFire.configuration.buffer)
         with freeze_time(at(1000)):
             collector.sample()
         with freeze_time(at(1001)):
@@ -244,7 +263,7 @@ def test_skips_sample_when_available_cpus_is_zero():
         ),
         patch.object(Usage, "available_cpus", return_value=0.0),
     ):
-        collector = CPU("clock")
+        collector = CPU("clock", HireFire.configuration.buffer)
         with freeze_time(at(1000)):
             collector.sample()
         with freeze_time(at(1001)):
@@ -261,7 +280,7 @@ def test_recovers_after_an_initially_unavailable_usage_source():
         ),
         patch.object(Usage, "available_cpus", return_value=1.0),
     ):
-        collector = CPU("clock")
+        collector = CPU("clock", HireFire.configuration.buffer)
         with freeze_time(at(1000)):
             assert collector.sample() is None
         with freeze_time(at(1001)):

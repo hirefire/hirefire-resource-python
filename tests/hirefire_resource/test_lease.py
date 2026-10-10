@@ -11,8 +11,10 @@ from freezegun import freeze_time
 from mocket import Mocket, mocketize
 from mocket.mockhttp import Entry, Response
 
+from hirefire_resource import HireFire
 from hirefire_resource.client import Client
 from hirefire_resource.client import Response as ClientResponse
+from hirefire_resource.configuration import Configuration
 from hirefire_resource.errors import RequestError
 from hirefire_resource.identity import MAX_NAME_BYTES
 from hirefire_resource.lease import Lease
@@ -43,7 +45,7 @@ def worker_grant():
 
 
 def test_process_id_is_stable_uuid():
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     assert re.match(
         r"\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z",
         lease.process_id,
@@ -52,13 +54,13 @@ def test_process_id_is_stable_uuid():
 
 
 def test_not_granted_by_default():
-    assert not Lease().granted()
+    assert not Lease(HireFire.configuration).granted()
 
 
 @mocketize
 def test_granted_after_successful_poll():
     stub_lease(granted="true", **{"HireFire-Sample-Frequency": "15"})
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert lease.granted()
 
@@ -66,7 +68,7 @@ def test_granted_after_successful_poll():
 @mocketize
 def test_denied_after_poll():
     stub_lease(granted="false", **{"HireFire-Sample-Frequency": "15"})
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert not lease.granted()
 
@@ -74,7 +76,7 @@ def test_denied_after_poll():
 @mocketize
 def test_updates_sample_frequency_from_response():
     stub_lease(granted="false", **{"HireFire-Sample-Frequency": "30"})
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert lease.sample_frequency == 30
 
@@ -82,7 +84,7 @@ def test_updates_sample_frequency_from_response():
 @mocketize
 def test_updates_ttl_from_response():
     stub_lease(granted="false", **{"HireFire-Lease-TTL": "30"})
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert lease._ttl == 30
 
@@ -90,7 +92,7 @@ def test_updates_ttl_from_response():
 @mocketize
 def test_not_polled_before_interval_elapsed():
     stub_lease(granted="false", **{"HireFire-Sample-Frequency": "15"})
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     lease.request_if_due(hold=lambda _plan: True)
     assert len(Mocket.request_list()) == 1
@@ -99,7 +101,7 @@ def test_not_polled_before_interval_elapsed():
 @mocketize
 def test_silently_denied_on_unauthorized():
     Entry.single_register(Entry.POST, LEASE_URL, status=401)
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert not lease.granted()
 
@@ -121,7 +123,7 @@ def test_revokes_granted_lease_on_unauthorized():
     )
 
     with freeze_time(at(1000)) as frozen:
-        lease = Lease()
+        lease = Lease(HireFire.configuration)
         lease.request_if_due(hold=lambda _plan: True)
         assert lease.granted()
 
@@ -134,7 +136,7 @@ def test_transport_failure_demotes_and_waits_a_full_ttl():
     with patch.object(
         Client, "request_lease", side_effect=RequestError("Network error")
     ) as request_lease:
-        lease = Lease()
+        lease = Lease(HireFire.configuration)
         with pytest.raises(RequestError):
             lease.request_if_due(hold=lambda _plan: True)
         assert not lease.granted()
@@ -148,7 +150,7 @@ def test_transport_failure_revokes_granted_lease():
     stub_lease(granted="true")
 
     with freeze_time(at(1000)) as frozen:
-        lease = Lease()
+        lease = Lease(HireFire.configuration)
         lease.request_if_due(hold=lambda _plan: True)
         assert lease.granted()
 
@@ -166,7 +168,7 @@ def test_ttl_update_applies_to_the_current_window():
     stub_lease(granted="true", **{"HireFire-Lease-TTL": "30"})
 
     with freeze_time(at(1000)):
-        lease = Lease()
+        lease = Lease(HireFire.configuration)
         lease.request_if_due(hold=lambda _plan: True)
 
     assert lease._expires_at == 1030
@@ -175,7 +177,7 @@ def test_ttl_update_applies_to_the_current_window():
 @mocketize
 def test_raises_on_server_error():
     Entry.single_register(Entry.POST, LEASE_URL, status=500)
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
 
     with pytest.raises(RequestError) as exc_info:
         lease.request_if_due(hold=lambda _plan: True)
@@ -187,7 +189,7 @@ def test_raises_on_server_error():
 @mocketize
 def test_sends_process_id_header():
     stub_lease(granted="false", **{"HireFire-Sample-Frequency": "15"})
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert Mocket.last_request().headers.get("hirefire-process-id") == lease.process_id
 
@@ -201,7 +203,7 @@ def test_a_process_that_dropped_a_grant_asks_again_after_the_drop_wait():
     stub_lease(granted="true", **{"HireFire-Lease-TTL": "5"})
 
     with freeze_time(at(1000)) as frozen:
-        lease = Lease()
+        lease = Lease(HireFire.configuration)
         lease.request_if_due(hold=lambda _plan: False)
         assert lease_requests() == 1
 
@@ -220,7 +222,7 @@ def test_the_drop_wait_is_three_times_a_ttl_that_makes_it_longer():
     stub_lease(granted="true", **{"HireFire-Lease-TTL": "30"})
 
     with freeze_time(at(1000)) as frozen:
-        lease = Lease()
+        lease = Lease(HireFire.configuration)
         lease.request_if_due(hold=lambda _plan: False)
 
         frozen.move_to(at(1089))
@@ -237,7 +239,7 @@ def test_a_process_that_is_denied_the_lease_asks_again_after_its_ttl():
     stub_lease(granted="false", **{"HireFire-Lease-TTL": "5"})
 
     with freeze_time(at(1000)) as frozen:
-        lease = Lease()
+        lease = Lease(HireFire.configuration)
         lease.request_if_due(hold=lambda _plan: False)
 
         frozen.move_to(at(1005))
@@ -268,7 +270,7 @@ def test_hold_false_drops_grant_without_sampling():
         },
         body=body,
     )
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     original = lease.process_id
     epoch_before = lease._epoch
     lease.request_if_due(hold=lambda _plan: False)
@@ -305,7 +307,7 @@ def test_sample_frequency_decrease_pulls_next_sample_forward():
 
     mono = [5000.0]
     with patch("time.monotonic", side_effect=lambda: mono[0]):
-        lease = Lease()
+        lease = Lease(HireFire.configuration)
         lease.request_if_due(hold=lambda _plan: True)
         assert lease.granted()
         lease.sample_if_due(lambda: None)
@@ -320,7 +322,7 @@ def test_sample_frequency_decrease_pulls_next_sample_forward():
 
 
 def test_demote_clears_grant_and_invalidates_inflight_epoch():
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease._granted = True
     lease.job_queues = [{"name": "worker", "strategy": "jql"}]
     original = lease.process_id
@@ -334,7 +336,7 @@ def test_demote_clears_grant_and_invalidates_inflight_epoch():
 
 @mocketize
 def test_demote_during_inflight_request_discards_late_grant():
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     client = lease._client
 
     def late_grant(_process_id):
@@ -351,7 +353,7 @@ def test_demote_during_inflight_request_discards_late_grant():
 
 @mocketize
 def test_demote_between_epoch_check_and_commit_cannot_resurrect_grant():
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     client = lease._client
 
     inner = threading.Lock()
@@ -428,7 +430,7 @@ def test_regrant_rearms_next_sample_immediately():
 
     mono = [1000.0]
     with patch("time.monotonic", side_effect=lambda: mono[0]):
-        lease = Lease()
+        lease = Lease(HireFire.configuration)
         lease.request_if_due(hold=lambda _plan: True)
         assert lease.granted()
         lease.sample_if_due(lambda: None)
@@ -467,7 +469,7 @@ def test_parses_hyphenated_job_queue_name():
             }
         ),
     )
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert lease.granted()
     assert len(lease.job_queues) == 1
@@ -492,7 +494,7 @@ def test_parses_grant_trace_true():
             }
         ),
     )
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert lease.granted()
     assert lease.trace() is True
@@ -516,7 +518,7 @@ def test_trace_false_for_string_or_missing():
             }
         ),
     )
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert lease.granted()
     assert lease.trace() is False
@@ -534,7 +536,7 @@ def test_a_grant_body_over_the_limit_fails_the_lease_request():
         },
         body="x" * (Client.MAX_BODY_BYTES + 1),
     )
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     with pytest.raises(RequestError, match="Response body exceeded 131072 bytes"):
         lease.request_if_due(hold=lambda _plan: True)
     assert not lease.granted()
@@ -569,7 +571,7 @@ def test_accepts_grant_body_of_exactly_max_body_bytes(caplog):
         },
         body=body,
     )
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert [entry["name"] for entry in lease.job_queues] == ["worker"]
     assert caplog.text == ""
@@ -601,7 +603,7 @@ def test_accepts_a_plan_of_max_job_queues_with_three_queues_each(caplog):
         },
         body=body,
     )
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert lease.job_queues == entries
     assert caplog.text == ""
@@ -617,9 +619,34 @@ def plan_of(valid, invalid=0):
         headers={"HireFire-Lease-Granted": "true"},
         body=json.dumps({"version": 1, "job_queues": entries}),
     )
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     return lease
+
+
+@mocketize
+def test_logs_to_the_logger_of_the_configuration_it_was_given(caplog):
+    received = []
+
+    class Collector:
+        def error(self, message):
+            received.append(message)
+
+    other = Configuration()
+    other.token = "token"
+    other.logger = Collector()
+    Entry.single_register(
+        Entry.POST,
+        LEASE_URL,
+        status=200,
+        headers={"HireFire-Lease-Granted": "true"},
+        body="{not-json",
+    )
+
+    Lease(other).request_if_due(hold=lambda _plan: True)
+
+    assert received == ["[HireFire] Lease grant body was not valid JSON. Plan ignored."]
+    assert caplog.records == []
 
 
 @mocketize
@@ -705,7 +732,7 @@ def test_skips_invalid_plan_entries(caplog):
         },
         body=body,
     )
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert len(lease.job_queues) == 1
     assert lease.job_queues[0]["name"] == "worker"
@@ -725,7 +752,7 @@ def test_invalid_json_grant_body_is_ignored(caplog):
         },
         body="{not-json",
     )
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert lease.granted()
     assert lease.job_queues == []
@@ -747,7 +774,7 @@ def test_a_grant_body_nested_too_deep_to_parse_replaces_the_plan_with_an_empty_o
     )
 
     with freeze_time(at(1000)) as frozen:
-        lease = Lease()
+        lease = Lease(HireFire.configuration)
         lease.request_if_due(hold=lambda _plan: True)
         assert [entry["name"] for entry in lease.job_queues] == ["worker"]
 
@@ -762,7 +789,7 @@ def test_a_grant_body_nested_too_deep_to_parse_replaces_the_plan_with_an_empty_o
 @mocketize
 def test_sample_if_due_yields_when_granted_and_due():
     stub_lease(granted="true", **{"HireFire-Sample-Frequency": "15"})
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
 
     sampled = []
@@ -773,7 +800,7 @@ def test_sample_if_due_yields_when_granted_and_due():
 @mocketize
 def test_sample_if_due_skips_when_not_granted():
     stub_lease(granted="false", **{"HireFire-Sample-Frequency": "15"})
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
 
     sampled = []
@@ -784,7 +811,7 @@ def test_sample_if_due_skips_when_not_granted():
 @mocketize
 def test_sample_if_due_skips_when_not_yet_due():
     stub_lease(granted="true", **{"HireFire-Sample-Frequency": "15"})
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     lease.sample_if_due(lambda: None)
 
@@ -796,7 +823,7 @@ def test_sample_if_due_skips_when_not_yet_due():
 @mocketize
 def test_failed_sample_consumes_its_window():
     stub_lease(granted="true", **{"HireFire-Sample-Frequency": "15"})
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
 
     def boom():
@@ -815,7 +842,7 @@ def test_sample_if_due_advances_next_sample_at():
     stub_lease(granted="true", **{"HireFire-Sample-Frequency": "10"})
 
     with freeze_time(at(1000)):
-        lease = Lease()
+        lease = Lease(HireFire.configuration)
         lease.request_if_due(hold=lambda _plan: True)
         lease.sample_if_due(lambda: None)
         assert lease._next_sample_at == 1010
@@ -824,7 +851,7 @@ def test_sample_if_due_advances_next_sample_at():
 @mocketize
 def test_retains_sample_frequency_when_the_header_is_absent():
     stub_lease(granted="true")
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert lease.granted()
     assert lease.sample_frequency == 15
@@ -833,7 +860,7 @@ def test_retains_sample_frequency_when_the_header_is_absent():
 @mocketize
 def test_grants_only_on_a_literal_true():
     stub_lease(granted="1", **{"HireFire-Sample-Frequency": "15"})
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert not lease.granted()
 
@@ -842,7 +869,7 @@ def test_grants_only_on_a_literal_true():
 @mocketize
 def test_ignores_a_sample_frequency_that_is_not_a_positive_whole_number(value):
     stub_lease(granted="true", **{"HireFire-Sample-Frequency": value})
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert lease.sample_frequency == 15
 
@@ -853,7 +880,7 @@ def test_clamps_an_over_large_sample_frequency_to_the_ceiling():
         granted="true",
         **{"HireFire-Sample-Frequency": "99999"},
     )
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert lease.sample_frequency == Lease.SAMPLE_FREQUENCY_BOUNDS[1]
 
@@ -864,7 +891,7 @@ def test_ignores_a_ttl_that_is_not_a_positive_whole_number(value):
     stub_lease(granted="true", **{"HireFire-Lease-TTL": value})
 
     with freeze_time(at(1000)) as frozen:
-        lease = Lease()
+        lease = Lease(HireFire.configuration)
         lease.request_if_due(hold=lambda _plan: True)
         frozen.move_to(at(1014))
         lease.request_if_due(hold=lambda _plan: True)
@@ -885,7 +912,7 @@ def test_ignores_a_ttl_with_more_digits_than_an_integer_may_have():
         granted="true",
         **{"HireFire-Lease-TTL": "1" * (limit + 10)},
     )
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert lease._ttl == 15
 
@@ -893,7 +920,7 @@ def test_ignores_a_ttl_with_more_digits_than_an_integer_may_have():
 @mocketize
 def test_clamps_a_small_ttl_to_the_floor():
     stub_lease(granted="true", **{"HireFire-Lease-TTL": "1"})
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert lease._ttl == Lease.TTL_BOUNDS[0]
 
@@ -904,7 +931,7 @@ def test_clamps_an_over_large_ttl_to_the_ceiling():
         granted="true",
         **{"HireFire-Lease-TTL": "99999"},
     )
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert lease._ttl == Lease.TTL_BOUNDS[1]
 
@@ -912,7 +939,7 @@ def test_clamps_an_over_large_ttl_to_the_ceiling():
 @mocketize
 def test_closes_the_underlying_client():
     stub_lease(granted="true")
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     lease.close()
     assert lease._client._connection is None
@@ -926,7 +953,7 @@ def test_unauthorized_ignores_frequency_and_ttl_headers():
         status=401,
         headers={"HireFire-Sample-Frequency": "99", "HireFire-Lease-TTL": "99"},
     )
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert not lease.granted()
     assert lease.sample_frequency == 15
@@ -938,7 +965,7 @@ def test_expiry_paces_off_the_monotonic_clock_not_the_wall_clock():
 
     mono = [5000.0]
     with freeze_time(at(1000)), patch("time.monotonic", side_effect=lambda: mono[0]):
-        lease = Lease()
+        lease = Lease(HireFire.configuration)
         lease.request_if_due(hold=lambda _plan: True)
 
     assert lease._expires_at == 5030.0
@@ -947,7 +974,7 @@ def test_expiry_paces_off_the_monotonic_clock_not_the_wall_clock():
 @mocketize
 def test_forked_child_reissues_identity_and_re_requests_the_lease():
     stub_lease(granted="true")
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert lease.granted()
     original_process_id = lease.process_id
@@ -993,7 +1020,7 @@ def test_unauthorized_clears_prior_job_queues():
     )
 
     with freeze_time(at(1000)) as frozen:
-        lease = Lease()
+        lease = Lease(HireFire.configuration)
         lease.request_if_due(hold=lambda _plan: True)
         assert lease.granted()
         assert lease.job_queues
@@ -1042,7 +1069,7 @@ def test_deny_after_grant_clears_job_queues_plan():
     )
 
     with freeze_time(at(1000)) as frozen:
-        lease = Lease()
+        lease = Lease(HireFire.configuration)
         lease.request_if_due(hold=lambda _plan: True)
         assert lease.granted()
         assert lease.job_queues
@@ -1071,7 +1098,7 @@ def test_transport_failure_clears_prior_job_queues():
         },
         body=body,
     )
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert lease.job_queues
 
@@ -1100,7 +1127,7 @@ def test_non_object_or_non_array_plan_body_yields_empty_job_queues():
             },
             body=body,
         )
-        lease = Lease()
+        lease = Lease(HireFire.configuration)
         lease.request_if_due(hold=lambda _plan: True)
         assert lease.granted(), body
         assert lease.job_queues == [], body
@@ -1131,7 +1158,7 @@ def test_hold_receives_parsed_job_queues():
         received.extend(queues)
         return True
 
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=hold)
     assert len(received) == 1
     assert received[0]["name"] == "worker"
@@ -1166,7 +1193,7 @@ def test_parses_grant_job_queues_body():
         },
         body=body,
     )
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert lease.granted()
     assert len(lease.job_queues) == 2
@@ -1203,7 +1230,7 @@ def test_json_null_adapter_is_strategy_only():
         },
         body=body,
     )
-    lease = Lease()
+    lease = Lease(HireFire.configuration)
     lease.request_if_due(hold=lambda _plan: True)
     assert lease.granted()
     assert len(lease.job_queues) == 1
@@ -1215,7 +1242,7 @@ def test_json_null_adapter_is_strategy_only():
 
 
 def test_parse_grant_body_preserves_trace_for_non_array_job_queues():
-    grant = Lease()._parse_grant_body(
+    grant = Lease(HireFire.configuration)._parse_grant_body(
         json.dumps({"version": 1, "trace": True, "job_queues": {}})
     )
 

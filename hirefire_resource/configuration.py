@@ -86,7 +86,7 @@ class Configuration:
         if self._dispatcher is None:
             with self._mutex:
                 if self._dispatcher is None:
-                    self._dispatcher = Dispatcher()
+                    self._dispatcher = Dispatcher(self)
         return self._dispatcher
 
     def stop_dispatcher(self, flush: bool = True) -> None:
@@ -113,7 +113,7 @@ class Configuration:
             self._always_on_http is None
             or self._always_on_http.name.lower() != name.lower()
         ):
-            self._always_on_http = HTTP(name)
+            self._always_on_http = HTTP(name, self.buffer)
         return self._always_on_http
 
     def rqt_liveness(self) -> bool:
@@ -129,7 +129,7 @@ class Configuration:
             self._always_on_cpu is None
             or self._always_on_cpu.name.lower() != resolved.lower()
         ):
-            self._always_on_cpu = CPU(resolved)
+            self._always_on_cpu = CPU(resolved, self.buffer)
         return [self._always_on_cpu]
 
     def reset_after_fork(self) -> None:

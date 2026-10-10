@@ -915,7 +915,7 @@ def test_stale_loop_generation_stops_after_restart():
 
 def test_loop_until_stopped_logs_raising_tick_and_continues(caplog):
     caplog.set_level(logging.ERROR)
-    dispatcher = Dispatcher()
+    dispatcher = Dispatcher(HireFire.configuration)
     dispatcher._running = True
     dispatcher._pid = os.getpid()
     dispatcher._generation = 1
@@ -1202,7 +1202,7 @@ def test_payload_size_limit_is_131072():
 
 
 def test_healthy_running_snapshots_thread_ref():
-    dispatcher = Dispatcher()
+    dispatcher = Dispatcher(HireFire.configuration)
     dispatcher._running = True
     dispatcher._stopping = False
     dispatcher._pid = os.getpid()
@@ -1228,7 +1228,7 @@ def test_healthy_running_snapshots_thread_ref():
 
 
 def test_ensure_job_queue_loop_fast_path_snapshots_thread_ref():
-    dispatcher = Dispatcher()
+    dispatcher = Dispatcher(HireFire.configuration)
     dispatcher._running = True
     dispatcher._stopping = False
     dispatcher._pid = os.getpid()
@@ -2333,7 +2333,7 @@ def test_start_after_fork_calls_reinit_macros_after_fork():
 
 
 def test_encode_leaf_omits_non_numeric_non_rqt_silently(caplog):
-    dispatcher = Dispatcher()
+    dispatcher = Dispatcher(HireFire.configuration)
     with caplog.at_level(logging.ERROR):
         assert dispatcher._encode_leaf("jqs", "10") is None
         assert dispatcher._encode_leaf("jql", None) is None

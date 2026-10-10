@@ -5,6 +5,7 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any, Callable
 
+from hirefire_resource import plan
 from hirefire_resource.buffer import Buffer
 from hirefire_resource.client import Client, Response
 from hirefire_resource.lease import Lease
@@ -15,11 +16,7 @@ from hirefire_resource.strategy import RQT, rqt
 if TYPE_CHECKING:
     import logging
 
-
-def _plan() -> Any:
-    from hirefire_resource import plan
-
-    return plan
+    from hirefire_resource.configuration import Configuration
 
 
 class Dispatcher:
@@ -31,9 +28,10 @@ class Dispatcher:
     MAX_DISPATCH_FREQUENCY = 30
     JOIN_TIMEOUT = 5
 
-    def __init__(self) -> None:
-        self._client = Client()
-        self._lease = Lease()
+    def __init__(self, configuration: "Configuration") -> None:
+        self._configuration = configuration
+        self._client = Client(configuration)
+        self._lease = Lease(configuration)
         self._mutex = threading.Lock()
         self._loop_wait = threading.Condition(self._mutex)
         self._join_timeout = self.JOIN_TIMEOUT
@@ -48,7 +46,7 @@ class Dispatcher:
         self._dispatch_frequency = self.DEFAULT_DISPATCH_FREQUENCY
         self._next_dispatch_at: float | None = None
         self._pending_sample_trace: dict[str, Any] | None = None
-        self._sampler = Sampler(self._configuration())
+        self._sampler = Sampler(self._configuration)
 
     def start(self) -> bool:
         if self._healthy_running():
@@ -80,7 +78,7 @@ class Dispatcher:
                 after_fork = self._pid is not None and self._pid != os.getpid()
                 if after_fork:
                     self._buffer().reinit_after_fork()
-                    _plan().reinit_macros_after_fork(self._logger())
+                    plan.reinit_macros_after_fork(self._logger())
                     self._reset_dispatch_state_after_fork()
                 else:
                     self._reset_dispatch_state_for_restart()
@@ -230,8 +228,8 @@ class Dispatcher:
                 self._generation += 1
                 self._loop_wait.notify_all()
             self._buffer().reinit_after_fork()
-            _plan().reinit_macros_after_fork(self._logger())
-            self._configuration().reset_after_fork()
+            plan.reinit_macros_after_fork(self._logger())
+            self._configuration.reset_after_fork()
             self._lease.demote()
             self._client.close()
             self._lease.close()
@@ -307,7 +305,7 @@ class Dispatcher:
             return
 
         sources: list[Any] = []
-        self._guard(lambda: sources.extend(self._configuration().active_cpu_sources()))
+        self._guard(lambda: sources.extend(self._configuration.active_cpu_sources()))
         for source in sources:
             self._guard(source.sample)
         self._dispatch_if_due(generation)
@@ -333,17 +331,17 @@ class Dispatcher:
 
     def _reset_dispatch_state_after_fork(self) -> None:
         self._reset_dispatch_state_for_restart()
-        self._configuration().reset_after_fork()
+        self._configuration.reset_after_fork()
 
     def _reset_dispatch_state_for_restart(self) -> None:
         self._next_dispatch_at = None
         self._last_rqt_second = None
         self._dispatch_frequency = self.DEFAULT_DISPATCH_FREQUENCY
         self._pending_sample_trace = None
-        self._sampler = Sampler(self._configuration())
+        self._sampler = Sampler(self._configuration)
 
     def _enter_race(self) -> bool:
-        return self._configuration().job_queues.any() or _plan().any_library_loaded()
+        return self._configuration.job_queues.any() or plan.any_library_loaded()
 
     def _sample_job_queues(self, live: Callable[[], bool] | None = None) -> None:
         payload = self._sampler.round(self._lease.job_queues, live or (lambda: True))
@@ -477,7 +475,7 @@ class Dispatcher:
         self, data: dict[str, dict[str, dict[int, Any]]]
     ) -> tuple[list[Any], int | None]:
         entries_by_name: dict[str, dict[str, dict[int, Any]]] = {}
-        http_name = self._configuration().http_name()
+        http_name = self._configuration.http_name()
         watermark = self._append_http_rqt(entries_by_name, data, http_name)
 
         for name, strategies in data.items():
@@ -540,7 +538,7 @@ class Dispatcher:
             return None
 
         rqt_buckets = data.get(http_name, {}).get(RQT) or {}
-        configuration = self._configuration()
+        configuration = self._configuration
 
         if configuration.rqt_enabled() and configuration.rqt_liveness():
             payload_rqt = self._backfill_rqt_seconds(rqt_buckets)
@@ -619,12 +617,7 @@ class Dispatcher:
         return payload
 
     def _buffer(self) -> Buffer:
-        return self._configuration().buffer
-
-    def _configuration(self) -> Any:
-        from hirefire_resource.hirefire import HireFire
-
-        return HireFire.configuration
+        return self._configuration.buffer
 
     def _logger(self) -> "logging.Logger":
-        return self._configuration().logger
+        return self._configuration.logger

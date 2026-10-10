@@ -7,7 +7,9 @@ import pytest
 from mocket import Mocket, mocketize
 from mocket.mockhttp import Entry
 
+from hirefire_resource import HireFire
 from hirefire_resource.client import Client, Response
+from hirefire_resource.configuration import Configuration
 from hirefire_resource.errors import RequestError
 from hirefire_resource.version import VERSION
 from tests.helpers import HIREFIRE_TOKEN, set_HIREFIRE_TOKEN  # noqa: F401
@@ -19,7 +21,7 @@ LEASE_URL = "https://data.hirefire.io/metrics/lease"
 
 @pytest.fixture
 def client():
-    return Client()
+    return Client(HireFire.configuration)
 
 
 @pytest.fixture
@@ -60,6 +62,19 @@ def test_submit_samples_sends_payload(client, set_HIREFIRE_TOKEN):
     assert request.headers.get("content-type") == "application/json"
     assert request.headers.get("hirefire-token") == HIREFIRE_TOKEN
     assert request.headers.get("hirefire-agent") == f"Python-{VERSION}"
+
+
+def test_sends_the_token_of_the_configuration_it_was_given(server):
+    other = Configuration()
+    other.token = "the-token-of-another-configuration"
+
+    Client(other).submit_samples(PAYLOAD)
+    Client(HireFire.configuration).submit_samples(PAYLOAD)
+
+    assert [request.header("HireFire-Token") for request in server.requests] == [
+        "the-token-of-another-configuration",
+        HIREFIRE_TOKEN,
+    ]
 
 
 @mocketize
@@ -132,7 +147,7 @@ def test_a_status_next_to_the_2xx_range_is_not_ok(status):
 
 def test_a_request_ends_at_its_timeout_when_the_server_never_answers(server):
     server.handler = lambda request: {"then": "stall"}
-    client = Client(timeout=0.3)
+    client = Client(HireFire.configuration, timeout=0.3)
 
     elapsed = seconds_until_failure(
         lambda: client.submit_samples(PAYLOAD), "Request timed out."
@@ -146,7 +161,8 @@ def test_a_lease_request_ends_at_its_timeout_when_the_server_never_answers(serve
     server.handler = lambda request: {"then": "stall"}
 
     elapsed = seconds_until_failure(
-        lambda: Client(timeout=0.3).request_lease("abc123"), "Request timed out."
+        lambda: Client(HireFire.configuration, timeout=0.3).request_lease("abc123"),
+        "Request timed out.",
     )
 
     assert 0.3 <= elapsed < 2
@@ -154,7 +170,7 @@ def test_a_lease_request_ends_at_its_timeout_when_the_server_never_answers(serve
 
 def test_a_request_ends_at_its_timeout_when_the_response_arrives_byte_by_byte(server):
     server.handler = lambda request: {"status": 200, "body": "x" * 200, "drip": 0.02}
-    client = Client(timeout=0.3)
+    client = Client(HireFire.configuration, timeout=0.3)
 
     elapsed = seconds_until_failure(
         lambda: client.request_lease("abc123"), "Request timed out."
@@ -171,7 +187,8 @@ def test_a_request_ends_at_its_timeout_when_the_tls_handshake_stalls(
     server.on_accept = "stall"
 
     elapsed = seconds_until_failure(
-        lambda: Client(timeout=0.3).submit_samples(PAYLOAD), "Request timed out."
+        lambda: Client(HireFire.configuration, timeout=0.3).submit_samples(PAYLOAD),
+        "Request timed out.",
     )
 
     assert 0.3 <= elapsed < 2
@@ -180,7 +197,7 @@ def test_a_request_ends_at_its_timeout_when_the_tls_handshake_stalls(
 def test_a_tls_handshake_answered_in_plain_text_is_a_network_error(server, monkeypatch):
     monkeypatch.setenv("HIREFIRE_DATA_URL", f"https://127.0.0.1:{server.port}")
     server.on_accept = b"HTTP/1.1 400 Bad Request\r\n\r\n"
-    client = Client()
+    client = Client(HireFire.configuration)
 
     elapsed = seconds_until_failure(
         lambda: client.submit_samples(PAYLOAD), "Network error (SSLError"
@@ -267,7 +284,7 @@ def test_the_time_spent_on_an_address_that_refuses_counts_against_the_timeout(
     )
 
     with pytest.raises(RequestError) as failure:
-        Client(timeout=0.3).submit_samples(PAYLOAD)
+        Client(HireFire.configuration, timeout=0.3).submit_samples(PAYLOAD)
 
     assert str(failure.value) == "Request timed out."
     assert server.accepted == 0
@@ -418,7 +435,7 @@ def test_retries_a_kept_connection_only_once(server, client):
 
 def test_a_retry_shares_the_timeout_of_its_request(server):
     replies(server, {"status": 200, "after": "close"}, {"then": "stall"})
-    client = Client(timeout=0.3)
+    client = Client(HireFire.configuration, timeout=0.3)
     client.submit_samples("[]")
 
     elapsed = seconds_until_failure(
@@ -511,11 +528,11 @@ def test_raises_with_empty_token(client, monkeypatch):
 
 def test_blank_and_slash_only_data_url_falls_back_to_default(monkeypatch):
     monkeypatch.setenv("HIREFIRE_DATA_URL", "   ")
-    assert Client()._base_url() == "https://data.hirefire.io"
+    assert Client(HireFire.configuration)._base_url() == "https://data.hirefire.io"
     monkeypatch.setenv("HIREFIRE_DATA_URL", "///")
-    assert Client()._base_url() == "https://data.hirefire.io"
+    assert Client(HireFire.configuration)._base_url() == "https://data.hirefire.io"
     monkeypatch.setenv("HIREFIRE_DATA_URL", " https://example.test/path/ ")
-    assert Client()._base_url() == "https://example.test/path"
+    assert Client(HireFire.configuration)._base_url() == "https://example.test/path"
 
 
 @mocketize
@@ -525,7 +542,7 @@ def test_custom_data_url(set_HIREFIRE_TOKEN, monkeypatch):
         Entry.POST, "https://custom.hirefire.io/metrics/ingest", status=200
     )
 
-    Client().submit_samples(PAYLOAD)
+    Client(HireFire.configuration).submit_samples(PAYLOAD)
 
     assert Mocket.last_request().headers.get("host") == "custom.hirefire.io"
 
@@ -537,7 +554,7 @@ def test_custom_data_url_over_plain_http(set_HIREFIRE_TOKEN, monkeypatch):
         Entry.POST, "http://localhost:9999/metrics/ingest", status=200
     )
 
-    Client().submit_samples(PAYLOAD)
+    Client(HireFire.configuration).submit_samples(PAYLOAD)
 
     assert Mocket.last_request().method == "POST"
 
@@ -551,7 +568,7 @@ def test_custom_data_url_with_a_trailing_slash_does_not_double_the_path(
         Entry.POST, "https://custom.hirefire.io/prefix/metrics/ingest", status=200
     )
 
-    Client().submit_samples(PAYLOAD)
+    Client(HireFire.configuration).submit_samples(PAYLOAD)
 
     assert Mocket.last_request().path == "/prefix/metrics/ingest"
 
@@ -563,7 +580,7 @@ def test_custom_data_url_honors_a_path_prefix(set_HIREFIRE_TOKEN, monkeypatch):
         Entry.POST, "https://custom.hirefire.io/prefix/metrics/ingest", status=200
     )
 
-    Client().submit_samples(PAYLOAD)
+    Client(HireFire.configuration).submit_samples(PAYLOAD)
 
     assert Mocket.last_request().path == "/prefix/metrics/ingest"
 

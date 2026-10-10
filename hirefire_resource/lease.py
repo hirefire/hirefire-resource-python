@@ -5,12 +5,15 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from hirefire_resource.client import Client
 from hirefire_resource.errors import RequestError
 from hirefire_resource.identity import MAX_NAME_BYTES
 from hirefire_resource.log import safe_log
+
+if TYPE_CHECKING:
+    from hirefire_resource.configuration import Configuration
 
 
 class Lease:
@@ -24,9 +27,10 @@ class Lease:
     SAMPLE_FREQUENCY_BOUNDS = (1, 3600)
     MAX_JOB_QUEUES = 256
 
-    def __init__(self) -> None:
+    def __init__(self, configuration: "Configuration") -> None:
+        self._configuration = configuration
         self.process_id = str(uuid.uuid4())
-        self._client = Client()
+        self._client = Client(configuration)
         self._mutex = threading.Lock()
         self._ttl = 15
         self._granted = False
@@ -233,9 +237,7 @@ class Lease:
         return normalized
 
     def _log(self, level: str, message: str) -> None:
-        from hirefire_resource.hirefire import HireFire
-
-        safe_log(HireFire.configuration.logger, level, message)
+        safe_log(self._configuration.logger, level, message)
 
     @staticmethod
     def _wire_string(value: object | None) -> str:

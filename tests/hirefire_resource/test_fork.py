@@ -23,7 +23,7 @@ def test_reinit_after_fork_detaches_socket_without_closing_parent_fd():
 
     from hirefire_resource.client import Client
 
-    client = Client()
+    client = Client(HireFire.configuration)
     sock = socket.socket()
     fd = sock.fileno()
     connection = http.client.HTTPConnection("127.0.0.1")
@@ -44,7 +44,7 @@ def test_reset_connection_on_pid_mismatch_detaches_without_close():
 
     from hirefire_resource.client import Client
 
-    client = Client()
+    client = Client(HireFire.configuration)
     sock = socket.socket()
     fd = sock.fileno()
     connection = http.client.HTTPConnection("127.0.0.1")

@@ -1,13 +1,15 @@
 import time
 
 from hirefire_resource import strategy
+from hirefire_resource.buffer import Buffer
 from hirefire_resource.source.cpu.usage import Usage
 from hirefire_resource.utility import round_half_up
 
 
 class CPU:
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, buffer: Buffer) -> None:
         self.name = str(name)
+        self._buffer = buffer
         self._last_usage: float | None = None
         self._last_time: float | None = None
         self._last_source: str | None = None
@@ -44,8 +46,4 @@ class CPU:
         cores_used = usage_delta / elapsed_delta
         percentage = max(0.0, min(100.0, cores_used / available * 100.0))
 
-        from hirefire_resource.hirefire import HireFire
-
-        HireFire.configuration.buffer.sample(
-            self.name, strategy.CPU, round_half_up(percentage, 2)
-        )
+        self._buffer.sample(self.name, strategy.CPU, round_half_up(percentage, 2))
