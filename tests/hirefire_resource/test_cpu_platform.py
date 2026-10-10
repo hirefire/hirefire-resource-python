@@ -145,7 +145,7 @@ def test_cedar_basic_formation_puma_master_and_worker_proc_sum():
     ):
         seconds, source = Usage.reading()
         assert source == "proc"
-        assert abs(seconds - 52.88) < DELTA
+        assert abs(seconds - 53.13) < DELTA
 
 
 def test_cedar_oneoff_zero_tick_ps_run_stays_on_proc():

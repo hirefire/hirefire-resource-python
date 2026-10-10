@@ -516,6 +516,20 @@ def test_available_cpus_ignores_a_non_positive_v1_quota():
         assert Usage.available_cpus() == os.cpu_count()
 
 
+def test_stat_ticks_counts_the_time_of_children_the_process_waited_for():
+    line = "7 (rq worker) S 1 1 1 0 -1 0 0 0 0 0 500 250 4000 300 20 0 1 0 100 0 0"
+    assert Usage.stat_ticks(line) == 5050
+
+
+def test_stat_ticks_returns_none_for_a_line_that_ends_before_the_child_times():
+    assert Usage.stat_ticks("7 (ruby) S 1 1 1 0 -1 0 0 0 0 0 500 250 4000") is None
+
+
+def test_stat_ticks_returns_none_for_a_child_time_that_is_not_a_number():
+    line = "7 (ruby) S 1 1 1 0 -1 0 0 0 0 0 500 250 cutime 0 20 0 1 0 100 0 0"
+    assert Usage.stat_ticks(line) is None
+
+
 def test_stat_ticks_returns_none_for_a_line_without_a_comm_paren():
     assert Usage.stat_ticks("123 ruby S 0 1 1 0") is None
 

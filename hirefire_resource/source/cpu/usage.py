@@ -78,12 +78,12 @@ class Usage:
         if close == -1:
             return None
 
-        fields = content[close + 1 :].split()
-        if len(fields) < 13:
+        fields = content[close + 1 :].split()[11:15]
+        if len(fields) < 4:
             return None
 
         try:
-            return int(fields[11]) + int(fields[12])
+            return sum(int(field) for field in fields)
         except ValueError:
             return None
 
