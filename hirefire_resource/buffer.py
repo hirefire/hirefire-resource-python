@@ -22,7 +22,6 @@ class Buffer:
             return
 
         timestamp = int(time.time())
-        strategy = str(strategy)
         with self._mutex:
             series = self._series_for(name, strategy)
             self._prune(series, timestamp)
@@ -53,7 +52,6 @@ class Buffer:
         self._metrics = {}
 
     def repopulate(self, name: str, strategy: str, data: dict[int, Any]) -> None:
-        strategy = str(strategy)
         if not rqt(strategy):
             return
 

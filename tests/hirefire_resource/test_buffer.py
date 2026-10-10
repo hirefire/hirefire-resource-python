@@ -286,3 +286,50 @@ def test_rqt_caps_count_and_freezes_sum_once_at_limit():
         bucket = buffer.flush()["web"]["rqt"][100]
         assert bucket["count"] == limit
         assert bucket["sum"] == 2.0 * limit
+
+
+def test_repopulate_keeps_a_bucket_at_the_edge_of_the_ttl_and_drops_the_one_before():
+    buffer = Buffer()
+    with freeze_time(at(100)):
+        buffer.repopulate(
+            "web",
+            "rqt",
+            {39: {"sum": 1.0, "count": 1}, 40: {"sum": 2.0, "count": 1}},
+        )
+
+    assert buffer.flush()["web"]["rqt"] == {40: {"sum": 2.0, "count": 1}}
+
+
+def test_repopulate_adds_to_a_bucket_that_was_sampled_meanwhile():
+    buffer = Buffer()
+    with freeze_time(at(100)):
+        buffer.sample("web", "rqt", 10)
+        buffer.sample("web", "rqt", 20)
+        buffer.repopulate("web", "rqt", {100: {"sum": 12.0, "count": 1}})
+
+    assert buffer.flush()["web"]["rqt"] == {100: {"sum": 42.0, "count": 3}}
+
+
+def test_repopulate_leaves_a_bucket_at_exactly_the_count_limit_as_it_is():
+    buffer = Buffer()
+    limit = Buffer.SAMPLE_COUNT_LIMIT
+    with freeze_time(at(100)):
+        buffer.repopulate("web", "rqt", {100: {"sum": 7.7, "count": limit}})
+
+    assert buffer.flush()["web"]["rqt"] == {100: {"sum": 7.7, "count": limit}}
+
+
+def test_repopulate_prunes_the_buckets_that_expired_while_nothing_was_sampled():
+    buffer = Buffer(ttl=1)
+    for second in range(100, 106):
+        with freeze_time(at(second)):
+            buffer.sample("web", "rqt", 1)
+    with freeze_time(at(200)):
+        buffer.repopulate("web", "rqt", {200: {"sum": 5.0, "count": 1}})
+
+    assert buffer.flush()["web"]["rqt"] == {200: {"sum": 5.0, "count": 1}}
+
+
+def test_rqt_parts_reads_a_missing_sum_or_count_as_zero():
+    assert Buffer.rqt_parts({"count": 2}) == (0.0, 2)
+    assert Buffer.rqt_parts({"sum": 5.0}) == (5.0, 0)
