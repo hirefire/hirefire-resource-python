@@ -526,12 +526,8 @@ def _redis_dq_stats(
     return stats
 
 
-def _rabbitmq_open_channel(connection: Any) -> Any:
-    return connection.channel()
-
-
 def _rabbitmq_job_queue_size(connection: Any, queues: set[str]) -> int:
-    channel = _rabbitmq_open_channel(connection)
+    channel = connection.channel()
     total = 0
     for queue in queues:
         count, channel = _rabbitmq_ready_count(connection, channel, queue)
@@ -541,7 +537,7 @@ def _rabbitmq_job_queue_size(connection: Any, queues: set[str]) -> int:
 
 def _rabbitmq_ready_count(connection: Any, channel: Any, queue: str) -> tuple[int, Any]:
     if channel is None or getattr(channel, "is_closed", False):
-        channel = _rabbitmq_open_channel(connection)
+        channel = connection.channel()
     try:
         result = channel.queue_declare(queue=queue, passive=True)
         return int(result.method.message_count), channel
@@ -552,7 +548,7 @@ def _rabbitmq_ready_count(connection: Any, channel: Any, queue: str) -> tuple[in
             or getattr(channel, "is_closed", False)
         ):
             try:
-                channel = _rabbitmq_open_channel(connection)
+                channel = connection.channel()
             except Exception:
                 channel = None
             return 0, channel
@@ -560,7 +556,7 @@ def _rabbitmq_ready_count(connection: Any, channel: Any, queue: str) -> tuple[in
 
 
 def _rabbitmq_job_queue_latency(connection: Any, queues: set[str]) -> float:
-    channel = _rabbitmq_open_channel(connection)
+    channel = connection.channel()
     now_ms = _now_ms()
     max_lat = 0.0
     for queue in queues:
@@ -573,7 +569,7 @@ def _rabbitmq_queue_latency(
     connection: Any, channel: Any, queue: str, now_ms: int
 ) -> tuple[float, Any]:
     if channel is None or getattr(channel, "is_closed", False):
-        channel = _rabbitmq_open_channel(connection)
+        channel = connection.channel()
     try:
         method, _properties, body = channel.basic_get(queue, auto_ack=False)
     except AMQPChannelError as error:
@@ -583,7 +579,7 @@ def _rabbitmq_queue_latency(
             or getattr(channel, "is_closed", False)
         ):
             try:
-                channel = _rabbitmq_open_channel(connection)
+                channel = connection.channel()
             except Exception:
                 channel = None
             return 0.0, channel

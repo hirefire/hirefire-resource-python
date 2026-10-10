@@ -22,10 +22,8 @@ __all__ = [
 
 class Configuration:
     def __init__(self) -> None:
-        self.http: HTTP | None = None
         self.job_queues = JobQueues()
         self.once = Once(self)
-        self._sources_by_name: dict[str, list[str]] = {}
         self._buffer: Buffer | None = None
         self._dispatcher: Dispatcher | None = None
         self._token: str | None = None
@@ -66,7 +64,7 @@ class Configuration:
                     f"config.dyno({name!r}) sampler must be callable, "
                     f"got {type(sampler).__name__}."
                 )
-            self._register(name, "job_queue", sampler)
+            self._register(name, sampler)
             return
 
         if name.lower() == "web":
@@ -183,24 +181,13 @@ class Configuration:
 
         return coerced
 
-    def _register(self, name: str, source: str, sampler: Sampler | None) -> None:
-        key = name.lower()
-        kinds = list(self._sources_by_name.get(key, []))
-
-        if source in kinds:
+    def _register(self, name: str, sampler: Sampler) -> None:
+        if self.job_queues.find_by_name(name) is not None:
             raise DuplicateDynoError(
-                f"Duplicate declaration for {name!r}. "
-                "Each dyno name maps to at most one source of each kind."
+                f"Duplicate declaration for {name!r}. Each dyno name takes one sampler."
             )
 
-        if source == "job_queue":
-            if sampler is None:
-                raise MissingSamplerError(
-                    f"config.dyno({name!r}) could not be resolved: it needs a sampler."
-                )
-            self.job_queues.append(JobQueue(name, sampler))
-
-        self._sources_by_name[key] = kinds + [source]
+        self.job_queues.append(JobQueue(name, sampler))
 
     def _warn_identity_name_too_long_once(self, name: str) -> None:
         self.once.log(

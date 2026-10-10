@@ -9,22 +9,11 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterator, TypeVar, cast
 
+from amqp import spec as amqp_spec
+from amqp.exceptions import ChannelError
 from celery import Celery
 from celery.signals import before_task_publish
 from dateutil.parser import parse
-
-try:
-    from amqp import spec as amqp_spec
-    from amqp.exceptions import ChannelError
-
-    AMQP_AVAILABLE = True
-except ImportError:
-    amqp_spec = None
-
-    class ChannelError(Exception):  # type: ignore[no-redef]
-        pass
-
-    AMQP_AVAILABLE = False
 
 from hirefire_resource.errors import SampleIncompleteError, SampleNotReadyError
 from hirefire_resource.log import format_error, redact, safe_log
@@ -47,6 +36,7 @@ supports_plan_strategy = _plan_hooks.supports_plan_strategy
 attach = _plan_hooks.attach
 release = _plan_hooks.release
 
+AMQP_AVAILABLE = True
 _PLAN_OPTION_SCHEMA = {JQS: {"skip_working": "boolean"}}
 _HELD_TASKS_INSPECT_TIMEOUT = 1.0
 _HELD_TASKS_INSPECT_BUDGET = 2.0
@@ -317,9 +307,7 @@ def _resolve_broker_url(broker_url: str | None) -> str:
         if value:
             return value
 
-    if AMQP_AVAILABLE:
-        return "amqp://guest:guest@localhost:5672"
-    return "redis://localhost:6379/0"
+    return "amqp://guest:guest@localhost:5672"
 
 
 def _job_queue_latency_rabbitmq(channel: Any, queue: str) -> float:

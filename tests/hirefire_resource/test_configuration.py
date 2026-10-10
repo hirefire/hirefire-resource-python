@@ -35,24 +35,18 @@ def test_can_set_logger(config):
     assert config.logger is custom_logger
 
 
-def test_web_default_to_none(config):
-    assert config.http is None
-
-
 def test_job_queues_default_to_empty(config):
     assert not config.job_queues.any()
 
 
 def test_dyno_bare_web_is_noop(config):
     config.dyno("web")
-    assert config.http is None
     assert not config.rqt_enabled()
     assert not config.job_queues.any()
 
 
 def test_dyno_bare_web_is_case_insensitive_noop(config):
     config.dyno("Web")
-    assert config.http is None
     assert not config.rqt_enabled()
 
 
@@ -100,7 +94,6 @@ def test_dyno_rejects_tracking_keyword(config):
 def test_bare_web_then_job_queue_under_web(config):
     config.dyno("web")
     config.dyno("web", lambda: 1)
-    assert config.http is None
     assert config.job_queues.any()
 
 
