@@ -2189,6 +2189,25 @@ def test_the_first_failed_dispatch_is_logged_and_later_ones_once_a_minute_with_t
     ]
 
 
+@mocketize
+def test_a_token_with_a_line_break_reaches_neither_a_request_nor_the_log(
+    monkeypatch, caplog, session
+):
+    monkeypatch.setenv("HIREFIRE_TOKEN", "s3cr3t-token\nX-Injected: 1")
+    configure_web_and_workers()
+
+    with freeze_time(at(1000)):
+        session.report()
+        session.renew()
+
+    assert Mocket.request_list() == []
+    assert messages(caplog) == [
+        f"[HireFire] {label} error: RequestError: HireFire token holds a character "
+        "that is not printable ASCII. Check HIREFIRE_TOKEN or config.token."
+        for label in ("Dispatch", "Lease request")
+    ]
+
+
 def test_a_data_url_that_is_not_a_url_is_named_in_the_dispatch_error(
     monkeypatch, caplog, session
 ):

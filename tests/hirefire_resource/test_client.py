@@ -527,6 +527,37 @@ def test_raises_with_empty_token(client, monkeypatch):
 
 
 @mocketize
+@pytest.mark.parametrize(
+    "token",
+    [
+        "s3cr3t-token\nX-Injected: 1",
+        "s3cr3t-token\r\nX-Injected: 1",
+        "s3cr3t-token\x00",
+        "s3cr3t\ttoken",
+        "s3cr3t-tok\u00e9n",
+        "s3cr3t-tok\u20acn",
+    ],
+)
+def test_a_token_that_is_not_printable_ascii_fails_the_request_without_being_named(
+    token, client
+):
+    HireFire.configuration.token = token
+
+    for call in (
+        lambda: client.submit_samples("[]"),
+        lambda: client.request_lease("a"),
+    ):
+        with pytest.raises(RequestError) as failure:
+            call()
+        assert str(failure.value) == (
+            "HireFire token holds a character that is not printable ASCII. "
+            "Check HIREFIRE_TOKEN or config.token."
+        )
+
+    assert Mocket.request_list() == []
+
+
+@mocketize
 @pytest.mark.parametrize("value", ["", "   ", "/", "///"])
 def test_blank_and_slash_only_data_url_falls_back_to_default(
     value, set_HIREFIRE_TOKEN, monkeypatch

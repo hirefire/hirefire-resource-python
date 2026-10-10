@@ -343,10 +343,14 @@ class Client:
 
     def _require_token(self) -> str:
         token = self._configuration.token
-        if token:
-            return token
-
-        raise RequestError(
-            "HireFire token is not set.\n"
-            "Set HIREFIRE_TOKEN or config.token to enable metric dispatch."
-        )
+        if not token:
+            raise RequestError(
+                "HireFire token is not set.\n"
+                "Set HIREFIRE_TOKEN or config.token to enable metric dispatch."
+            )
+        if not (token.isascii() and token.isprintable()):
+            raise RequestError(
+                "HireFire token holds a character that is not printable ASCII. "
+                "Check HIREFIRE_TOKEN or config.token."
+            )
+        return token
