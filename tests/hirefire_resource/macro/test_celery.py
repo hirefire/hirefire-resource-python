@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
-from celery import Celery
+from celery import Celery, current_app
 from kombu import Queue, pools
 
 from hirefire_resource import HireFire, plan
@@ -672,6 +672,21 @@ def test_job_queue_latency_redis_corrupt_queue_does_not_hide_sibling():
     _assert_float_seconds(bad)
     assert bad == 0
     _assert_latency(good, 8, now)
+
+
+def test_a_sample_leaves_the_current_app_of_its_thread_in_place():
+    previous = current_app._get_current_object()
+    host = Celery("host", broker=redis_url)
+    try:
+        assert current_app.main == "host"
+
+        job_queue_size("celery", broker_url=redis_url, skip_working=True)
+        job_queue_latency("celery", broker_url=redis_url)
+
+        assert current_app.main == "host"
+    finally:
+        host.close()
+        previous.set_current()
 
 
 def test_job_queue_latency_rabbitmq_requeues_after_parse_error():

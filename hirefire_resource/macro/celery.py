@@ -121,7 +121,7 @@ def _sample_transport_options(url: str) -> dict[str, float]:
 
 
 def _owned_celery_app(url: str) -> Celery:
-    app = Celery(broker=url)
+    app = Celery(broker=url, set_as_current=False)
     app.conf.broker_pool_limit = None
     app.conf.broker_transport_options = _sample_transport_options(url)
     app.conf.broker_connection_timeout = _SAMPLE_BROKER_TIMEOUT
