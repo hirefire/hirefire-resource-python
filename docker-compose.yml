@@ -12,7 +12,9 @@ services:
       retries: 15
 
   rabbitmq:
-    image: rabbitmq:3
+    image: rabbitmq:4
+    environment:
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit permit_deprecated_features #{transient_nonexcl_queues=>true}"
     ports:
       - "127.0.0.1::5672"
     volumes:

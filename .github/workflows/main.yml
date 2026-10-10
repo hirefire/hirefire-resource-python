@@ -69,7 +69,9 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       rabbitmq:
-        image: rabbitmq:3
+        image: rabbitmq:4
+        env:
+          RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit permit_deprecated_features #{transient_nonexcl_queues=>true}"
         ports:
           - 5672:5672
         options: >-
