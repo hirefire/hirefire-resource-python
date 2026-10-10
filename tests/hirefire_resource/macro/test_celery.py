@@ -1,5 +1,6 @@
 import asyncio
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -7,6 +8,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -1593,3 +1595,172 @@ def test_hirefire_celery_broker_url_is_plan_only(monkeypatch):
 
 def test_every_name_that_the_macro_declares_public_exists():
     assert missing_public_names(celery_macro) == []
+
+
+def test_the_limits_of_a_sample_have_their_documented_values(monkeypatch):
+    monkeypatch.undo()
+
+    assert {
+        "_SAMPLE_BROKER_TIMEOUT": celery_macro._SAMPLE_BROKER_TIMEOUT,
+        "_HELD_TASKS_INSPECT_TIMEOUT": celery_macro._HELD_TASKS_INSPECT_TIMEOUT,
+        "_HELD_TASKS_INSPECT_BUDGET": celery_macro._HELD_TASKS_INSPECT_BUDGET,
+        "_HELD_TASKS_REFRESH_INTERVAL": celery_macro._HELD_TASKS_REFRESH_INTERVAL,
+        "_HELD_TASKS_MAX_AGE": celery_macro._HELD_TASKS_MAX_AGE,
+        "_HELD_TASKS_IDLE_TIMEOUT": celery_macro._HELD_TASKS_IDLE_TIMEOUT,
+    } == {
+        "_SAMPLE_BROKER_TIMEOUT": 5.0,
+        "_HELD_TASKS_INSPECT_TIMEOUT": 1.0,
+        "_HELD_TASKS_INSPECT_BUDGET": 2.0,
+        "_HELD_TASKS_REFRESH_INTERVAL": 5.0,
+        "_HELD_TASKS_MAX_AGE": 30.0,
+        "_HELD_TASKS_IDLE_TIMEOUT": 60.0,
+    }
+
+
+def test_the_name_that_1_x_exported_for_the_amqp_library_is_kept():
+    assert celery_macro.AMQP_AVAILABLE is True
+
+
+def test_the_app_a_sample_makes_for_itself_neither_pools_nor_retries():
+    app = celery_macro._owned_celery_app(redis_url)
+
+    assert app.conf.broker_pool_limit is None
+    assert app.conf.broker_connection_timeout == 5.0
+    assert app.conf.broker_connection_retry is False
+    assert app.conf.broker_connection_retry_on_startup is False
+    assert app.conf.broker_connection_max_retries == 0
+
+
+def test_a_call_is_tried_twice_without_a_delay_unless_told_otherwise(monkeypatch):
+    slept = []
+    monkeypatch.setattr(time, "sleep", lambda seconds: slept.append(seconds))
+    calls = []
+
+    @celery_macro.mitigate_connection_reset_error()
+    def always_reset():
+        calls.append(True)
+        raise ConnectionResetError("reset")
+
+    with pytest.raises(ConnectionResetError):
+        always_reset()
+
+    assert len(calls) == 2
+    assert slept == []
+
+
+def test_job_queue_latency_rabbitmq_future_run_at_is_float_zero():
+    class Message:
+        headers = {
+            "run_at": (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat()
+        }
+        delivery_tag = 7
+
+    class FakeChannel:
+        def basic_get(self, queue):
+            return Message()
+
+        def send_method(self, method, format, arguments):
+            pass
+
+    latency = _job_queue_latency_rabbitmq(FakeChannel(), "celery")
+
+    _assert_float_seconds(latency)
+    assert latency == 0
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(celery_macro, "time", SimpleNamespace(monotonic=lambda: now[0]))
+    return now
+
+
+def test_the_held_task_thread_waits_out_its_interval_and_ends_after_a_minute_without_a_sample(
+    monkeypatch, clock
+):
+    waits = []
+
+    class Wait:
+        def wait(self, seconds):
+            waits.append(seconds)
+            clock[0] += seconds
+
+    monkeypatch.setattr(celery_macro, "_HELD_TASKS_REFRESH_INTERVAL", 5.0)
+    monkeypatch.setattr(
+        celery_macro,
+        "threading",
+        SimpleNamespace(Event=Wait, Thread=threading.Thread, Lock=threading.Lock),
+    )
+    held = celery_macro._HeldTasks("key", None, None)
+    celery_macro._held_tasks["key"] = held
+    seconds_per_refresh = iter([3, 7, 48])
+    monkeypatch.setattr(
+        held,
+        "_refresh",
+        lambda: clock.__setitem__(0, clock[0] + next(seconds_per_refresh)),
+    )
+
+    held._run()
+
+    assert waits == [2.0, 0.0, 0.0]
+    assert clock[0] == 1060.0
+    assert "key" not in celery_macro._held_tasks
+
+
+def test_a_count_is_used_for_thirty_seconds_and_not_after(clock):
+    held = celery_macro._HeldTasks("key", None, None)
+    held._counts = {"celery": 2}
+    held._counted_at = 1000.0
+
+    clock[0] = 1030.0
+    assert held.count({"celery"}) == 2
+
+    clock[0] = 1030.5
+    with pytest.raises(SampleIncompleteError):
+        held.count({"celery"})
+
+
+def test_a_first_count_is_waited_for_thirty_seconds_and_not_after(clock):
+    held = celery_macro._HeldTasks("key", None, None)
+
+    clock[0] = 1030.0
+    with pytest.raises(SampleNotReadyError):
+        held.count({"celery"})
+
+    clock[0] = 1030.5
+    with pytest.raises(SampleIncompleteError):
+        held.count({"celery"})
+
+
+def test_a_reply_that_is_not_a_list_does_not_hide_the_tasks_of_the_next_worker(
+    celery_app, monkeypatch
+):
+    task = {"delivery_info": {"routing_key": "celery"}, "id": "active-1"}
+
+    class Inspect:
+        def active(self):
+            return {"first@host": "error", "second@host": [task]}
+
+        def reserved(self):
+            return None
+
+    control = SimpleNamespace(inspect=lambda **options: Inspect())
+    monkeypatch.setattr(celery_app, "control", control)
+
+    assert celery_macro._inspect_held_tasks(celery_app, None) == {"celery": 1}
+
+
+def test_a_drain_at_the_end_of_the_budget_times_out(clock):
+    drained = []
+    connection = SimpleNamespace(drain_events=lambda **options: drained.append(options))
+    budgeted = celery_macro._BudgetedConnection(connection)
+
+    def call():
+        budgeted.drain_events(timeout=1)
+        clock[0] += 2.0
+        with pytest.raises(socket.timeout):
+            budgeted.drain_events(timeout=1)
+
+    budgeted.within_budget(call)
+
+    assert drained == [{"timeout": 1}]

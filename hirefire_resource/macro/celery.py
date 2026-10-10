@@ -101,7 +101,7 @@ _SAMPLE_BROKER_TIMEOUT = 5.0
 
 
 def _sample_transport_options(url: str) -> dict[str, float]:
-    scheme = url.split(":", 1)[0].lower()
+    scheme = url.partition(":")[0].lower()
     if scheme in ("redis", "rediss"):
         return {
             "socket_timeout": _SAMPLE_BROKER_TIMEOUT,
