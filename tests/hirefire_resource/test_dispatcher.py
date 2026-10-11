@@ -2434,8 +2434,7 @@ def test_start_replaces_a_dispatch_loop_that_ended():
 
     with patch.object(Session, "_dispatch_loop", lambda session: None):
         assert dispatcher.start()
-        wait_until(lambda: not loop_threads("hirefire-dispatch"))
-    assert not dispatcher.running()
+        wait_until(lambda: not dispatcher.running())
 
     assert dispatcher.start()
     assert dispatcher.running()
