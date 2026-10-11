@@ -153,12 +153,18 @@ def _caller_connection(app: Any) -> Iterator[Any]:
 
 
 @mitigate_connection_reset_error()
-def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
+def job_queue_latency(
+    *queues: str,
+    broker_url: str | None = None,
+    celery_app: "Celery | None" = None,
+) -> float:
     queue_names = normalize_queues(*queues, allow_empty=False)
-    url = _resolve_broker_url(broker_url)
-    app = _owned_celery_app(url)
+    app, url = _sample_app(broker_url, celery_app)
+    conn_cm = (
+        _sample_connection(app, url) if url is not None else _caller_connection(app)
+    )
 
-    with _sample_connection(app, url) as connection:
+    with conn_cm as connection:
         with connection.channel() as channel:
             if hasattr(channel, "_size"):
                 fn = _job_queue_latency_redis
@@ -168,8 +174,14 @@ def job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
             return float(max(fn(channel, queue) for queue in queue_names))
 
 
-async def async_job_queue_latency(*queues: str, broker_url: str | None = None) -> float:
-    return await asyncio.to_thread(job_queue_latency, *queues, broker_url=broker_url)
+async def async_job_queue_latency(
+    *queues: str,
+    broker_url: str | None = None,
+    celery_app: "Celery | None" = None,
+) -> float:
+    return await asyncio.to_thread(
+        job_queue_latency, *queues, broker_url=broker_url, celery_app=celery_app
+    )
 
 
 @mitigate_connection_reset_error()
@@ -259,8 +271,14 @@ def run_at_header_signal(
     headers["run_at"] = eta or datetime.now(timezone.utc).isoformat()
 
 
+def _lindex_key(channel: Any, queue: str) -> str:
+    if "LINDEX" in getattr(channel.client, "PREFIXED_SIMPLE_COMMANDS", ()):
+        return queue
+    return f"{getattr(channel, 'global_keyprefix', '')}{queue}"
+
+
 def _job_queue_latency_redis(channel: Any, queue: str) -> float:
-    oldest_job = channel.client.lindex(queue, -1)
+    oldest_job = channel.client.lindex(_lindex_key(channel, queue), -1)
 
     if not oldest_job:
         return 0.0

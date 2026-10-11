@@ -1,11 +1,28 @@
-from datetime import datetime
+import os
+import uuid
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
 celery = pytest.importorskip("celery")
 
+import redis  # noqa: E402
+from celery import Celery  # noqa: E402
+
 from hirefire_resource.macro import celery as celery_macro  # noqa: E402
 from hirefire_resource.macro.celery import run_at_header_signal  # noqa: E402
+
+redis_url = f"redis://127.0.0.1:{os.environ.get('REDIS_PORT', '6379')}/0"
+
+
+@pytest.fixture
+def prefix():
+    prefix = f"hirefire-{uuid.uuid4().hex}:"
+    yield prefix
+    client = redis.Redis.from_url(redis_url)
+    for key in client.scan_iter(f"{prefix}*"):
+        client.delete(key)
 
 
 def test_plan_connection_options_empty_without_env():
@@ -107,3 +124,31 @@ def test_plan_source_is_the_url_a_plan_sample_reads_without_its_credentials(
 
     assert celery_macro.plan_source() == "amqp://***@env-host:5672/vhost"
     assert celery_macro.plan_source(broker_url="redis://hf/1") == "redis://hf/1"
+
+
+def test_the_key_of_the_oldest_task_has_the_prefix_that_the_client_does_not_add():
+    def channel(*prefixed, **attributes):
+        client = SimpleNamespace(PREFIXED_SIMPLE_COMMANDS=list(prefixed))
+        return SimpleNamespace(client=client, **attributes)
+
+    with_prefix = {"global_keyprefix": "app:"}
+    assert celery_macro._lindex_key(channel("LLEN", **with_prefix), "q") == "app:q"
+    assert celery_macro._lindex_key(channel("LINDEX", **with_prefix), "q") == "q"
+    assert celery_macro._lindex_key(channel("LLEN"), "q") == "q"
+    assert celery_macro._lindex_key(SimpleNamespace(client=object()), "q") == "q"
+
+
+def test_a_celery_app_with_a_key_prefix_is_read_under_its_prefix(prefix):
+    queue = f"queue-{uuid.uuid4().hex}"
+    app = Celery("prefixed", broker=redis_url, set_as_current=False)
+    app.conf.broker_pool_limit = None
+    app.conf.broker_transport_options = {"global_keyprefix": prefix}
+    eta = datetime.now(timezone.utc) - timedelta(seconds=30)
+    app.send_task("test_task", queue=queue, eta=eta)
+
+    assert celery_macro.job_queue_size(queue, celery_app=app, skip_working=True) == 1
+    assert 29 <= celery_macro.job_queue_latency(queue, celery_app=app) <= 60
+    assert (
+        celery_macro.job_queue_size(queue, broker_url=redis_url, skip_working=True) == 0
+    )
+    assert celery_macro.job_queue_latency(queue, broker_url=redis_url) == 0

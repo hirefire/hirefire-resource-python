@@ -1764,3 +1764,28 @@ def test_a_drain_at_the_end_of_the_budget_times_out(clock):
     budgeted.within_budget(call)
 
     assert drained == [{"timeout": 1}]
+
+
+def test_job_queue_latency_reads_through_a_celery_app(celery_app):
+    enqueued_at = enqueue_for_job_queue_latency_with_job(celery_app)
+
+    _assert_latency(job_queue_latency("celery", celery_app=celery_app), 4, enqueued_at)
+    _assert_latency(
+        job_queue_latency("celery", "mailer", celery_app=celery_app), 8, enqueued_at
+    )
+
+
+@pytest.mark.asyncio
+async def test_async_job_queue_latency_reads_through_a_celery_app(celery_app):
+    enqueued_at = enqueue_for_job_queue_latency_with_job(celery_app)
+
+    _assert_latency(
+        await async_job_queue_latency("mailer", celery_app=celery_app), 8, enqueued_at
+    )
+
+
+def test_job_queue_latency_takes_a_broker_url_or_a_celery_app_and_not_both(celery_app):
+    with pytest.raises(ValueError, match="Cannot specify both"):
+        job_queue_latency(
+            "celery", broker_url=celery_app.conf.broker_url, celery_app=celery_app
+        )
