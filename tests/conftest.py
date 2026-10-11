@@ -73,6 +73,18 @@ _HIREFIRE_ENV = [
 
 
 @pytest.fixture(autouse=True)
+def no_celery_app_of_the_process(monkeypatch):
+    state = sys.modules.get("celery._state")
+    if state is None:
+        yield
+        return
+
+    monkeypatch.setattr(state, "_get_active_apps", tuple)
+    yield
+    sys.modules["hirefire_resource.macro.celery"]._followed_apps.clear()
+
+
+@pytest.fixture(autouse=True)
 def reset_hirefire(request, monkeypatch):
     if "macro" in request.node.path.parts:
         yield

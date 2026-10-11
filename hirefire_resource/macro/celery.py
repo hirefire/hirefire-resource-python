@@ -5,6 +5,7 @@ import os
 import socket
 import threading
 import time
+import weakref
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterator, TypeVar, cast
@@ -47,6 +48,8 @@ _HELD_TASKS_NOT_READY = "Celery has not counted the tasks its workers hold yet."
 
 _held_tasks_lock = threading.Lock()
 _held_tasks: dict[object, "_HeldTasks"] = {}
+_owned_apps: "weakref.WeakSet[Celery]" = weakref.WeakSet()
+_followed_apps: "weakref.WeakSet[Any]" = weakref.WeakSet()
 
 
 def plan_options(strategy: object, options: object) -> dict[str, Any]:
@@ -112,6 +115,10 @@ def _sample_transport_options(url: str) -> dict[str, float]:
             "read_timeout": _SAMPLE_BROKER_TIMEOUT,
             "write_timeout": _SAMPLE_BROKER_TIMEOUT,
         }
+    return _any_transport_timeouts()
+
+
+def _any_transport_timeouts() -> dict[str, float]:
     return {
         "socket_timeout": _SAMPLE_BROKER_TIMEOUT,
         "socket_connect_timeout": _SAMPLE_BROKER_TIMEOUT,
@@ -122,6 +129,7 @@ def _sample_transport_options(url: str) -> dict[str, float]:
 
 def _owned_celery_app(url: str) -> Celery:
     app = Celery(broker=url, set_as_current=False)
+    _owned_apps.add(app)
     app.conf.broker_pool_limit = None
     app.conf.broker_transport_options = _sample_transport_options(url)
     app.conf.broker_connection_timeout = _SAMPLE_BROKER_TIMEOUT
@@ -132,8 +140,7 @@ def _owned_celery_app(url: str) -> Celery:
 
 
 @contextmanager
-def _sample_connection(app: Celery, url: str) -> Iterator[Any]:
-    connection = app.connection(url)
+def _opened(connection: Any) -> Iterator[Any]:
     try:
         connection._ensure_connection(
             max_retries=0,
@@ -145,11 +152,32 @@ def _sample_connection(app: Celery, url: str) -> Iterator[Any]:
         connection.release()
 
 
+def _sample_connection(app: Celery, url: str) -> Any:
+    return _opened(app.connection(url))
+
+
+def _followed_connection(app: Any) -> Any:
+    return _opened(
+        app.connection_for_read(
+            transport_options=_any_transport_timeouts(),
+            connect_timeout=_SAMPLE_BROKER_TIMEOUT,
+        )
+    )
+
+
 @contextmanager
 def _caller_connection(app: Any) -> Iterator[Any]:
     with app.connection_or_acquire() as connection:
         connection.connect()
         yield connection
+
+
+def _connection(app: Any, url: str | None) -> Any:
+    if url is not None:
+        return _sample_connection(app, url)
+    if app in _followed_apps:
+        return _followed_connection(app)
+    return _caller_connection(app)
 
 
 @mitigate_connection_reset_error()
@@ -160,11 +188,8 @@ def job_queue_latency(
 ) -> float:
     queue_names = normalize_queues(*queues, allow_empty=False)
     app, url = _sample_app(broker_url, celery_app)
-    conn_cm = (
-        _sample_connection(app, url) if url is not None else _caller_connection(app)
-    )
 
-    with conn_cm as connection:
+    with _connection(app, url) as connection:
         with connection.channel() as channel:
             if hasattr(channel, "_size"):
                 fn = _job_queue_latency_redis
@@ -193,11 +218,8 @@ def job_queue_size(
 ) -> int:
     queue_names = normalize_queues(*queues, allow_empty=False)
     app, url = _sample_app(broker_url, celery_app)
-    conn_cm = (
-        _sample_connection(app, url) if url is not None else _caller_connection(app)
-    )
 
-    with conn_cm as connection:
+    with _connection(app, url) as connection:
         with connection.channel() as channel:
             size = _job_queue_size_broker(app, channel, queue_names)
 
@@ -455,10 +477,9 @@ def _held_task_count(app: Any, url: str | None, queues: set[str]) -> int:
 
 
 def _inspect_held_tasks(app: Any, url: str | None) -> dict[str, int]:
-    connect = (
-        _sample_connection(app, url) if url is not None else _caller_connection(app)
-    )
-    with connect as connection:
+    followed = url is None and app in _followed_apps
+    earlier = set(app.control.mailbox.unclaimed) if followed else set()
+    with _connection(app, url) as connection:
         budgeted = _BudgetedConnection(connection)
         inspect = app.control.inspect(
             timeout=_HELD_TASKS_INSPECT_TIMEOUT, connection=budgeted
@@ -471,6 +492,10 @@ def _inspect_held_tasks(app: Any, url: str | None) -> dict[str, int]:
         finally:
             if url is not None:
                 app.control.mailbox.unclaimed.clear()
+            elif followed:
+                unclaimed = app.control.mailbox.unclaimed
+                for ticket in set(unclaimed) - earlier:
+                    unclaimed.pop(ticket, None)
 
     counts: dict[str, int] = {}
     for collection in collections:
@@ -512,12 +537,56 @@ def _held_task_queue(task: Any) -> str | None:
     return queue if isinstance(queue, str) else None
 
 
+def _host_apps() -> list[Any]:
+    try:
+        from celery import _state
+
+        default = _state.default_app
+        registered = _registered_apps(_state)
+    except Exception:
+        return []
+    apps = [
+        app
+        for app in registered
+        if app not in _owned_apps and not _is_fallback_app(app, default)
+    ]
+    return [default] if default in apps else apps
+
+
+def _registered_apps(state: Any) -> tuple[Any, ...]:
+    try:
+        return tuple(state._get_active_apps())
+    except RuntimeError:
+        return tuple(state._get_active_apps())
+
+
+def _is_fallback_app(app: Any, default: Any) -> bool:
+    return app is default and app.main == "default" and not app.set_as_current
+
+
 def plan_connection_options() -> dict[str, Any]:
     from hirefire_resource.identity import presence
 
     url = presence(os.environ.get("HIREFIRE_CELERY_BROKER_URL"))
-    return {"broker_url": url} if url else {}
+    if url:
+        return {"broker_url": url}
+    apps = _host_apps()
+    if len(apps) != 1:
+        return {}
+    _followed_apps.add(apps[0])
+    return {"celery_app": apps[0]}
 
 
-def plan_source(broker_url: str | None = None) -> str:
-    return redact(_resolve_broker_url(broker_url))
+def plan_source(
+    broker_url: str | None = None, celery_app: "Celery | None" = None
+) -> str:
+    if celery_app is not None:
+        name = f" {celery_app.main!r}" if celery_app.main else ""
+        return f"the Celery app{name} of this process"
+    source = redact(_resolve_broker_url(broker_url))
+    count = len(_host_apps())
+    if count > 1 and not broker_url:
+        return (
+            f"{source} from the environment, since this process has {count} Celery apps"
+        )
+    return source

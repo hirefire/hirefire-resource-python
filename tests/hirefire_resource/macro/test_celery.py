@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from celery import Celery, current_app
+from celery import Celery, _state, current_app
 from kombu import Queue, pools
 
 from hirefire_resource import HireFire, plan
@@ -1766,6 +1766,12 @@ def test_a_drain_at_the_end_of_the_budget_times_out(clock):
     assert drained == [{"timeout": 1}]
 
 
+def _follow(monkeypatch, app):
+    monkeypatch.setattr(_state, "_get_active_apps", lambda: (app,))
+    monkeypatch.setattr(_state, "default_app", None)
+    return celery_macro.plan_connection_options()
+
+
 def test_job_queue_latency_reads_through_a_celery_app(celery_app):
     enqueued_at = enqueue_for_job_queue_latency_with_job(celery_app)
 
@@ -1789,3 +1795,88 @@ def test_job_queue_latency_takes_a_broker_url_or_a_celery_app_and_not_both(celer
         job_queue_latency(
             "celery", broker_url=celery_app.conf.broker_url, celery_app=celery_app
         )
+
+
+def test_a_plan_sample_reads_the_app_it_follows_over_a_connection_of_its_own(
+    celery_app, monkeypatch
+):
+    celery_app.send_task("test_task", queue="celery")
+    _assert_size(1, "celery", celery_app=celery_app, skip_working=True)
+    settings = dict(celery_app.conf.broker_transport_options)
+    opened = []
+    connection_for_read = celery_app.connection_for_read
+
+    def recording(**options):
+        opened.append((options, connection_for_read(**options)))
+        return opened[-1][1]
+
+    def pooled(*args, **kwargs):
+        raise AssertionError("a plan sample took a connection of the pool of the app")
+
+    options = _follow(monkeypatch, celery_app)
+    monkeypatch.setattr(celery_app, "connection_for_read", recording)
+    monkeypatch.setattr(celery_app, "connection_or_acquire", pooled)
+
+    assert job_queue_size("celery", skip_working=True, **options) == 1
+    assert job_queue_latency("celery", **options) >= 0
+
+    timeouts = dict.fromkeys(
+        ("socket_timeout", "socket_connect_timeout", "read_timeout", "write_timeout"),
+        5.0,
+    )
+    assert [asked for asked, _ in opened] == [
+        {"transport_options": timeouts, "connect_timeout": 5.0}
+    ] * 2
+    for _, connection in opened:
+        assert connection.transport_options == {**settings, **timeouts}
+        assert connection.connect_timeout == 5.0
+        assert not connection.connected
+    assert celery_app.conf.broker_transport_options == settings
+
+
+def test_a_plan_sample_follows_the_celery_app_of_the_process_and_says_so(
+    celery_app, monkeypatch, caplog
+):
+    import logging
+
+    caplog.set_level(logging.INFO)
+    _clear_broker_env(monkeypatch)
+    monkeypatch.setenv("REDIS_URL", DEAD_BROKER_URL)
+    celery_app.send_task("test_task", queue="celery")
+    _assert_size(1, "celery", celery_app=celery_app, skip_working=True)
+    _follow(monkeypatch, celery_app)
+    entry = {
+        "name": "worker",
+        "adapter": "celery",
+        "strategy": "jqs",
+        "queues": ["celery"],
+        "options": {"skip_working": True},
+    }
+
+    HireFire.configuration.buffer.flush()
+    sample_plan(entry)
+
+    flushed = HireFire.configuration.buffer.flush()
+    assert list(flushed["worker"]["jqs"].values())[-1] == 1
+    assert (
+        "[HireFire] Plan samples for 'celery' read the Celery app of this process."
+        in [record.getMessage() for record in caplog.records]
+    )
+
+
+def test_the_tasks_a_real_worker_holds_are_counted_through_the_app_a_plan_follows(
+    celery_app, monkeypatch
+):
+    monkeypatch.setattr(celery_macro, "_HELD_TASKS_INSPECT_TIMEOUT", 1.0)
+    monkeypatch.setattr(sys.modules[__name__], "_SIZE_WAIT_S", 30.0)
+    options = _follow(monkeypatch, celery_app)
+    for _ in range(3):
+        celery_app.send_task("hirefire.test.hold", queue="celery")
+    replies = set(celery_app.control.mailbox.unclaimed)
+
+    with _worker(celery_app.conf.broker_url):
+        _assert_size(3, "celery", **options)
+        assert job_queue_working("celery", **options) == 3
+        _assert_size(0, "celery", skip_working=True, **options)
+
+    assert set(celery_app.control.mailbox.unclaimed) <= replies

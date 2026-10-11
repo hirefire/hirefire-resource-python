@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `HIREFIRE_SERVICE_NAME` sets the process name. It is meant for platforms that do not detect the name automatically, and it overrides a detected name, also the `DYNO` of Heroku.
 - `HIREFIRE_CELERY_BROKER_URL`, `HIREFIRE_RQ_URL`, and `HIREFIRE_DRAMATIQ_URL` (optional `HIREFIRE_DRAMATIQ_NAMESPACE`) set the broker URL for job queue samples.
 - `job_queue_working` / `async_job_queue_working` report how many jobs are currently in progress for RQ and Celery.
+- A Celery job queue that is set up in the HireFire UI is read through the Celery app of the process, with every broker setting of that app (a key prefix, Sentinel, TLS options). That holds for a Celery worker and for a process with one Celery app. A process with several apps reads the broker of the environment, as does one with `HIREFIRE_CELERY_BROKER_URL` set.
 - Celery `job_queue_latency` and `async_job_queue_latency` accept `celery_app`, as the size does, and read a queue under the key prefix of that app.
 - Dramatiq adapter: job queue size and job queue latency (Redis queued plus delayed jobs that are due, RabbitMQ on the main queue only).
 - Support Python 3.13 and 3.14.

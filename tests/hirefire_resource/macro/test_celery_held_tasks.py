@@ -105,6 +105,28 @@ class FakeApp:
         return self.connections[-1]
 
 
+class FollowedApp(FakeApp):
+    def __init__(self, control=None):
+        super().__init__(control)
+        self.asked = []
+        celery_macro._followed_apps.add(self)
+
+    def connection_for_read(self, **options):
+        self.asked.append(options)
+        self.connections.append(FakeConnection())
+        return self.connections[-1]
+
+
+class LateReplies:
+    def __init__(self, control):
+        self._control = control
+
+    def active(self):
+        self._control.mailbox.unclaimed["of this pass"] = ["late reply"]
+
+    reserved = active
+
+
 def _held_threads():
     return [
         thread
@@ -241,6 +263,74 @@ def test_a_caller_app_keeps_the_replies_its_mailbox_holds():
     _inspect_held_tasks(app, None)
 
     assert app.control.mailbox.unclaimed == {"ticket": ["late reply"]}
+
+
+def test_a_caller_app_keeps_the_replies_that_arrive_during_a_pass():
+    control = FakeControl()
+    control.reply = LateReplies(control)
+
+    _inspect_held_tasks(FakeApp(control), None)
+
+    assert control.mailbox.unclaimed == {
+        "ticket": ["late reply"],
+        "of this pass": ["late reply"],
+    }
+
+
+def test_inspects_an_app_a_plan_follows_over_a_bounded_connection_of_its_own():
+    app = FollowedApp()
+
+    _inspect_held_tasks(app, None)
+
+    (connection,) = app.connections
+    timeouts = dict.fromkeys(
+        ("socket_timeout", "socket_connect_timeout", "read_timeout", "write_timeout"),
+        5.0,
+    )
+    assert app.asked == [{"transport_options": timeouts, "connect_timeout": 5.0}]
+    (call,) = app.control.inspect_calls
+    assert call["timeout"] == 1.0
+    assert call["connection"]._connection is connection
+    assert connection.ensured == [
+        {"max_retries": 0, "interval_start": 0, "reraise_as_library_errors": True}
+    ]
+    assert connection.released == 1
+    assert app.pooled.connects == 0
+
+
+def test_an_app_a_plan_follows_forgets_the_replies_of_its_own_pass_only():
+    control = FakeControl()
+    control.reply = LateReplies(control)
+
+    _inspect_held_tasks(FollowedApp(control), None)
+
+    assert control.mailbox.unclaimed == {"ticket": ["late reply"]}
+
+
+def test_an_app_a_plan_follows_forgets_the_replies_of_a_pass_that_raised():
+    control = FakeControl()
+
+    class Raising(LateReplies):
+        def active(self):
+            super().active()
+            raise OperationalError("broker down")
+
+    control.reply = Raising(control)
+
+    with pytest.raises(OperationalError):
+        _inspect_held_tasks(FollowedApp(control), None)
+
+    assert control.mailbox.unclaimed == {"ticket": ["late reply"]}
+
+
+def test_an_app_a_plan_follows_keeps_its_producer_pool():
+    app = FollowedApp()
+    pool = app.control.mailbox.producer_pool
+
+    _HeldTasks("key", app, None)
+    _inspect_held_tasks(app, None)
+
+    assert app.control.mailbox.producer_pool is pool
 
 
 def test_a_caller_app_keeps_its_producer_pool():

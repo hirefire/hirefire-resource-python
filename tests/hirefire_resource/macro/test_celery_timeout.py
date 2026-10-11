@@ -3,8 +3,10 @@ import threading
 import time
 
 import pytest
-from celery import Celery
+from celery import Celery, _state
+from kombu.exceptions import OperationalError
 
+from hirefire_resource.macro import celery as celery_macro
 from hirefire_resource.macro.celery import (
     _SAMPLE_BROKER_TIMEOUT,
     _owned_celery_app,
@@ -138,5 +140,63 @@ def test_owned_amqp_size_times_out_on_blackhole(monkeypatch):
     try:
         url = f"amqp://guest:guest@127.0.0.1:{port}//"
         _assert_sample_bounded(lambda: job_queue_size("celery", broker_url=url))
+    finally:
+        _stop_blackhole(server, conns, stop)
+
+
+def _follow(monkeypatch, app):
+    monkeypatch.setattr(_state, "_get_active_apps", lambda: (app,))
+    monkeypatch.setattr(_state, "default_app", None)
+    return celery_macro.plan_connection_options()
+
+
+def test_an_app_a_plan_follows_keeps_its_settings_under_the_sample_timeouts(
+    monkeypatch,
+):
+    from contextlib import contextmanager
+
+    app = Celery(broker="redis://localhost:6379/0", set_as_current=False)
+    app.conf.broker_transport_options = {"socket_timeout": 99, "sep": ":"}
+    app.conf.broker_connection_timeout = 99
+    opened = []
+
+    @contextmanager
+    def skip_connect(connection):
+        opened.append(connection)
+        raise OperationalError("skip")
+        yield None
+
+    monkeypatch.setattr(celery_macro, "_opened", skip_connect)
+    options = _follow(monkeypatch, app)
+
+    with pytest.raises(OperationalError):
+        job_queue_size("celery", **options)
+
+    (connection,) = opened
+    assert connection.transport_options == {
+        "sep": ":",
+        "socket_timeout": _SAMPLE_BROKER_TIMEOUT,
+        "socket_connect_timeout": _SAMPLE_BROKER_TIMEOUT,
+        "read_timeout": _SAMPLE_BROKER_TIMEOUT,
+        "write_timeout": _SAMPLE_BROKER_TIMEOUT,
+    }
+    assert connection.connect_timeout == _SAMPLE_BROKER_TIMEOUT
+    assert app.conf.broker_transport_options == {"socket_timeout": 99, "sep": ":"}
+    assert app.conf.broker_connection_timeout == 99
+
+
+@pytest.mark.parametrize("scheme", ["redis", "amqp"])
+def test_an_app_a_plan_follows_times_out_on_blackhole(monkeypatch, scheme):
+    monkeypatch.setattr("hirefire_resource.macro.celery._SAMPLE_BROKER_TIMEOUT", 0.3)
+    server, conns, stop, port = _blackhole_port()
+    try:
+        path = "0" if scheme == "redis" else "/"
+        app = Celery(broker=f"{scheme}://127.0.0.1:{port}/{path}", set_as_current=False)
+        options = _follow(monkeypatch, app)
+
+        _assert_sample_bounded(
+            lambda: job_queue_size("celery", skip_working=True, **options)
+        )
+        _assert_sample_bounded(lambda: job_queue_latency("celery", **options))
     finally:
         _stop_blackhole(server, conns, stop)
