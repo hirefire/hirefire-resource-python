@@ -9,6 +9,7 @@ if [ ! -x "$venv/bin/python" ]; then
   uv venv --python "${TOOLS_FREE_THREADED:-3.14t}" "$venv" >"$out/setup.log" 2>&1
   uv pip install --python "$venv/bin/python" 'pytest~=9.0' 'pytest-mock~=3.0' 'pytest-asyncio~=1.0' 'freezegun~=1.0' 'mocket~=3.14' 'httpx<1' >>"$out/setup.log" 2>&1
 fi
+uv pip install --python "$venv/bin/python" --no-deps -e . >>"$out/setup.log" 2>&1
 "$venv/bin/python" -c 'import sys, sysconfig; print(sys.version); print("gil_disabled_build", sysconfig.get_config_var("Py_GIL_DISABLED")); print("gil_enabled_now", sys._is_gil_enabled())' >"$out/version.txt" 2>&1
 status=0
 for index in 1 2 3 4 5; do
