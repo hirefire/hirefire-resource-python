@@ -74,6 +74,10 @@ class FakeServer:
 
     def stop(self):
         self._closed = True
+        try:
+            self._server.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
         self._close(self._server)
         with self._mutex:
             sockets = list(self._sockets)
