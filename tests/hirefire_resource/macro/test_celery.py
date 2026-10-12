@@ -651,7 +651,7 @@ def test_latency_samples_leave_the_head_message_of_a_quorum_queue_in_the_queue(
     for _ in range(25):
         assert job_queue_latency(name, broker_url=amqp_url) >= 0
 
-    assert job_queue_size(name, celery_app=app, skip_working=True) == 1
+    _assert_size(1, name, celery_app=app, skip_working=True)
 
 
 @pytest.fixture
