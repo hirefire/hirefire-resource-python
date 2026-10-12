@@ -939,7 +939,7 @@ def test_a_round_inside_its_limit_keeps_the_lease(monkeypatch, caplog, session):
     assert Session.SAMPLE_ROUND_LIMIT == 60
     stub_lease(granted=True)
     bodies = capture_ingest_bodies()
-    clock = [time.monotonic()]
+    clock = [float(int(time.monotonic()))]
     monkeypatch.setattr(time, "monotonic", lambda: clock[0])
 
     def worker():
